@@ -30,12 +30,17 @@ REFLECTION_THRESHOLD = 25
 REFLECTION_MAX_PER_ROUND = 5
 
 # LLM Configuration
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 FEATHERLESS_API_KEY = os.environ.get("FEATHERLESS_API_KEY", "")
 XAI_API_KEY = os.environ.get("XAI_API_KEY", "")
 K2_API_KEY = os.environ.get("K2_API_KEY", "")
-MODEL_NAME = os.environ.get("MODEL_NAME", "deepseek-ai/DeepSeek-V3.2")
+MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4o-mini")
 
-if "featherless" in FEATHERLESS_API_KEY or "deepseek" in MODEL_NAME.lower():
+if OPENAI_API_KEY:
+    LLM_BASE_URL = None
+    LLM_MODEL = MODEL_NAME if "gpt" in MODEL_NAME else "gpt-4o-mini"
+    LLM_API_KEY = OPENAI_API_KEY
+elif "featherless" in FEATHERLESS_API_KEY or "deepseek" in MODEL_NAME.lower():
     LLM_BASE_URL = "https://api.featherless.ai/v1"
     LLM_MODEL = "deepseek-ai/DeepSeek-V3.2"
     LLM_API_KEY = FEATHERLESS_API_KEY
