@@ -108,8 +108,9 @@ class PolicyInput(BaseModel):
     @model_validator(mode="after")
     def require_policy_source(self) -> PolicyInput:
         has_files = bool(self.policy_source_ids) or bool(self.primary_policy_source_id)
-        if not has_files:
-            raise ValueError("Provide at least one PDF policy source.")
+        has_notes = len(self.notes_text.strip()) > 0
+        if not has_files and not has_notes:
+            raise ValueError("Provide at least one PDF policy source, or submit raw notes text.")
         return self
 
 

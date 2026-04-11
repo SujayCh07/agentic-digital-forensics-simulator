@@ -32,7 +32,7 @@ echo "Starting backend on :8000 …"
 BACKEND_PID=$!
 
 echo "Starting frontend on :3000 …"
-(cd "$ROOT/frontend" && bun dev) &
+(cd "$ROOT/frontend" && npm run dev) &
 FRONTEND_PID=$!
 
 # Wait for either to exit — cleanup handles the rest

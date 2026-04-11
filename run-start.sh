@@ -25,7 +25,7 @@ cleanup() {
 trap cleanup EXIT INT TERM HUP
 
 echo "Building frontend… (this may take ~30s)"
-(cd "$ROOT/frontend" && bun run build) || { echo "Frontend build failed — aborting."; exit 1; }
+(cd "$ROOT/frontend" && npm run build) || { echo "Frontend build failed — aborting."; exit 1; }
 echo "Frontend build complete."
 
 echo "Starting backend on :8000…"
@@ -33,7 +33,7 @@ echo "Starting backend on :8000…"
 BACKEND_PID=$!
 
 echo "Starting frontend on :3000…"
-(cd "$ROOT/frontend" && bun run start) &
+(cd "$ROOT/frontend" && npm run start) &
 FRONTEND_PID=$!
 
 echo ""

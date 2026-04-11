@@ -7,22 +7,57 @@ import logging
 import re
 from typing import Any, TypeVar
 
-from langchain_openai import ChatOpenAI
-from pydantic import BaseModel
+import json
+import logging
+import re
+from typing import Any, TypeVar
 
-from config import K2_API_KEY, K2_BASE_URL, K2_MODEL
+from pydantic import BaseModel
+from openai import AsyncOpenAI
+import os
+
+from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
 
-def get_llm(max_tokens: int | None = None, **_kwargs: Any) -> ChatOpenAI:
-    """Create a ChatOpenAI instance pointed at K2-Think-v2."""
-    kwargs: dict[str, Any] = {"model": K2_MODEL, "api_key": K2_API_KEY, "base_url": K2_BASE_URL}
-    if max_tokens is not None:
-        kwargs["max_tokens"] = max_tokens
-    return ChatOpenAI(**kwargs)  # pyright: ignore[reportCallIssue]
+class MockAIResponse:
+    def __init__(self, content):
+        self.content = content
+
+class ChatOpenAI_Featherless:
+    def __init__(self, model: str, api_key: str, base_url: str, max_tokens: int | None = None):
+        self.model = "deepseek-ai/DeepSeek-V3.2"  # Hardcoded specifically per featherless guide
+        self.max_tokens = max_tokens or 4096
+        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        
+    async def ainvoke(self, prompt: str) -> MockAIResponse:
+        # Enforcing Featherless Agent Pattern (always include system role + user input)
+        messages = [
+            {"role": "system", "content": "You are a specialized simulation reasoning agent working on a dynamic simulation scenario. Provide accurate structured tracking data and events."},
+            {"role": "user", "content": prompt}
+        ]
+        
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=messages, # type: ignore
+            max_tokens=self.max_tokens
+        )
+        
+        # Featherless REQUIRED: Always extract response.choices[0].message.content
+        output = response.choices[0].message.content
+                
+        return MockAIResponse(content=output)
+
+# Type alias so other files typing llm: ChatOpenAI don't break during type checking
+ChatOpenAI = ChatOpenAI_Featherless
+
+def get_llm(max_tokens: int | None = None, **_kwargs: Any) -> ChatOpenAI_Featherless:
+    """Create an AsyncOpenAI instance pointed at Featherless."""
+    featherless_api_key = os.environ.get("FEATHERLESS_API_KEY", "YOUR_FEATHERLESS_API_KEY")
+    return ChatOpenAI_Featherless(model="deepseek-ai/DeepSeek-V3.2", api_key=featherless_api_key, base_url="https://api.featherless.ai/v1", max_tokens=max_tokens)
 
 
 def _extract_json_from_response(content: str) -> Any:

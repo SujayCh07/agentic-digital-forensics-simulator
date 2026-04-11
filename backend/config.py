@@ -29,7 +29,21 @@ RECENCY_DECAY = 0.8
 REFLECTION_THRESHOLD = 25
 REFLECTION_MAX_PER_ROUND = 5
 
-# K2-Think-v2
-K2_BASE_URL = "https://api.k2think.ai/v1"
-K2_MODEL = "MBZUAI-IFM/K2-Think-v2"
-K2_API_KEY = os.environ["K2_API_KEY"]
+# LLM Configuration
+FEATHERLESS_API_KEY = os.environ.get("FEATHERLESS_API_KEY", "")
+XAI_API_KEY = os.environ.get("XAI_API_KEY", "")
+K2_API_KEY = os.environ.get("K2_API_KEY", "")
+MODEL_NAME = os.environ.get("MODEL_NAME", "deepseek-ai/DeepSeek-V3.2")
+
+if "featherless" in FEATHERLESS_API_KEY or "deepseek" in MODEL_NAME.lower():
+    LLM_BASE_URL = "https://api.featherless.ai/v1"
+    LLM_MODEL = "deepseek-ai/DeepSeek-V3.2"
+    LLM_API_KEY = FEATHERLESS_API_KEY
+elif "grok" in MODEL_NAME.lower():
+    LLM_BASE_URL = "https://api.x.ai/v1"
+    LLM_MODEL = MODEL_NAME
+    LLM_API_KEY = XAI_API_KEY
+else:
+    LLM_BASE_URL = "https://api.k2think.ai/v1"
+    LLM_MODEL = "MBZUAI-IFM/K2-Think-v2"
+    LLM_API_KEY = K2_API_KEY
