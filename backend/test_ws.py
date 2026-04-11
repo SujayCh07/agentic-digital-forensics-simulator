@@ -28,16 +28,16 @@ async def sim_error(data):
 @sio.on("done")
 async def handle_done(data):
     print("SIM COMPLETE!")
+    await sio.disconnect()
 
 @sio.on("*")
 async def catch_all(event, data):
-    # Only print small slice to avoid log spam
     print(f"EVENT {event}")
 
 async def main():
     try:
         await sio.connect("http://localhost:8000", transports=["websocket"])
-        await asyncio.sleep(25)
+        await asyncio.sleep(120)
         await sio.disconnect()
     except Exception as e:
         print("EXCEPTION:", e)

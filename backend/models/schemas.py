@@ -113,7 +113,7 @@ class PolicyInput(BaseModel):
     policy_source_ids: list[str] = Field(default_factory=list)
     notes_text: str = Field(default="", max_length=4000)
     num_rounds: int = 3
-    num_npcs: int = 5
+    num_npcs: int = 4
     objective: str = Field(default="", max_length=500)
     map_id: str = Field(default="ccity")
 

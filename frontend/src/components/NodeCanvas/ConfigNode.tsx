@@ -57,7 +57,7 @@ export default function ConfigNode() {
           </div>
           <input
             type="range"
-            min="5"
+            min="4"
             max="50"
             step="1"
             value={numNpcs}
