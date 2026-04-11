@@ -1,26 +1,32 @@
 "use client";
 
-import type { AgentDefinition, AgentId, CaseSystemNode, TaskType } from "@/types/investigation";
+/**
+ * NIPS — Task Assignment Modal
+ *
+ * Player selects an agent, types a natural-language instruction,
+ * and the system interprets it into a task. Wrong agent = hard fail.
+ * Locked agents can be unlocked here using funds.
+ */
+
+import { useEffect, useRef, useState } from "react";
+import { resolveIntent } from "@/lib/intentResolver";
+import type { AgentDefinition, AgentId, CaseSystemNode } from "@/types/investigation";
 
 interface TaskAssignmentModalProps {
   node: CaseSystemNode;
   agents: AgentDefinition[];
-  onAssign: (agentId: AgentId, taskType: TaskType) => void;
+  /** Agent IDs the player has not yet unlocked */
+  lockedAgents: AgentId[];
+  /** Current funds balance */
+  funds: number;
+  /** Called when player submits a valid instruction */
+  onSubmitInstruction: (agentId: AgentId, rawInstruction: string) => void;
+  /** Called when player attempts to unlock an agent */
+  onUnlockAgent: (agentId: AgentId) => boolean;
   onClose: () => void;
 }
 
-const TASK_LABEL: Record<TaskType, string> = {
-  analyze_logs:           "Analyze Logs",
-  detect_anomalies:       "Detect Anomalies",
-  trace_connections:      "Trace Connections",
-  trace_lateral_movement: "Trace Lateral Movement",
-  recover_files:          "Recover Files",
-  inspect_artifacts:      "Inspect Artifacts",
-  reconstruct_timeline:   "Reconstruct Timeline",
-  correlate_events:       "Correlate Events",
-};
-
-const NODE_TYPE_ICON: Record<CaseSystemNode["type"], string> = {
+const NODE_ICON: Record<CaseSystemNode["type"], string> = {
   server:      "▣",
   workstation: "◈",
   router:      "~",
@@ -44,38 +50,106 @@ const AGENT_COLOR: Record<AgentId, string> = {
   chrono: "#b06fff",
 };
 
+const AGENT_HINT: Record<AgentId, string> = {
+  logis:  "Logs · Auth · Anomaly detection",
+  nexus:  "Network traffic · Connections · Lateral movement",
+  filer:  "Files · Artifacts · Steganography · Recovery",
+  chrono: "Timeline · Sequence correlation · Causal chains",
+};
+
+const AGENT_UNLOCK_COST: Record<AgentId, number | null> = {
+  logis:  null,  // starting agent, cannot be re-locked
+  nexus:  800,
+  filer:  900,
+  chrono: 1100,
+};
+
+// Agent-specific instruction placeholders
+const AGENT_PLACEHOLDER: Record<AgentId, string> = {
+  logis:  "e.g. Check auth logs for failed logins • Look for log tampering • Who accessed this server?",
+  nexus:  "e.g. Inspect outbound traffic • Trace where this connected to • Check for lateral movement",
+  filer:  "e.g. Recover deleted files • Look for hidden payloads • What tools were left behind?",
+  chrono: "e.g. Reconstruct the event sequence • When did this start? • Correlate with other systems",
+};
+
 export function TaskAssignmentModal({
   node,
   agents,
-  onAssign,
+  lockedAgents,
+  funds,
+  onSubmitInstruction,
+  onUnlockAgent,
   onClose,
 }: TaskAssignmentModalProps) {
+  const [selectedAgentId, setSelectedAgentId] = useState<AgentId | null>(null);
+  const [instruction, setInstruction] = useState("");
+  const [unlocking, setUnlocking] = useState<AgentId | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-select first available (unlocked + idle) agent
+  useEffect(() => {
+    const first = agents.find(a => !lockedAgents.includes(a.id) && a.status === "idle");
+    if (first) setSelectedAgentId(first.id);
+  }, [agents, lockedAgents]);
+
+  // Focus input when agent selected
+  useEffect(() => {
+    if (selectedAgentId) inputRef.current?.focus();
+  }, [selectedAgentId]);
+
+  const resolved = selectedAgentId && instruction.trim().length >= 4
+    ? resolveIntent(instruction)
+    : null;
+
+  const selectedAgent = selectedAgentId ? agents.find(a => a.id === selectedAgentId) : null;
+  const isAgentBusy = selectedAgent?.status !== "idle";
+  const isLocked = selectedAgentId ? lockedAgents.includes(selectedAgentId) : false;
+
+  const canSubmit =
+    selectedAgentId &&
+    !isAgentBusy &&
+    !isLocked &&
+    instruction.trim().length >= 4;
+
+  const handleSubmit = () => {
+    if (!canSubmit || !selectedAgentId) return;
+    onSubmitInstruction(selectedAgentId, instruction.trim());
+    onClose();
+  };
+
+  const handleUnlock = (agentId: AgentId) => {
+    const cost = AGENT_UNLOCK_COST[agentId];
+    if (!cost || funds < cost) return;
+    setUnlocking(agentId);
+    const success = onUnlockAgent(agentId);
+    if (success) setSelectedAgentId(agentId);
+    setUnlocking(null);
+  };
+
   const statusColor = STATUS_COLOR[node.status];
-  const nodeIcon = NODE_TYPE_ICON[node.type];
+  const nodeIcon = NODE_ICON[node.type];
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: "rgba(0,0,0,0.65)" }}
+      style={{ background: "rgba(0,0,0,0.70)" }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
         className="rpg-panel flex flex-col"
-        style={{ width: 440, maxHeight: "80vh" }}
+        style={{ width: 520, maxHeight: "85vh" }}
         data-testid="task-assignment-modal"
       >
-        {/* Header */}
+        {/* ── Header ────────────────────────────────────────────── */}
         <div
           className="flex items-center justify-between px-4 py-3 shrink-0"
           style={{ borderBottom: "1px solid #1e3d5a" }}
         >
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-mono" style={{ color: "#4a6580" }}>
+            <span className="text-[11px] font-mono" style={{ color: "#4a6580" }}>
               {nodeIcon}
             </span>
-            <span
-              className="text-[11px] font-mono font-bold"
-              style={{ color: "#c9d8e8" }}
-            >
+            <span className="text-[12px] font-mono font-bold" style={{ color: "#c9d8e8" }}>
               {node.name}
             </span>
             <span
@@ -89,121 +163,256 @@ export function TaskAssignmentModal({
               {node.status.toUpperCase()}
             </span>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-[9px] font-mono transition-opacity hover:opacity-60"
-            style={{ color: "#4a6580" }}
-          >
-            [ESC]
-          </button>
+          <div className="flex items-center gap-3">
+            <span className="text-[9px] font-mono" style={{ color: "#00ff88" }}>
+              {funds.toLocaleString()}₡
+            </span>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-[9px] font-mono transition-opacity hover:opacity-60"
+              style={{ color: "#4a6580" }}
+            >
+              [ESC]
+            </button>
+          </div>
         </div>
 
-        {/* Node info */}
+        {/* ── Node threat bar ────────────────────────────────────── */}
         <div
-          className="px-4 py-2 shrink-0"
+          className="flex items-center gap-3 px-4 py-2 shrink-0"
           style={{ borderBottom: "1px solid #1e3d5a" }}
         >
-          <div className="flex gap-4 text-[8px] font-mono mb-1.5">
-            <span style={{ color: "#2a5070" }}>
-              ID: <span style={{ color: "#4a6580" }}>{node.id}</span>
-            </span>
-            <span style={{ color: "#2a5070" }}>
-              Type: <span style={{ color: "#4a6580" }}>{node.type}</span>
-            </span>
-            <span style={{ color: "#2a5070" }}>
-              Findings: <span style={{ color: "#4a6580" }}>{node.knownFindings.length}</span>
-            </span>
+          <span className="text-[7px] font-mono uppercase tracking-widest" style={{ color: "#2a5070" }}>
+            ID: {node.id}
+          </span>
+          <span className="text-[7px] font-mono" style={{ color: "#1e3d5a" }}>·</span>
+          <span className="text-[7px] font-mono" style={{ color: "#2a5070" }}>
+            {node.type}
+          </span>
+          <span className="text-[7px] font-mono" style={{ color: "#1e3d5a" }}>·</span>
+          <span className="text-[7px] font-mono" style={{ color: "#2a5070" }}>
+            {node.knownFindings.length} finding{node.knownFindings.length !== 1 ? "s" : ""}
+          </span>
+          <div className="flex-1 h-0.5 rounded-sm overflow-hidden" style={{ background: "#1e3d5a" }}>
+            <div
+              className="h-full"
+              style={{
+                width: `${node.threatLevel * 100}%`,
+                background: node.threatLevel > 0.7 ? "#ff3a3a" : node.threatLevel > 0.4 ? "#f59e0b" : "#00ff88",
+              }}
+            />
           </div>
-          {/* Threat bar */}
-          <div className="flex items-center gap-2">
-            <span className="text-[7px] font-mono uppercase tracking-widest" style={{ color: "#2a5070" }}>
-              Threat
-            </span>
-            <div className="flex-1 h-1 rounded-sm overflow-hidden" style={{ background: "#1e3d5a" }}>
-              <div
-                className="h-full rounded-sm"
-                style={{
-                  width: `${node.threatLevel * 100}%`,
-                  background: node.threatLevel > 0.7 ? "#ff3a3a" : node.threatLevel > 0.4 ? "#f59e0b" : "#00ff88",
-                }}
-              />
-            </div>
-            <span className="text-[7px] font-mono tabular-nums" style={{ color: "#4a6580" }}>
-              {Math.round(node.threatLevel * 100)}%
-            </span>
-          </div>
+          <span className="text-[7px] font-mono tabular-nums" style={{ color: "#4a6580" }}>
+            {Math.round(node.threatLevel * 100)}%
+          </span>
         </div>
 
-        {/* Assign section */}
-        <div className="flex-1 overflow-y-auto scrollbar-thin">
-          {agents.map((agent) => {
-            const isBusy = agent.status !== "idle";
-            const agentColor = AGENT_COLOR[agent.id];
+        {/* ── Agent selector ────────────────────────────────────── */}
+        <div className="px-4 pt-3 pb-2 shrink-0">
+          <div className="text-[8px] font-mono uppercase tracking-widest mb-2" style={{ color: "#2a5070" }}>
+            Select Agent
+          </div>
+          <div className="flex gap-2">
+            {agents.map((agent) => {
+              const isSelected = selectedAgentId === agent.id;
+              const isLockedAgent = lockedAgents.includes(agent.id);
+              const isBusy = agent.status !== "idle";
+              const cost = AGENT_UNLOCK_COST[agent.id];
+              const agentColor = AGENT_COLOR[agent.id];
+              const canAfford = cost !== null && funds >= cost;
 
-            return (
-              <div
-                key={agent.id}
-                style={{ borderBottom: "1px solid #0d1520" }}
-              >
-                {/* Agent header row */}
-                <div
-                  className="flex items-center gap-2 px-4 py-2"
-                  style={{ background: "#080c12" }}
+              return (
+                <button
+                  key={agent.id}
+                  type="button"
+                  onClick={() => {
+                    if (isLockedAgent) return; // handled by unlock button
+                    if (!isBusy) setSelectedAgentId(agent.id);
+                  }}
+                  className="flex-1 flex flex-col items-start p-2 rounded transition-all"
+                  style={{
+                    background: isSelected ? `${agentColor}12` : "#080c12",
+                    border: `1px solid ${isSelected ? `${agentColor}60` : "#1e3d5a"}`,
+                    cursor: isLockedAgent || isBusy ? "default" : "pointer",
+                    opacity: isBusy && !isLockedAgent ? 0.6 : 1,
+                    boxShadow: isSelected ? `0 0 8px ${agentColor}20` : undefined,
+                  }}
                 >
-                  <span
-                    className="text-[9px] font-mono font-bold"
-                    style={{ color: isBusy ? "#2a5070" : agentColor }}
-                  >
-                    {agent.name}
-                  </span>
-                  <span className="text-[7px] font-mono" style={{ color: "#2a5070" }}>
-                    {agent.specialty}
-                  </span>
-                  {isBusy && (
-                    <span className="text-[7px] font-mono ml-auto" style={{ color: "#f59e0b" }}>
-                      {agent.status.toUpperCase()}
+                  <div className="flex items-center justify-between w-full mb-1">
+                    <span
+                      className="text-[9px] font-mono font-bold"
+                      style={{ color: isLockedAgent ? "#2a5070" : agentColor }}
+                    >
+                      {agent.name}
                     </span>
-                  )}
-                </div>
-
-                {/* Task buttons */}
-                <div className="flex flex-wrap gap-1.5 px-4 py-2">
-                  {agent.capabilities.map((taskType) => (
+                    {isLockedAgent ? (
+                      <span className="text-[7px] font-mono" style={{ color: "#2a5070" }}>
+                        🔒
+                      </span>
+                    ) : (
+                      <div
+                        className="w-1.5 h-1.5 rounded-full"
+                        style={{
+                          background: isBusy ? "#f59e0b" : "#00ff88",
+                          boxShadow: isBusy ? "0 0 4px #f59e0b80" : "0 0 4px #00ff8880",
+                        }}
+                      />
+                    )}
+                  </div>
+                  <span className="text-[7px] font-mono" style={{ color: "#2a5070" }}>
+                    {isLockedAgent
+                      ? `${cost?.toLocaleString()}₡ to unlock`
+                      : isBusy
+                        ? agent.status.toUpperCase()
+                        : agent.specialty}
+                  </span>
+                  {isLockedAgent && (
                     <button
-                      key={taskType}
                       type="button"
-                      disabled={isBusy}
-                      onClick={() => {
-                        if (!isBusy) {
-                          onAssign(agent.id, taskType);
-                          onClose();
-                        }
-                      }}
-                      className="text-[8px] font-mono px-2 py-1 rounded transition-all"
+                      onClick={(e) => { e.stopPropagation(); handleUnlock(agent.id); }}
+                      disabled={!canAfford || unlocking === agent.id}
+                      className="mt-1.5 w-full text-[7px] font-mono py-0.5 rounded transition-opacity"
                       style={{
-                        background: isBusy ? "#0d1520" : `${agentColor}10`,
-                        border: `1px solid ${isBusy ? "#1e3d5a" : `${agentColor}40`}`,
-                        color: isBusy ? "#2a5070" : agentColor,
-                        cursor: isBusy ? "not-allowed" : "pointer",
-                        opacity: isBusy ? 0.5 : 1,
+                        background: canAfford ? `${agentColor}20` : "#1e3d5a",
+                        border: `1px solid ${canAfford ? `${agentColor}50` : "#2a5070"}`,
+                        color: canAfford ? agentColor : "#2a5070",
+                        cursor: canAfford ? "pointer" : "not-allowed",
                       }}
                     >
-                      {TASK_LABEL[taskType]}
+                      {unlocking === agent.id ? "Unlocking..." : canAfford ? "UNLOCK" : "Insufficient funds"}
                     </button>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        {/* Footer hint */}
+        {/* ── Instruction input ──────────────────────────────────── */}
         <div
-          className="px-4 py-2 shrink-0 text-[7px] font-mono"
-          style={{ borderTop: "1px solid #1e3d5a", color: "#1e3d5a" }}
+          className="px-4 py-3 shrink-0"
+          style={{ borderTop: "1px solid #1e3d5a" }}
         >
-          Select an agent + task to deploy. Busy agents cannot be reassigned.
+          <div className="text-[8px] font-mono uppercase tracking-widest mb-2" style={{ color: "#2a5070" }}>
+            Instruction
+            {selectedAgent && !isLocked && (
+              <span className="ml-2 normal-case" style={{ color: "#1e3d5a" }}>
+                — {selectedAgent.name} is listening
+              </span>
+            )}
+          </div>
+
+          <div className="relative">
+            <input
+              ref={inputRef}
+              type="text"
+              value={instruction}
+              onChange={(e) => setInstruction(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+              placeholder={
+                !selectedAgentId
+                  ? "Select an agent first..."
+                  : isLocked
+                    ? "Agent is locked. Unlock to deploy."
+                    : isAgentBusy
+                      ? `${selectedAgent?.name} is ${selectedAgent?.status}...`
+                      : selectedAgentId
+                        ? AGENT_PLACEHOLDER[selectedAgentId]
+                        : "Describe what to investigate..."
+              }
+              disabled={!selectedAgentId || isLocked || isAgentBusy}
+              className="w-full text-[9px] font-mono outline-none px-3 py-2 rounded"
+              style={{
+                background: "#080c12",
+                border: `1px solid ${
+                  resolved?.taskType ? "#00d4ff40" : resolved?.failReason ? "#ff3a3a30" : "#1e3d5a"
+                }`,
+                color: "#c9d8e8",
+                caretColor: "#00d4ff",
+                opacity: (!selectedAgentId || isLocked || isAgentBusy) ? 0.4 : 1,
+              }}
+            />
+          </div>
+
+          {/* ── Intent interpretation preview ─────────────────────── */}
+          <div className="mt-2 min-h-[28px] flex items-center">
+            {resolved ? (
+              resolved.taskType ? (
+                <div className="flex items-center gap-2 w-full">
+                  <span className="text-[8px] font-mono" style={{ color: "#00d4ff" }}>▷</span>
+                  <span className="text-[8px] font-mono flex-1" style={{ color: "#4a6580" }}>
+                    {resolved.interpretation}
+                  </span>
+                  <span
+                    className="text-[7px] font-mono tabular-nums px-1 rounded"
+                    style={{
+                      color: resolved.confidence >= 0.7 ? "#00ff88" : "#f59e0b",
+                      background: resolved.confidence >= 0.7 ? "#00ff8815" : "#f59e0b15",
+                    }}
+                  >
+                    {Math.round(resolved.confidence * 100)}%
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-[8px] font-mono" style={{ color: "#ff3a3a" }}>✕</span>
+                  <span className="text-[8px] font-mono" style={{ color: "#ff3a3a60" }}>
+                    {resolved.failReason}
+                  </span>
+                </div>
+              )
+            ) : instruction.length >= 4 ? (
+              <span className="text-[8px] font-mono animate-pulse" style={{ color: "#1e3d5a" }}>
+                Interpreting...
+              </span>
+            ) : (
+              <span className="text-[8px] font-mono" style={{ color: "#1e3d5a" }}>
+                {selectedAgentId && !isLocked && !isAgentBusy
+                  ? `${AGENT_HINT[selectedAgentId as AgentId]}`
+                  : "—"}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* ── Footer ────────────────────────────────────────────── */}
+        <div
+          className="flex items-center justify-between px-4 py-3 shrink-0"
+          style={{ borderTop: "1px solid #1e3d5a" }}
+        >
+          <span className="text-[7px] font-mono" style={{ color: "#1e3d5a" }}>
+            Wrong agent or unclear instruction = failed task + time lost
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-1.5 text-[9px] font-mono rounded transition-opacity hover:opacity-70"
+              style={{
+                background: "#080c12",
+                border: "1px solid #1e3d5a",
+                color: "#4a6580",
+              }}
+            >
+              CANCEL
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={!canSubmit}
+              className="px-4 py-1.5 text-[9px] font-mono rounded transition-all"
+              style={{
+                background: canSubmit ? "rgba(0,212,255,0.12)" : "#0d1520",
+                border: `1px solid ${canSubmit ? "#00d4ff" : "#1e3d5a"}`,
+                color: canSubmit ? "#00d4ff" : "#2a5070",
+                cursor: canSubmit ? "pointer" : "not-allowed",
+                boxShadow: canSubmit ? "0 0 10px rgba(0,212,255,0.15)" : undefined,
+              }}
+            >
+              DEPLOY
+            </button>
+          </div>
         </div>
       </div>
     </div>

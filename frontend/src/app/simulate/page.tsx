@@ -13,7 +13,7 @@ import { NPCInteractionModal } from "@/components/NPCInteractionModal";
 import { TaskAssignmentModal } from "@/components/TaskAssignmentModal";
 import { useInvestigation } from "@/hooks/useInvestigation";
 import { useSimulation } from "@/hooks/useSimulation";
-import type { AgentId, TaskType } from "@/types/investigation";
+import type { AgentId } from "@/types/investigation";
 import { clearReplayData, getReplayData } from "@/lib/replayStore";
 import type { NPCHoverInfo, SimEvent } from "@/types";
 
@@ -347,14 +347,44 @@ function InvestigateContent() {
           <span className="text-[8px] font-mono uppercase tracking-widest" style={{ color: "#2a5070" }}>
             C{inv.currentCycle}
           </span>
+          {/* Pressure indicator */}
+          {inv.pressureLevel > 0 && (
+            <div className="flex items-center gap-1 ml-1">
+              <div
+                className="h-1.5 w-16 rounded-sm overflow-hidden"
+                style={{ background: "#1e3d5a" }}
+                title={`Incident pressure: ${inv.pressureLevel}/10`}
+              >
+                <div
+                  className="h-full rounded-sm transition-all duration-500"
+                  style={{
+                    width: `${inv.pressureLevel * 10}%`,
+                    background: inv.pressureLevel >= 7 ? "#ff3a3a"
+                             : inv.pressureLevel >= 4 ? "#f59e0b"
+                             : "#00ff88",
+                  }}
+                />
+              </div>
+              <span className="text-[7px] font-mono" style={{ color: inv.pressureLevel >= 7 ? "#ff3a3a" : "#4a6580" }}>
+                P{inv.pressureLevel}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Agent status bar */}
         <div className="flex-1 h-full py-1.5 overflow-x-auto">
-          <AgentStatusBar agents={inv.agents} activeTasks={inv.activeTasks} />
+          <AgentStatusBar agents={inv.agents} activeTasks={inv.activeTasks} lockedAgents={inv.lockedAgents} />
         </div>
 
         <div className="flex items-center gap-3 shrink-0 ml-3">
+          {/* Funds display */}
+          <div className="flex items-center gap-1.5 rpg-panel px-2 py-1">
+            <span className="text-[8px] font-mono" style={{ color: "#2a5070" }}>₡</span>
+            <span className="text-[9px] font-mono tabular-nums" style={{ color: "#00ff88" }}>
+              {inv.funds.toLocaleString()}
+            </span>
+          </div>
           {inv.isComplete && (
             <span className="text-[9px] font-mono" style={{ color: "#00ff88", textShadow: "0 0 8px rgba(0,255,136,0.5)" }}>
               CASE CLOSED
@@ -456,9 +486,13 @@ function InvestigateContent() {
         <TaskAssignmentModal
           node={selectedNode}
           agents={inv.agents}
-          onAssign={(agentId: AgentId, taskType: TaskType) => {
-            inv.assignTask(agentId, selectedNode.id, taskType);
+          lockedAgents={inv.lockedAgents}
+          funds={inv.funds}
+          onSubmitInstruction={(agentId: AgentId, rawInstruction: string) => {
+            inv.submitInstruction(agentId, selectedNode.id, rawInstruction);
+            inv.setSelectedNodeId(null);
           }}
+          onUnlockAgent={(agentId: AgentId) => inv.unlockAgent(agentId)}
           onClose={() => inv.setSelectedNodeId(null)}
         />
       )}
