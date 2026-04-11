@@ -270,7 +270,7 @@ export default function Home() {
             initial={{ y: 30, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ delay: 1.0, duration: 0.8 }}
-            className="relative z-[10] flex w-full max-w-[300px] justify-center gap-3 px-4 max-[500px]:max-w-[180px] max-[500px]:flex-col"
+            className="relative z-[10] flex w-full max-w-[480px] justify-center gap-3 px-4 max-[500px]:max-w-[180px] max-[500px]:flex-col"
           >
             {/* BEGIN button */}
             <motion.button
@@ -341,6 +341,42 @@ export default function Home() {
                 clickEffect={false}
               >
                 LOAD
+              </FuzzyText>
+            </motion.button>
+
+            {/* INVESTIGATE button */}
+            <motion.button
+              type="button"
+              onClick={() => router.push("/simulate?mode=investigate")}
+              initial={{ y: 15, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 1.5, duration: 0.5 }}
+              whileHover={{ y: -2, boxShadow: "0 0 20px rgba(0,255,136,0.2)" }}
+              whileTap={{ y: 1 }}
+              className="flex min-h-[34px] flex-1 basis-0 items-center justify-center px-4 py-1.5 cursor-pointer max-[500px]:w-full"
+              style={{
+                background: "rgba(0,255,136,0.06)",
+                border: "1px solid #00ff88",
+                borderRadius: "3px",
+                boxShadow: "0 0 10px rgba(0,255,136,0.1), inset 0 0 16px rgba(0,255,136,0.03)",
+              }}
+            >
+              <FuzzyText
+                fontSize={8}
+                fontFamily="'Press Start 2P', monospace"
+                fontWeight={700}
+                color="#00ff88"
+                baseIntensity={isTransitioning ? 0.85 : 0}
+                hoverIntensity={0}
+                enableHover={false}
+                glitchMode={isTransitioning}
+                glitchInterval={90}
+                glitchDuration={220}
+                fuzzRange={8}
+                direction="both"
+                clickEffect={false}
+              >
+                INVESTIGATE
               </FuzzyText>
             </motion.button>
           </motion.div>
