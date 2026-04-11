@@ -1,4 +1,4 @@
-# ECHO — Agent Roster
+# NIPS — Agent Roster
 
 > Four specialist investigators walk the city. One central intelligence ties it together.
 
@@ -6,7 +6,7 @@
 
 ## Agent Overview
 
-ECHO's investigation layer is a swarm of four specialist AI agents, each embodied as a named NPC in the city. They operate in parallel, investigating different evidence channels, and report findings to **ECHO** — the central intelligence the player interacts with. Players observe the agents moving through the environment and can read their in-flight reasoning.
+NIPS's investigation layer is a swarm of four specialist AI agents, each embodied as a named NPC in the city. They operate in parallel, investigating different evidence channels, and report findings to **ECHO** — the central intelligence the player interacts with. Players observe the agents moving through the environment and can read their in-flight reasoning.
 
 ---
 

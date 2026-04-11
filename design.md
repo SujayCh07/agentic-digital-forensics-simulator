@@ -1,4 +1,4 @@
-# ECHO — A Digital Forensics City Simulator
+# NIPS — Neural Investigative Procedure Simulator
 
 > Every cyberattack leaves behind an echo. Find it before it fades.
 
@@ -8,7 +8,7 @@
 
 You inherit a city that already exists — and something has gone wrong. Every building is a machine, every road is a network connection, every citizen is a running process. Your job isn't to build the city. It's to figure out what happened to it.
 
-ECHO is an interactive investigation game where a noir isometric city represents a living digital system. Players act as forensic investigators: exploring buildings (machines), following glowing roads (network traffic), and recovering hidden artifacts to reconstruct how an attack spread. A swarm of AI specialist agents — each embodied as an NPC in the city — collaboratively reconstruct the past in real time.
+NIPS is an interactive investigation game where a noir isometric city represents a living digital system. Players act as forensic investigators: exploring buildings (machines), following glowing roads (network traffic), and recovering hidden artifacts to reconstruct how an attack spread. A swarm of AI specialist agents — each embodied as an NPC in the city — collaboratively reconstruct the past in real time.
 
 **Target Prizes:**
 - Best Game Jam Track — fully playable, complete loop
