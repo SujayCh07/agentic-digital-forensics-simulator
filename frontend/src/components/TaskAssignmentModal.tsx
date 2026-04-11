@@ -57,12 +57,17 @@ const AGENT_HINT: Record<AgentId, string> = {
   chrono: "Timeline · Sequence correlation · Causal chains",
 };
 
-const AGENT_UNLOCK_COST: Record<AgentId, number | null> = {
-  logis:  null,  // starting agent, cannot be re-locked
+const AGENT_BASE_COST: Record<AgentId, number> = {
+  logis:  700,
   nexus:  800,
   filer:  900,
   chrono: 1100,
 };
+
+/** Returns unlock cost, or null if agent is already available */
+function getUnlockCost(agentId: AgentId, lockedAgents: AgentId[]): number | null {
+  return lockedAgents.includes(agentId) ? AGENT_BASE_COST[agentId] : null;
+}
 
 // Agent-specific instruction placeholders
 const AGENT_PLACEHOLDER: Record<AgentId, string> = {
@@ -118,7 +123,7 @@ export function TaskAssignmentModal({
   };
 
   const handleUnlock = (agentId: AgentId) => {
-    const cost = AGENT_UNLOCK_COST[agentId];
+    const cost = getUnlockCost(agentId, lockedAgents);
     if (!cost || funds < cost) return;
     setUnlocking(agentId);
     const success = onUnlockAgent(agentId);
@@ -218,7 +223,7 @@ export function TaskAssignmentModal({
               const isSelected = selectedAgentId === agent.id;
               const isLockedAgent = lockedAgents.includes(agent.id);
               const isBusy = agent.status !== "idle";
-              const cost = AGENT_UNLOCK_COST[agent.id];
+              const cost = getUnlockCost(agent.id, lockedAgents);
               const agentColor = AGENT_COLOR[agent.id];
               const canAfford = cost !== null && funds >= cost;
 

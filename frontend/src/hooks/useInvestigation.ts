@@ -59,9 +59,22 @@ const MAX_FEED_EVENTS  = 200;
 const PRESSURE_INTERVAL_MS = 45_000; // 45 seconds per pressure tick
 
 const STARTING_FUNDS   = 1500;
-const LOCKED_AT_START: AgentId[] = ["nexus", "filer", "chrono"];
+
+const ALL_AGENT_IDS: AgentId[] = ["logis", "nexus", "filer", "chrono"];
+
+/** Derive locked agents: everyone except the chosen starter */
+function deriveLockedAtStart(activeHelpers: ActiveHelpers): AgentId[] {
+  // _starter is injected by HelperSelectionPanel
+  const starter = (activeHelpers as unknown as Record<string, unknown>)._starter as AgentId | undefined;
+  if (starter && ALL_AGENT_IDS.includes(starter)) {
+    return ALL_AGENT_IDS.filter((id) => id !== starter);
+  }
+  // Fallback: default to logis as starter (lock the rest)
+  return ["nexus", "filer", "chrono"];
+}
 
 const AGENT_UNLOCK_COST: Partial<Record<AgentId, number>> = {
+  logis:  700,
   nexus:  800,
   filer:  900,
   chrono: 1100,
@@ -282,7 +295,7 @@ export function useInvestigation(
   const [currentCycle,      setCurrentCycle]       = useState(0);
   const [isComplete,        setIsComplete]         = useState(false);
   const [funds,             setFunds]              = useState(STARTING_FUNDS);
-  const [lockedAgents,      setLockedAgents]       = useState<AgentId[]>(LOCKED_AT_START);
+  const [lockedAgents,      setLockedAgents]       = useState<AgentId[]>(() => deriveLockedAtStart(activeHelpers));
   const [pressureLevel,     setPressureLevel]      = useState(0);
   const [graphData,         setGraphData]          = useState<GraphData>({
     relationships: CASE_RELATIONSHIPS,
