@@ -1,6 +1,7 @@
 """LLM initialization and structured invocation logic."""
 
 import logging
+import asyncio
 from typing import Any, TypeVar
 import json
 
@@ -10,6 +11,8 @@ from langchain_openai import ChatOpenAI
 from config import LLM_API_KEY, LLM_MODEL, LLM_BASE_URL
 
 logger = logging.getLogger(__name__)
+
+llm_semaphore = asyncio.Semaphore(1)
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -34,7 +37,8 @@ async def invoke_llm_structured(
         structured_llm = llm.with_structured_output(response_model)
         
         # Because we're natively hitting OpenAI, hallucinating enums never happen due to the native bounds!
-        return await structured_llm.ainvoke(prompt)
+        async with llm_semaphore:
+            return await structured_llm.ainvoke(prompt)
     except Exception as e:
         logger.warning(
             "Failed OpenAI JSON structured verification for %s: %s\n",
@@ -50,10 +54,11 @@ async def invoke_llm_json(prompt: str, llm: ChatOpenAI | None = None) -> dict:
     # Generic un-typed JSON dump strategy using OpenAI Native Schema bounds
     json_llm = llm.bind(response_format={"type": "json_object"})
     try:
-        response = await json_llm.ainvoke([
-            {"role": "system", "content": "You are a professional simulation reasoner. Return pure, valid JSON."},
-            {"role": "user", "content": prompt}
-        ])
+        async with llm_semaphore:
+            response = await json_llm.ainvoke([
+                {"role": "system", "content": "You are a professional simulation reasoner. Return pure, valid JSON."},
+                {"role": "user", "content": prompt}
+            ])
 
         content = str(response.content)
         

@@ -34,9 +34,14 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 FEATHERLESS_API_KEY = os.environ.get("FEATHERLESS_API_KEY", "")
 XAI_API_KEY = os.environ.get("XAI_API_KEY", "")
 K2_API_KEY = os.environ.get("K2_API_KEY", "")
-MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+MODEL_NAME = os.environ.get("MODEL_NAME", "gemini-2.5-flash")
 
-if OPENAI_API_KEY:
+if "gemini" in MODEL_NAME.lower():
+    LLM_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    LLM_MODEL = MODEL_NAME
+    LLM_API_KEY = GEMINI_API_KEY
+elif OPENAI_API_KEY:
     LLM_BASE_URL = None
     LLM_MODEL = MODEL_NAME if "gpt" in MODEL_NAME else "gpt-4o-mini"
     LLM_API_KEY = OPENAI_API_KEY
