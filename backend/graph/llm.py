@@ -1,28 +1,87 @@
-"""Shared LLM client factory using K2-Think-v2."""
+"""Shared LLM client factory."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import random
 import re
 from typing import Any, TypeVar
 
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
-from config import K2_API_KEY, K2_BASE_URL, K2_MODEL
+from config import (
+    LLM_API_KEY,
+    LLM_BASE_URL,
+    LLM_MAX_CONCURRENCY,
+    LLM_MAX_RETRIES,
+    LLM_MODEL,
+    LLM_RETRY_BASE_DELAY_S,
+)
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+_LLM_SEMAPHORE = asyncio.Semaphore(LLM_MAX_CONCURRENCY)
 
 
 def get_llm(max_tokens: int | None = None, **_kwargs: Any) -> ChatOpenAI:
-    """Create a ChatOpenAI instance pointed at K2-Think-v2."""
-    kwargs: dict[str, Any] = {"model": K2_MODEL, "api_key": K2_API_KEY, "base_url": K2_BASE_URL}
+    """Create a ChatOpenAI-compatible client for the configured provider."""
+    kwargs: dict[str, Any] = {"model": LLM_MODEL, "api_key": LLM_API_KEY}
+    if LLM_BASE_URL:
+        kwargs["base_url"] = LLM_BASE_URL
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
     return ChatOpenAI(**kwargs)  # pyright: ignore[reportCallIssue]
+
+
+def _is_retryable_llm_error(exc: Exception) -> bool:
+    status_code = getattr(exc, "status_code", None)
+    if status_code in {429, 500, 502, 503, 504}:
+        return True
+
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "concurrency_limit_exceeded",
+            "rate limit",
+            "rate_limit",
+            "too many requests",
+            "temporarily unavailable",
+            "server error",
+        )
+    )
+
+
+async def ainvoke_llm(llm: ChatOpenAI, prompt: str) -> Any:
+    """Invoke the configured LLM with shared concurrency limits and retries."""
+    last_exc: Exception | None = None
+
+    for attempt in range(LLM_MAX_RETRIES + 1):
+        try:
+            async with _LLM_SEMAPHORE:
+                return await llm.ainvoke(prompt)
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= LLM_MAX_RETRIES or not _is_retryable_llm_error(exc):
+                raise
+
+            delay = LLM_RETRY_BASE_DELAY_S * (2**attempt) + random.uniform(0, 0.25)
+            logger.warning(
+                "Retrying LLM call after %s (attempt %d/%d, sleeping %.2fs)",
+                exc.__class__.__name__,
+                attempt + 1,
+                LLM_MAX_RETRIES,
+                delay,
+            )
+            await asyncio.sleep(delay)
+
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("LLM invocation failed without an exception")
 
 
 def _extract_json_from_response(content: str) -> Any:
@@ -31,7 +90,8 @@ def _extract_json_from_response(content: str) -> Any:
     Returns the parsed Python object, or raises json.JSONDecodeError if nothing found.
     """
     original = content
-    # K2 sometimes omits the opening <think> tag, outputting reasoning directly up to </think>
+    # Some reasoning models omit the opening <think> tag and stream directly
+    # into a closing tag before the actual JSON payload.
     content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
     content = re.sub(r"^.*?</think>", "", content, flags=re.DOTALL)
 
@@ -94,10 +154,12 @@ def _extract_json_from_response(content: str) -> Any:
     except json.JSONDecodeError:
         pass
 
-    # Scan right-to-left: K2 outputs reasoning first, actual JSON last.
+    # Scan right-to-left: reasoning models often output rationale first and
+    # the actual JSON payload last.
     candidates = _scan(content)
 
-    # K2 sometimes embeds JSON inside <think> blocks — fall back to scanning original.
+    # Some models embed JSON inside <think> blocks — fall back to scanning the
+    # original response if the cleaned content did not parse.
     if not candidates:
         candidates = _scan(original)
 
@@ -113,7 +175,7 @@ def _extract_json_from_response(content: str) -> Any:
 
 
 def _unwrap_k2_array(parsed: Any) -> Any:
-    """K2 sometimes wraps a single object in an array — return the first dict found."""
+    """Return the first dict if a model wrapped a single object in an array."""
     if isinstance(parsed, list):
         return next((x for x in parsed if isinstance(x, dict)), {})
     return parsed
@@ -126,7 +188,7 @@ async def invoke_llm_structured(
     llm: ChatOpenAI | None = None,
     **_kwargs: Any,
 ) -> T:
-    """Invoke K2 and parse the response into a Pydantic model."""
+    """Invoke the configured LLM and parse the response into a Pydantic model."""
     if llm is None:
         llm = get_llm(max_tokens=max_tokens)
 
@@ -136,7 +198,7 @@ async def invoke_llm_structured(
         len(prompt),
     )
 
-    response = await llm.ainvoke(prompt)
+    response = await ainvoke_llm(llm, prompt)
     content: str = response.content  # pyright: ignore[reportAssignmentType]
 
     try:
@@ -160,11 +222,11 @@ async def invoke_llm_json(
     llm: ChatOpenAI | None = None,
     **_kwargs: Any,
 ) -> dict[str, Any]:
-    """Invoke K2 and return the parsed JSON response as a dict."""
+    """Invoke the configured LLM and return the parsed JSON response as a dict."""
     if llm is None:
         llm = get_llm(max_tokens=max_tokens)
 
-    response = await llm.ainvoke(prompt)
+    response = await ainvoke_llm(llm, prompt)
     content: str = response.content  # pyright: ignore[reportAssignmentType]
 
     return _unwrap_k2_array(_extract_json_from_response(content))

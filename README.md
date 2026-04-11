@@ -10,18 +10,45 @@ This repository started as a policy simulation. It now carries an ECHO foundatio
 
 ### Backend
 
+Create `backend/.env` with at least:
+
+```bash
+FEATHERLESS_API_KEY=...
+MODEL_NAME=...
+LLM_MAX_CONCURRENCY=3
+```
+
+If `uv` is installed:
+
 ```bash
 cd backend
 uv sync
 uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+If `uv` is not installed but `backend/.venv` exists:
+
+```bash
+cd backend
+./.venv/bin/python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
 ### Frontend
+
+With `bun`:
 
 ```bash
 cd frontend
 bun install
 bun dev
+```
+
+With `npm`:
+
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
 Open:

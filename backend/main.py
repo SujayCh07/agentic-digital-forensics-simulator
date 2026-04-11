@@ -4,7 +4,7 @@ import socketio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from config import K2_BASE_URL, K2_MODEL
+from config import LLM_BASE_URL, LLM_MAX_CONCURRENCY, LLM_MODEL, LLM_PROVIDER
 from routers.echo import router as echo_router
 from routers.extract import router as extract_router
 from routers.simulate import router, sio
@@ -37,7 +37,13 @@ app.include_router(echo_router)
 sio_asgi = socketio.ASGIApp(sio, other_asgi_app=app)
 app = sio_asgi  # type: ignore[assignment]
 
-logger.info("ECHO ready — model=%s base_url=%s", K2_MODEL, K2_BASE_URL)
+logger.info(
+    "ECHO ready — provider=%s model=%s base_url=%s llm_max_concurrency=%d",
+    LLM_PROVIDER,
+    LLM_MODEL,
+    LLM_BASE_URL,
+    LLM_MAX_CONCURRENCY,
+)
 
 if __name__ == "__main__":
     import uvicorn

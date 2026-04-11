@@ -14,6 +14,7 @@ import type {
 } from "@/types/backend";
 
 const API_BASE = "http://localhost:8000";
+type ConnectionState = "connecting" | "reconnecting" | "connected";
 
 export interface WSCallbacks {
   onPolicyAnalysis: (msg: WSPolicyAnalysisMsg) => void;
@@ -24,6 +25,7 @@ export interface WSCallbacks {
   onDone: () => void;
   onEconomicReport?: (report: EconomicReport) => void;
   onError: (message: string) => void;
+  onConnectionState?: (state: ConnectionState) => void;
 }
 
 /**
@@ -108,7 +110,21 @@ export async function startSimulation(
   });
 
   if (!res.ok) {
-    throw new Error(`Failed to start simulation: ${res.status}`);
+    let detail = `${res.status}`;
+    try {
+      const body = (await res.json()) as { detail?: string | { msg?: string }[] };
+      if (typeof body.detail === "string" && body.detail.trim()) {
+        detail = `${res.status} ${body.detail}`;
+      } else if (Array.isArray(body.detail) && body.detail.length) {
+        const first = body.detail[0];
+        if (first?.msg) {
+          detail = `${res.status} ${first.msg}`;
+        }
+      }
+    } catch {
+      // Fall back to the status code when the backend did not send JSON.
+    }
+    throw new Error(`Failed to start simulation: ${detail}`);
   }
 
   const data = await res.json();
@@ -123,14 +139,16 @@ export function connectSimulation(
   simulationId: string,
   callbacks: WSCallbacks,
 ): () => void {
+  callbacks.onConnectionState?.("connecting");
   const socket: Socket = io(API_BASE, {
     transports: ["websocket"],
     reconnection: true,
-    reconnectionAttempts: 3,
+    reconnectionAttempts: 10,
     reconnectionDelay: 1000,
   });
 
   socket.on("connect", () => {
+    callbacks.onConnectionState?.("connected");
     socket.emit("start_sim", { simulation_id: simulationId });
   });
 
@@ -167,13 +185,35 @@ export function connectSimulation(
   });
 
   socket.on("connect_error", (err: Error) => {
+    if (socket.active) {
+      callbacks.onConnectionState?.("reconnecting");
+      return;
+    }
     callbacks.onError(`Connection error: ${err.message}`);
   });
 
   socket.on("disconnect", (reason: string) => {
-    if (reason !== "io client disconnect") {
-      callbacks.onError(`Disconnected: ${reason}`);
+    if (reason === "io client disconnect") {
+      return;
     }
+    if (reason === "io server disconnect") {
+      callbacks.onConnectionState?.("reconnecting");
+      socket.connect();
+      return;
+    }
+    if (socket.active || reason === "transport close" || reason === "ping timeout") {
+      callbacks.onConnectionState?.("reconnecting");
+      return;
+    }
+    callbacks.onError(`Disconnected: ${reason}`);
+  });
+
+  socket.io.on("reconnect_attempt", () => {
+    callbacks.onConnectionState?.("reconnecting");
+  });
+
+  socket.io.on("reconnect_failed", () => {
+    callbacks.onError("Lost connection to the investigation stream.");
   });
 
   return () => {

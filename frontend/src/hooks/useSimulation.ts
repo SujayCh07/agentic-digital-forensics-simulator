@@ -94,6 +94,7 @@ interface SimulationState {
   phaseLabel: string;
   round: number;
   maxRounds: number;
+  connectionState: "connected" | "connecting" | "reconnecting";
   isRunning: boolean;
   isComplete: boolean;
   latestEvent: SimEvent | null;
@@ -134,6 +135,7 @@ export function useSimulation(simulationId?: string, record = false) {
     phaseLabel: "",
     round: 0,
     maxRounds: 1,
+    connectionState: "connecting",
     isRunning: false,
     isComplete: false,
     latestEvent: null,
@@ -344,6 +346,7 @@ export function useSimulation(simulationId?: string, record = false) {
       phaseLabel: "",
       round: 0,
       maxRounds: 1,
+      connectionState: "connecting",
       isRunning: true,
       isComplete: false,
       latestEvent: null,
@@ -519,9 +522,28 @@ export function useSimulation(simulationId?: string, record = false) {
           reportRequestedRef.current = true;
         },
 
+        onConnectionState: (connectionState) => {
+          setState((prev) => {
+            if (prev.connectionState === connectionState) {
+              return prev;
+            }
+            return {
+              ...prev,
+              connectionState,
+              error:
+                connectionState === "connected" ? null : prev.error,
+            };
+          });
+        },
+
         onError: (message) => {
           console.error("[sim] error:", message);
-          setState((prev) => ({ ...prev, isRunning: false, error: message }));
+          setState((prev) => ({
+            ...prev,
+            connectionState: "reconnecting",
+            isRunning: false,
+            error: message,
+          }));
         },
       });
 
@@ -546,6 +568,7 @@ export function useSimulation(simulationId?: string, record = false) {
         phaseLabel: "",
         round: 0,
         maxRounds: 1,
+        connectionState: "connected",
         isRunning: true,
         isComplete: false,
         latestEvent: null,

@@ -5,6 +5,36 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_PID=""
 FRONTEND_PID=""
 
+backend_start_cmd() {
+  if command -v uv >/dev/null 2>&1; then
+    echo "uv run uvicorn main:app --host 0.0.0.0 --port 8000"
+  elif [ -x "$ROOT/backend/.venv/bin/python" ]; then
+    echo "./.venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000"
+  else
+    echo ""
+  fi
+}
+
+frontend_build_cmd() {
+  if command -v bun >/dev/null 2>&1; then
+    echo "bun run build"
+  elif command -v npm >/dev/null 2>&1; then
+    echo "npm run build"
+  else
+    echo ""
+  fi
+}
+
+frontend_start_cmd() {
+  if command -v bun >/dev/null 2>&1; then
+    echo "bun run start"
+  elif command -v npm >/dev/null 2>&1; then
+    echo "npm run start"
+  else
+    echo ""
+  fi
+}
+
 cleanup() {
   trap - EXIT INT TERM HUP
   echo ""
@@ -25,15 +55,30 @@ cleanup() {
 trap cleanup EXIT INT TERM HUP
 
 echo "Building frontend… (this may take ~30s)"
-(cd "$ROOT/frontend" && bun run build) || { echo "Frontend build failed — aborting."; exit 1; }
+FRONTEND_BUILD_CMD="$(frontend_build_cmd)"
+if [ -z "$FRONTEND_BUILD_CMD" ]; then
+  echo "Could not find bun or npm for the frontend build."
+  exit 1
+fi
+(cd "$ROOT/frontend" && eval "$FRONTEND_BUILD_CMD") || { echo "Frontend build failed — aborting."; exit 1; }
 echo "Frontend build complete."
 
 echo "Starting backend on :8000…"
-(cd "$ROOT/backend" && uv run uvicorn main:app --host 0.0.0.0 --port 8000) &
+BACKEND_CMD="$(backend_start_cmd)"
+if [ -z "$BACKEND_CMD" ]; then
+  echo "Could not find uv or backend/.venv/bin/python for the backend."
+  exit 1
+fi
+(cd "$ROOT/backend" && eval "$BACKEND_CMD") &
 BACKEND_PID=$!
 
 echo "Starting frontend on :3000…"
-(cd "$ROOT/frontend" && bun run start) &
+FRONTEND_START_CMD="$(frontend_start_cmd)"
+if [ -z "$FRONTEND_START_CMD" ]; then
+  echo "Could not find bun or npm for the frontend."
+  exit 1
+fi
+(cd "$ROOT/frontend" && eval "$FRONTEND_START_CMD") &
 FRONTEND_PID=$!
 
 echo ""

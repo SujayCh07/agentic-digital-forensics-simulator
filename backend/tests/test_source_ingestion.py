@@ -3,10 +3,11 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from models.schemas import PolicyInput
+from models.schemas import MIN_NOTES_CHARS_FOR_TEXT_ONLY, PolicyInput
 from routers import extract as extract_router
 from routers import simulate as simulate_router
-from services.context_store import clear_sources
+from services import context_store
+from services.context_store import clear_sources, create_source_record
 
 
 async def _fake_extract_pdf(_: bytes) -> str:
@@ -25,7 +26,7 @@ class DummyUploadFile:
 class TestSourceIngestion:
     def setup_method(self) -> None:
         clear_sources()
-        simulate_router.simulations.clear()
+        simulate_router.reset_simulations()
 
     @pytest.mark.asyncio
     async def test_uploads_primary_pdf_source(self, monkeypatch) -> None:
@@ -76,10 +77,62 @@ class TestSourceIngestion:
 
         assert exc_info.value.status_code == 415
 
-    def test_rejects_simulation_without_pdf_source(self) -> None:
-        with pytest.raises(ValidationError, match="PDF policy source"):
+    @pytest.mark.asyncio
+    async def test_accepts_notes_only_simulation_when_long_enough(self) -> None:
+        response = await simulate_router.start_simulation(
             PolicyInput(
                 primary_policy_source_id=None,
+                policy_source_ids=[],
+                notes_text="A" * MIN_NOTES_CHARS_FOR_TEXT_ONLY,
                 num_rounds=3,
                 num_npcs=5,
             )
+        )
+
+        assert response["simulation_id"]
+
+    def test_rejects_simulation_without_pdf_source_or_enough_notes(self) -> None:
+        with pytest.raises(ValidationError, match="characters of notes"):
+            PolicyInput(
+                primary_policy_source_id=None,
+                policy_source_ids=[],
+                notes_text="too short",
+                num_rounds=3,
+                num_npcs=5,
+            )
+
+    def test_source_record_restores_after_memory_reset(self) -> None:
+        source = create_source_record(
+            kind="pdf",
+            filename="policy.pdf",
+            label="Policy",
+            preview_text="preview",
+            summary="summary",
+            metadata={},
+            content_text="policy body",
+        )
+
+        context_store._sources.clear()
+        restored = context_store.get_source(source["id"])
+
+        assert restored is not None
+        assert restored["content_text"] == "policy body"
+
+    @pytest.mark.asyncio
+    async def test_simulation_record_restores_after_memory_reset(self) -> None:
+        response = await simulate_router.start_simulation(
+            PolicyInput(
+                primary_policy_source_id=None,
+                policy_source_ids=[],
+                notes_text="A" * MIN_NOTES_CHARS_FOR_TEXT_ONLY,
+                num_rounds=3,
+                num_npcs=5,
+            )
+        )
+
+        simulation_id = response["simulation_id"]
+        simulate_router.simulations.clear()
+        restored = simulate_router._get_simulation_record(simulation_id)
+
+        assert restored is not None
+        assert restored.policy.notes_text == "A" * MIN_NOTES_CHARS_FOR_TEXT_ONLY

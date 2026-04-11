@@ -3,65 +3,295 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { Dashboard } from "@/components/Dashboard";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { AttackGraph } from "@/components/AttackGraph";
+import { BuildingInspector } from "@/components/BuildingInspector";
+import { EchoPanel } from "@/components/EchoPanel";
 import { EconomicReportModal } from "@/components/EconomicReportModal";
-import { EventFeed } from "@/components/EventFeed";
+import { EvidenceFeed } from "@/components/EvidenceFeed";
+import { IncidentReportPanel } from "@/components/IncidentReportPanel";
 import { NPCInteractionModal } from "@/components/NPCInteractionModal";
+import { TimelineScrubber } from "@/components/TimelineScrubber";
 import { useSimulation } from "@/hooks/useSimulation";
+import { eventBridge } from "@/game/bridge/EventBridge";
+import { buildInvestigationState } from "@/lib/investigationAdapter";
 import { clearReplayData, getReplayData } from "@/lib/replayStore";
-import type { NPCHoverInfo, SimEvent } from "@/types";
 
-const SocialGraph = dynamic(() => import("@/components/SocialGraph").then((m) => ({ default: m.SocialGraph })), { ssr: false, loading: () => <div className="flex h-full items-center justify-center text-[8px] font-pixel uppercase tracking-widest" style={{ color: "#78d7ff" }}>Loading graph...</div> });
-const GameCanvas = dynamic(() => import("@/components/GameCanvas").then((m) => ({ default: m.GameCanvas })), { ssr: false, loading: () => <GameCanvasPlaceholder /> });
+const GameCanvas = dynamic(
+  () => import("@/components/GameCanvas").then((module) => ({ default: module.GameCanvas })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full min-h-[520px] items-center justify-center text-[11px] font-mono uppercase tracking-[0.3em] text-[var(--muted)]">
+        Booting city map…
+      </div>
+    ),
+  },
+);
 
-const GAME_WIDTH = 1280;
-const GAME_HEIGHT = 960;
-const SCALE_FACTOR = 1;
-
-function GameCanvasPlaceholder() { return <div className="rpg-panel flex items-center justify-center box-border" style={{ width: GAME_WIDTH * SCALE_FACTOR, height: GAME_HEIGHT * SCALE_FACTOR, background: "#0a1018" }}><span className="text-[8px] font-pixel uppercase tracking-widest animate-pulse" style={{ color: "#78d7ff" }}>Loading world...</span></div>; }
-const SENTIMENT_LABEL: Record<NPCHoverInfo["sentiment"], { symbol: string; color: string }> = { happy: { symbol: "+", color: "#3E7C34" }, neutral: { symbol: "~", color: "#8B7355" }, worried: { symbol: "?", color: "#C97D1A" }, angry: { symbol: "!", color: "#B83A52" } };
-interface OverlayMetrics { offsetX: number; offsetY: number; width: number; height: number; scaleX: number; scaleY: number; }
-function NPCTooltip({ info, scaleX, scaleY }: { info: NPCHoverInfo; scaleX: number; scaleY: number }) { const sent = SENTIMENT_LABEL[info.sentiment]; return <div className="pointer-events-none absolute z-50" style={{ left: info.x * scaleX + 16, top: info.y * scaleY - 4 }}><div className="rounded px-2 py-1 shadow-md" style={{ background: "#071018", border: "2px solid #78d7ff", boxShadow: "2px 2px 0 rgba(0,0,0,.35)" }}><div className="flex items-center gap-1.5"><span className="text-[10px] font-pixel" style={{ color: "#dff7ff" }}>{info.name}</span><span className="text-[10px] font-pixel" style={{ color: sent.color }}>[{sent.symbol}]</span></div><div className="text-[8px] font-mono tracking-widest uppercase" style={{ color: "#90a8b7" }}>{info.role}</div></div></div>; }
-const DEFAULT_OVERLAY_METRICS: OverlayMetrics = { offsetX: 0, offsetY: 0, width: GAME_WIDTH * SCALE_FACTOR, height: GAME_HEIGHT * SCALE_FACTOR, scaleX: SCALE_FACTOR, scaleY: SCALE_FACTOR };
-
-export default function SimulatePage() { return <Suspense fallback={<GameCanvasPlaceholder />}><SimulateContent /></Suspense>; }
+function EmptyState() {
+  return (
+    <div className="flex min-h-screen items-center justify-center px-6">
+      <div className="rpg-panel max-w-lg space-y-4 p-6 text-center">
+        <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-[var(--accent-cyan)]">
+          NIPS
+        </p>
+        <h1 className="text-xl font-pixel text-[var(--foreground)]">
+          No Active Investigation
+        </h1>
+        <p className="text-[12px] font-mono leading-6 text-[var(--muted)]">
+          Open the case desk and start a fresh run, or load a saved replay to inspect a previous incident.
+        </p>
+        <Link
+          href="/"
+          className="inline-flex rounded border border-[var(--accent-cyan)] px-4 py-2 text-[11px] font-mono uppercase tracking-[0.2em] text-[var(--foreground)] transition-opacity hover:opacity-80"
+        >
+          Return To Case Desk
+        </Link>
+      </div>
+    </div>
+  );
+}
 
 function SimulateContent() {
   const searchParams = useSearchParams();
-  const isMock = process.env.NEXT_PUBLIC_MOCK_BACKEND === "true";
   const simulationId = searchParams.get("id") || "";
   const isReplay = searchParams.get("mode") === "replay";
   const isRecording = searchParams.get("record") === "true";
+  const isMock = process.env.NEXT_PUBLIC_MOCK_BACKEND === "true";
+
   const sim = useSimulation(simulationId || undefined, isRecording);
+  const { start, startFromRecording } = sim;
   const [selectedNpcId, setSelectedNpcId] = useState<string | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [focusMode, setFocusMode] = useState(false);
-  const canvasContainerRef = useRef<HTMLDivElement>(null);
-  const [focusScale, setFocusScale] = useState(1);
-  const [hoverInfo, setHoverInfo] = useState<NPCHoverInfo | null>(null);
   const [showGraph, setShowGraph] = useState(false);
-  const [overlayMetrics, setOverlayMetrics] = useState<OverlayMetrics>(DEFAULT_OVERLAY_METRICS);
   const [showReport, setShowReport] = useState(false);
+  const hasStartedRef = useRef(false);
   const reportShownRef = useRef(false);
+
+  useEffect(() => {
+    if (hasStartedRef.current) return;
+
+    if (isReplay) {
+      const replay = getReplayData();
+      if (replay) {
+        hasStartedRef.current = true;
+        clearReplayData();
+        startFromRecording(replay);
+      }
+      return;
+    }
+
+    if (simulationId || isMock) {
+      hasStartedRef.current = true;
+      start();
+    }
+
+    return () => {
+      hasStartedRef.current = false;
+    };
+  }, [isMock, isReplay, simulationId, start, startFromRecording]);
+
+  useEffect(() => {
+    const handleNpcClick = (payload: { npcId: string }) => {
+      setSelectedNpcId(payload.npcId);
+    };
+
+    eventBridge.on("sim:npc-click", handleNpcClick);
+    return () => {
+      eventBridge.off("sim:npc-click", handleNpcClick);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!sim.isComplete) {
+      reportShownRef.current = false;
+      setShowReport(false);
+      return;
+    }
+
+    if (reportShownRef.current) return;
+    if (sim.reportLoading || sim.report) {
+      reportShownRef.current = true;
+      setShowReport(true);
+    }
+  }, [sim.isComplete, sim.report, sim.reportLoading]);
+
+  const investigationState = useMemo(
+    () =>
+      buildInvestigationState({
+        npcs: sim.graphData.npcs,
+        relationships: sim.graphData.relationships,
+        events: sim.events,
+        round: sim.round,
+        maxRounds: sim.maxRounds,
+        selectedSystemId: selectedNpcId,
+      }),
+    [
+      selectedNpcId,
+      sim.events,
+      sim.graphData.npcs,
+      sim.graphData.relationships,
+      sim.maxRounds,
+      sim.round,
+    ],
+  );
+
   const selectedNpc = selectedNpcId ? sim.getNpc(selectedNpcId) : undefined;
 
-  useEffect(() => { setFocusScale(focusMode ? Math.max(window.innerWidth / GAME_WIDTH, window.innerHeight / GAME_HEIGHT) : 1); }, [focusMode]);
-  const hasStartedRef = useRef(false);
-  useEffect(() => { if (hasStartedRef.current) return; if (isReplay) { const data = getReplayData(); if (data) { hasStartedRef.current = true; clearReplayData(); sim.startFromRecording(data); } } else if (simulationId || isMock) { hasStartedRef.current = true; sim.start(); } return () => { hasStartedRef.current = false; }; }, [simulationId, isReplay]);
-  useEffect(() => { let cleanup: (() => void) | undefined; import("@/game/bridge/EventBridge").then(({ eventBridge }) => { const handler = () => setHoverInfo(null); eventBridge.on("sim:init-npcs", handler); cleanup = () => eventBridge.off("sim:init-npcs", handler); }); return () => cleanup?.(); }, []);
-  useEffect(() => { let cleanup: (() => void) | undefined; import("@/game/bridge/EventBridge").then(({ eventBridge }) => { const onHover = (info: NPCHoverInfo) => setHoverInfo(info); const onHoverOut = () => setHoverInfo(null); eventBridge.on("sim:npc-hover", onHover); eventBridge.on("sim:npc-hover-out", onHoverOut); cleanup = () => { eventBridge.off("sim:npc-hover", onHover); eventBridge.off("sim:npc-hover-out", onHoverOut); }; }); return () => cleanup?.(); }, []);
-  useEffect(() => { let cleanup: (() => void) | undefined; import("@/game/bridge/EventBridge").then(({ eventBridge }) => { const handler = (data: { npcId: string }) => setSelectedNpcId(data.npcId); eventBridge.on("sim:npc-click", handler); cleanup = () => eventBridge.off("sim:npc-click", handler); }); return () => cleanup?.(); }, []);
-  const toggleFullscreen = useCallback(() => { const el = canvasContainerRef.current; if (!el) return; if (document.fullscreenElement) document.exitFullscreen(); else el.requestFullscreen(); }, []);
-  useEffect(() => { const handler = () => setIsFullscreen(!!document.fullscreenElement); document.addEventListener("fullscreenchange", handler); return () => document.removeEventListener("fullscreenchange", handler); }, []);
-  useEffect(() => { const container = canvasContainerRef.current; if (!container) return; let observedTarget: Element | null = null; let resizeObserver: ResizeObserver | null = null; const updateMetrics = () => { const canvas = container.querySelector("canvas") ?? container.querySelector("[data-testid='game-canvas']"); const target = canvas instanceof HTMLElement ? canvas : null; if (!target || !resizeObserver) return; if (observedTarget !== target) { if (observedTarget) resizeObserver.unobserve(observedTarget); observedTarget = target; resizeObserver.observe(target); } const containerRect = container.getBoundingClientRect(); const targetRect = target.getBoundingClientRect(); const next: OverlayMetrics = { offsetX: targetRect.left - containerRect.left, offsetY: targetRect.top - containerRect.top, width: targetRect.width, height: targetRect.height, scaleX: targetRect.width / GAME_WIDTH, scaleY: targetRect.height / GAME_HEIGHT }; setOverlayMetrics((prev) => Math.abs(prev.offsetX - next.offsetX) > 0.5 || Math.abs(prev.offsetY - next.offsetY) > 0.5 || Math.abs(prev.width - next.width) > 0.5 || Math.abs(prev.height - next.height) > 0.5 ? next : prev); }; resizeObserver = new ResizeObserver(() => updateMetrics()); resizeObserver.observe(container); const mutationObserver = new MutationObserver(() => updateMetrics()); mutationObserver.observe(container, { childList: true, subtree: true }); window.addEventListener("resize", updateMetrics); document.addEventListener("fullscreenchange", updateMetrics); updateMetrics(); return () => { resizeObserver?.disconnect(); mutationObserver.disconnect(); window.removeEventListener("resize", updateMetrics); document.removeEventListener("fullscreenchange", updateMetrics); }; }, []);
-  useEffect(() => { const el = canvasContainerRef.current; if (!el) return; let dragging = false; let lastX = 0; let lastY = 0; const onDown = (e: PointerEvent) => { if (e.button !== 0) return; dragging = true; lastX = e.clientX; lastY = e.clientY; el.style.cursor = "grabbing"; el.setPointerCapture(e.pointerId); }; const onMove = (e: PointerEvent) => { if (!dragging) return; const dx = e.clientX - lastX; const dy = e.clientY - lastY; lastX = e.clientX; lastY = e.clientY; import("@/game/bridge/EventBridge").then(({ eventBridge }) => eventBridge.emitCameraPan(-dx / SCALE_FACTOR, -dy / SCALE_FACTOR)); }; const onUp = (e: PointerEvent) => { if (!dragging) return; dragging = false; el.style.cursor = "grab"; el.releasePointerCapture(e.pointerId); }; el.style.cursor = "grab"; el.addEventListener("pointerdown", onDown); el.addEventListener("pointermove", onMove); el.addEventListener("pointerup", onUp); const onWheel = (e: WheelEvent) => { e.preventDefault(); const delta = e.deltaY < 0 ? 1 : -1; const zoomTarget = el.querySelector("canvas") ?? el.querySelector("[data-testid='game-canvas']"); const rect = zoomTarget instanceof HTMLElement ? zoomTarget.getBoundingClientRect() : el.getBoundingClientRect(); const scaleX = rect.width > 0 ? GAME_WIDTH / rect.width : 1; const scaleY = rect.height > 0 ? GAME_HEIGHT / rect.height : 1; const mouseX = (e.clientX - rect.left) * scaleX; const mouseY = (e.clientY - rect.top) * scaleY; import("@/game/bridge/EventBridge").then(({ eventBridge }) => eventBridge.emitCameraZoom(delta, mouseX, mouseY)); }; el.addEventListener("wheel", onWheel, { passive: false }); return () => { el.removeEventListener("pointerdown", onDown); el.removeEventListener("pointermove", onMove); el.removeEventListener("pointerup", onUp); el.removeEventListener("wheel", onWheel); }; }, []);
-  useEffect(() => { const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setFocusMode(false); setShowGraph(false); setShowReport(false); } }; document.addEventListener("keydown", onKey); return () => document.removeEventListener("keydown", onKey); }, []);
-  useEffect(() => { if (!sim.isComplete) { reportShownRef.current = false; setShowReport(false); return; } if (reportShownRef.current) return; if (sim.reportLoading || sim.report) { reportShownRef.current = true; setShowReport(true); } }, [sim.isComplete, sim.reportLoading, sim.report]);
-
-  if (!simulationId && !isMock && !isReplay) {
-    return <div className="flex min-h-screen flex-col items-center justify-center px-6" style={{ background: "#060b12" }}><div className="flex max-w-md flex-col items-center gap-4 p-8 text-center" style={{ background: "#071018", border: "4px solid #78d7ff", borderRadius: "8px", boxShadow: "0 12px 40px rgba(0,0,0,.4)" }}><span className="text-[10px] font-pixel tracking-widest" style={{ color: "#dff7ff" }}>★ ECHO ★</span><p className="text-[10px] font-mono uppercase tracking-widest" style={{ color: "#bfefff" }}>No scenario specified.</p><p className="text-[10px] font-mono uppercase tracking-widest" style={{ color: "#90a8b7" }}>Return to the city and start a fresh investigation.</p><Link href="/" className="rpg-panel mt-2 px-6 py-2 text-[10px] font-pixel transition-opacity hover:opacity-80" style={{ color: "#dff7ff", background: "#13202b" }}>&gt;&gt; Enter City &lt;&lt;</Link></div></div>;
+  if (!simulationId && !isReplay && !isMock) {
+    return <EmptyState />;
   }
 
-  return <div className="relative flex h-screen flex-col overflow-clip" style={{ background: "#060b12" }} data-testid="simulate-page"><div className={`rpg-panel flex h-10 shrink-0 items-center justify-between rounded-none border-x-0 border-t-0 px-4 panel-slide-top ${focusMode ? "panel-hidden-top" : ""}`} style={{ background: "#071018", borderBottom: "3px solid #78d7ff" }} data-testid="phase-bar"><div className="flex items-center gap-3"><span className="text-[10px] font-pixel tracking-tight" style={{ color: "#dff7ff" }}>★ ECHO</span><span className="text-[10px] font-mono" style={{ color: "#90a8b7" }}>|</span><div className="flex gap-1">{[1, 2, 3].map((p) => <div key={p} className="h-2 w-12 rounded-sm transition-colors duration-500" style={{ border: "1px solid #90a8b7", background: sim.phase >= p ? p === 3 ? "#b83a52" : p === 2 ? "#c97d1a" : "#3e7c34" : "#0f1620" }} />)}</div>{sim.phase > 0 && <span className="text-[9px] font-mono uppercase tracking-widest ml-2" style={{ color: "#90a8b7" }}>{sim.phaseLabel}</span>}</div><div className="relative z-[2] flex items-center gap-3">{sim.isRunning && isRecording && <span className="text-[9px] font-pixel animate-pulse" style={{ color: "#b83a52" }}>REC</span>}{sim.isComplete && <><span className="text-[9px] font-pixel" style={{ color: "#3e7c34" }}>COMPLETE</span><button type="button" onClick={() => setShowReport(true)} className="text-[9px] font-mono uppercase tracking-widest transition-opacity hover:opacity-60" style={{ color: "#90a8b7" }}>{sim.reportLoading ? "[Report...]" : sim.report ? "[Report]" : "[Report Pending]"}</button>{sim.getRecording() && <button type="button" onClick={() => { const recording = sim.getRecording(); if (!recording) return; const blob = new Blob([JSON.stringify(recording, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `echo-sim-${Date.now()}.json`; a.click(); URL.revokeObjectURL(url); }} className="text-[9px] font-mono uppercase tracking-widest transition-opacity hover:opacity-60" style={{ color: "#90a8b7" }}>SAVE JSON</button>}</>}{sim.isRunning && !isRecording && <span className="text-[9px] font-mono uppercase tracking-widest" style={{ color: "#90a8b7" }}>Investigating...</span>}<button type="button" onClick={() => setFocusMode((f) => !f)} className="rpg-panel px-3 py-1 text-[9px] font-mono font-bold tracking-widest transition-all hover:opacity-80" style={{ color: focusMode ? "#78d7ff" : "#90a8b7", background: focusMode ? "rgba(120,215,255,0.1)" : undefined, borderColor: focusMode ? "#78d7ff" : undefined }} title="Toggle focus mode (hides panels)">{focusMode ? "[ EXIT FOCUS ]" : "[ FOCUS ]"}</button></div></div><div className="flex flex-1 gap-2 overflow-hidden p-2"><div className={`rpg-panel flex h-full w-64 shrink-0 flex-col panel-slide-left ${focusMode ? "panel-hidden-left" : ""}`}><div className="flex items-center justify-between px-3 py-2" style={{ borderBottom: "2px solid #90a8b7" }}><h2 className="text-[8px] font-pixel uppercase" style={{ color: "#dff7ff" }}>Event Log</h2><button type="button" onClick={() => setShowGraph(true)} className="text-[9px] font-mono uppercase tracking-widest transition-opacity hover:opacity-60" style={{ color: "#90a8b7" }}>GRAPH</button></div><div className="flex-1 overflow-hidden"><EventFeed events={sim.events} onEventClick={(event: SimEvent) => setSelectedNpcId(event.agentId)} /></div></div><div className={focusMode ? "fixed inset-0 z-50 flex items-center justify-center overflow-hidden" : "relative flex min-w-0 flex-1 items-center justify-center overflow-hidden"} style={focusMode ? { background: "#060b12" } : undefined}><div ref={canvasContainerRef} className="relative shrink-0 canvas-glow canvas-expand" style={{ border: "3px solid #78d7ff", borderRadius: 4, ...(focusMode ? { transform: `scale(${focusScale})`, transformOrigin: "center center", border: "none", padding: 0, boxShadow: "none" } : {}) }}><GameCanvas /><div className="absolute top-2 right-2 z-40 flex gap-1"><button type="button" onClick={() => { import("@/game/bridge/EventBridge").then(({ eventBridge }) => eventBridge.emitCameraZoom(1)); }} className="rpg-panel px-1.5 py-1 text-[10px] font-mono transition-opacity hover:opacity-70" style={{ color: "#dff7ff", background: "#13202b" }}>ZOOM+</button><button type="button" onClick={() => { import("@/game/bridge/EventBridge").then(({ eventBridge }) => eventBridge.emitCameraZoom(-1)); }} className="rpg-panel px-1.5 py-1 text-[10px] font-mono transition-opacity hover:opacity-70" style={{ color: "#dff7ff", background: "#13202b" }}>ZOOM-</button><button type="button" onClick={toggleFullscreen} className="rpg-panel px-1.5 py-1 text-[10px] font-mono transition-opacity hover:opacity-70" style={{ color: "#dff7ff", background: "#13202b" }}>{isFullscreen ? "EXIT" : "FULL"}</button></div>{hoverInfo && <div className="pointer-events-none absolute z-30 overflow-hidden" style={{ left: overlayMetrics.offsetX, top: overlayMetrics.offsetY, width: overlayMetrics.width, height: overlayMetrics.height }}><NPCTooltip info={hoverInfo} scaleX={overlayMetrics.scaleX} scaleY={overlayMetrics.scaleY} /></div>}</div></div></div><div className={`fixed bottom-3 right-3 z-40 pointer-events-auto ${focusMode ? "opacity-0 pointer-events-none" : ""}`}><Dashboard metrics={sim.metrics} metricsHistory={sim.metricsHistory} phase={sim.phase} round={sim.round} maxRounds={sim.maxRounds} /></div>{focusMode && <button type="button" className="fixed top-4 right-4 z-[60] rpg-panel px-3 py-1.5 text-[9px] font-mono transition-opacity hover:opacity-70" style={{ color: "#dff7ff", background: "#13202b", border: "2px solid #78d7ff" }} onClick={() => setFocusMode(false)}>[ESC] exit focus</button>}{selectedNpc && <NPCInteractionModal npc={selectedNpc} simulationId={simulationId} onClose={() => setSelectedNpcId(null)} />}{showGraph && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={(e) => { if (e.target === e.currentTarget) setShowGraph(false); }}><div className="relative flex flex-col animate-[modalIn_200ms_ease-out]" style={{ width: 700, height: 560, background: "#071018", border: "4px solid #78d7ff", borderRadius: "8px", boxShadow: "0 12px 40px rgba(0,0,0,.4)" }}><div className="flex items-center justify-between px-4 py-2" style={{ background: "#13202b", borderBottom: "2px solid #90a8b7" }}><h2 className="text-[10px] font-pixel uppercase" style={{ color: "#dff7ff" }}>★ Social Graph</h2><button type="button" onClick={() => setShowGraph(false)} className="text-[10px] font-mono uppercase tracking-widest transition-opacity hover:opacity-60" style={{ color: "#90a8b7" }}>[ESC]</button></div><div className="flex-1 overflow-hidden"><SocialGraph npcs={sim.graphData.npcs} relationships={sim.graphData.relationships} influenceEvents={sim.graphData.influenceEvents} version={sim.graphData.version} /></div></div></div>}{showReport && <EconomicReportModal report={sim.report} loading={sim.reportLoading} error={sim.reportError} onClose={() => setShowReport(false)} />}{sim.error && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"><div className="rpg-panel px-6 py-4 text-center" style={{ background: "#071018" }}><p className="font-mono text-sm font-bold" style={{ color: "#b83a52" }}>Connection Lost</p><p className="mt-2 font-mono text-xs" style={{ color: "#90a8b7" }}>The simulation server restarted. Please go back and start a new investigation.</p><a href="/" className="mt-3 block font-mono text-xs underline" style={{ color: "#78d7ff" }}>{"<-"} Back to home</a></div></div>}</div>;
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <div className="mx-auto flex min-h-screen max-w-[1800px] flex-col gap-4 px-4 py-4">
+        <header className="rpg-panel flex flex-wrap items-center justify-between gap-4 px-4 py-3">
+          <div>
+            <p className="text-[10px] font-mono uppercase tracking-[0.4em] text-[var(--accent-cyan)]">
+              NIPS / ECHO
+            </p>
+            <h1 className="mt-2 text-xl font-pixel text-[var(--foreground)]">
+              Incident Response Center
+            </h1>
+            <p className="mt-2 text-[11px] font-mono leading-6 text-[var(--muted)]">
+              Buildings represent machines, roads represent network paths, and the city is now a live forensic evidence graph.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono uppercase tracking-[0.2em]">
+            <span
+              className="rounded border px-2 py-1"
+              style={{
+                borderColor:
+                  sim.connectionState === "connected"
+                    ? "#7ef9c6"
+                    : sim.connectionState === "reconnecting"
+                      ? "#ffb347"
+                      : "#78d7ff",
+                color:
+                  sim.connectionState === "connected"
+                    ? "#7ef9c6"
+                    : sim.connectionState === "reconnecting"
+                      ? "#ffb347"
+                      : "#78d7ff",
+              }}
+            >
+              {sim.connectionState}
+            </span>
+            {isRecording && (
+              <span className="rounded border border-[var(--accent-red)] px-2 py-1 text-[var(--accent-red)]">
+                Recording
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowGraph(true)}
+              className="rounded border border-[var(--accent-cyan)] px-3 py-2 text-[var(--foreground)] transition-opacity hover:opacity-80"
+            >
+              Attack Graph
+            </button>
+            {sim.report && (
+              <button
+                type="button"
+                onClick={() => setShowReport(true)}
+                className="rounded border border-[var(--accent-amber)] px-3 py-2 text-[var(--foreground)] transition-opacity hover:opacity-80"
+              >
+                Report
+              </button>
+            )}
+            <Link
+              href="/"
+              className="rounded border border-white/10 px-3 py-2 text-[var(--muted)] transition-opacity hover:opacity-80"
+            >
+              Exit
+            </Link>
+          </div>
+        </header>
+
+        {sim.error && (
+          <div className="rounded border border-[var(--accent-red)] bg-[rgba(255,92,108,0.08)] px-4 py-3 text-[11px] font-mono leading-6 text-[var(--foreground)]">
+            {sim.error}
+          </div>
+        )}
+
+        <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)_340px]">
+          <div className="flex min-h-0 flex-col gap-4">
+            <IncidentReportPanel
+              state={investigationState}
+              connectionState={sim.connectionState}
+            />
+            <div className="min-h-[320px] flex-1">
+              <EvidenceFeed events={investigationState.clueFeed} />
+            </div>
+          </div>
+
+          <div className="flex min-h-[640px] flex-col gap-4">
+            <section className="rpg-panel relative flex min-h-[560px] flex-1 items-center justify-center overflow-hidden p-2">
+              <div className="absolute left-4 top-4 z-10 rounded border border-white/10 bg-black/30 px-3 py-2">
+                <p className="text-[9px] font-mono uppercase tracking-[0.2em] text-[var(--muted)]">
+                  Selected Building
+                </p>
+                <p className="mt-1 text-[11px] font-mono text-[var(--foreground)]">
+                  {selectedNpc?.name || investigationState.systems[0]?.name || "Awaiting target"}
+                </p>
+              </div>
+              <div className="h-full w-full">
+                <GameCanvas />
+              </div>
+            </section>
+
+            <TimelineScrubber state={investigationState} />
+          </div>
+
+          <div className="flex min-h-0 flex-col gap-4">
+            <EchoPanel state={investigationState} />
+            <BuildingInspector state={investigationState} />
+          </div>
+        </div>
+      </div>
+
+      {selectedNpc && (
+        <NPCInteractionModal
+          npc={selectedNpc}
+          simulationId={simulationId}
+          onClose={() => setSelectedNpcId(null)}
+        />
+      )}
+
+      {showGraph && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setShowGraph(false);
+          }}
+        >
+          <div className="rpg-panel h-[80vh] w-full max-w-6xl overflow-hidden">
+            <AttackGraph
+              npcs={sim.graphData.npcs}
+              relationships={sim.graphData.relationships}
+              influenceEvents={sim.graphData.influenceEvents}
+              version={sim.graphData.version}
+            />
+          </div>
+        </div>
+      )}
+
+      {showReport && (
+        <EconomicReportModal
+          report={sim.report}
+          loading={sim.reportLoading}
+          error={sim.reportError}
+          onClose={() => setShowReport(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+export default function SimulatePage() {
+  return (
+    <Suspense fallback={<EmptyState />}>
+      <SimulateContent />
+    </Suspense>
+  );
 }

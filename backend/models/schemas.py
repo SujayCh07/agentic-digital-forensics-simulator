@@ -62,6 +62,7 @@ TrendDirection = Literal["up", "down", "flat", "unknown"]
 ReportDirection = Literal["positive", "negative", "mixed"]
 ReportSeverity = Literal["low", "medium", "high"]
 ReportTrend = Literal["up", "down", "flat", "mixed"]
+MIN_NOTES_CHARS_FOR_TEXT_ONLY = 40
 
 
 class IndicatorSnapshot(BaseModel):
@@ -95,7 +96,7 @@ class PolicyContextBundle(BaseModel):
 
 
 class PolicyInput(BaseModel):
-    """Simulation input: a single uploaded PDF source."""
+    """Simulation input: uploaded policy files and/or enough freeform notes."""
 
     primary_policy_source_id: str | None = None
     policy_source_ids: list[str] = Field(default_factory=list)
@@ -108,8 +109,12 @@ class PolicyInput(BaseModel):
     @model_validator(mode="after")
     def require_policy_source(self) -> PolicyInput:
         has_files = bool(self.policy_source_ids) or bool(self.primary_policy_source_id)
-        if not has_files:
-            raise ValueError("Provide at least one PDF policy source.")
+        has_notes = len(self.notes_text.strip()) >= MIN_NOTES_CHARS_FOR_TEXT_ONLY
+        if not has_files and not has_notes:
+            raise ValueError(
+                "Provide at least one PDF policy source or "
+                f"{MIN_NOTES_CHARS_FOR_TEXT_ONLY}+ characters of notes."
+            )
         return self
 
 

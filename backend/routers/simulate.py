@@ -1,6 +1,9 @@
+import asyncio
+import json
 import logging
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal
 
 import socketio
@@ -19,6 +22,8 @@ router = APIRouter()
 
 # Socket.IO server (async mode for FastAPI/uvicorn).
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
+_RUNTIME_DIR = Path(__file__).resolve().parent.parent / ".runtime"
+_SIMULATION_STORE_PATH = _RUNTIME_DIR / "simulations.json"
 
 SimulationStatus = Literal["pending", "running", "complete", "error"]
 
@@ -38,7 +43,166 @@ class SimulationRecord:
     memory_streams: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
 
-simulations: dict[str, SimulationRecord] = {}
+def _serialize_record(record: SimulationRecord) -> dict[str, Any]:
+    return {
+        "policy": record.policy.model_dump(),
+        "status": record.status,
+        "policy_text": record.policy_text,
+        "entities": record.entities,
+        "final_npcs": record.final_npcs,
+        "relationships": record.relationships,
+        "events": record.events,
+        "current_round": record.current_round,
+        "error_message": record.error_message,
+        "economic_report": (
+            record.economic_report.model_dump() if record.economic_report else None
+        ),
+        "memory_streams": record.memory_streams,
+    }
+
+
+def _load_simulations_from_disk() -> dict[str, SimulationRecord]:
+    if not _SIMULATION_STORE_PATH.exists():
+        return {}
+
+    try:
+        raw = json.loads(_SIMULATION_STORE_PATH.read_text())
+    except (OSError, json.JSONDecodeError):
+        logger.warning("Could not read persisted simulations from %s", _SIMULATION_STORE_PATH)
+        return {}
+
+    if not isinstance(raw, dict):
+        return {}
+
+    restored: dict[str, SimulationRecord] = {}
+    for simulation_id, payload in raw.items():
+        if not isinstance(payload, dict):
+            continue
+
+        try:
+            economic_report_payload = payload.get("economic_report")
+            restored[str(simulation_id)] = SimulationRecord(
+                policy=PolicyInput.model_validate(payload.get("policy", {})),
+                status=payload.get("status", "pending"),
+                policy_text=payload.get("policy_text", ""),
+                entities=payload.get("entities", []),
+                final_npcs=payload.get("final_npcs", []),
+                relationships=payload.get("relationships", []),
+                events=payload.get("events", []),
+                current_round=int(payload.get("current_round", 0) or 0),
+                error_message=payload.get("error_message"),
+                economic_report=(
+                    EconomicReportResponse.model_validate(economic_report_payload)
+                    if economic_report_payload
+                    else None
+                ),
+                memory_streams=payload.get("memory_streams", {}),
+            )
+        except Exception:
+            logger.exception(
+                "Failed to restore persisted simulation %s",
+                simulation_id,
+            )
+
+    return restored
+
+
+def _persist_simulations() -> None:
+    _RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    data = {
+        simulation_id: _serialize_record(record)
+        for simulation_id, record in simulations.items()
+    }
+    _SIMULATION_STORE_PATH.write_text(json.dumps(data, indent=2, sort_keys=True))
+
+
+def _get_simulation_record(simulation_id: str) -> SimulationRecord | None:
+    record = simulations.get(simulation_id)
+    if record is not None:
+        return record
+
+    restored = _load_simulations_from_disk()
+    if restored:
+        simulations.update({sid: rec for sid, rec in restored.items() if sid not in simulations})
+    return simulations.get(simulation_id)
+
+
+def reset_simulations() -> None:
+    simulations.clear()
+    _persist_simulations()
+
+
+simulations: dict[str, SimulationRecord] = _load_simulations_from_disk()
+simulation_tasks: dict[str, asyncio.Task[None]] = {}
+simulation_subscribers: dict[str, set[str]] = {}
+
+
+def _simulation_task_is_active(simulation_id: str) -> bool:
+    task = simulation_tasks.get(simulation_id)
+    return task is not None and not task.done()
+
+
+def _subscribe_to_simulation(simulation_id: str, sid: str) -> None:
+    simulation_subscribers.setdefault(simulation_id, set()).add(sid)
+
+
+def _unsubscribe_sid(sid: str) -> None:
+    empty_simulations: list[str] = []
+    for simulation_id, subscribers in simulation_subscribers.items():
+        subscribers.discard(sid)
+        if not subscribers:
+            empty_simulations.append(simulation_id)
+
+    for simulation_id in empty_simulations:
+        simulation_subscribers.pop(simulation_id, None)
+
+
+async def _emit_to_simulation_subscribers(
+    simulation_id: str,
+    event: str,
+    payload: dict[str, Any],
+) -> None:
+    for subscriber_sid in tuple(simulation_subscribers.get(simulation_id, ())):
+        try:
+            await sio.emit(event, payload, to=subscriber_sid)
+        except Exception:
+            logger.exception(
+                "Failed to emit %s for simulation %s to sid=%s",
+                event,
+                simulation_id,
+                subscriber_sid,
+            )
+
+
+async def _emit_current_state_to_sid(
+    simulation_id: str,
+    sid: str,
+    record: SimulationRecord,
+) -> None:
+    if record.entities:
+        await sio.emit("policy_analysis", {"entities": record.entities}, to=sid)
+
+    if record.final_npcs:
+        await sio.emit(
+            "init",
+            {
+                "npcs": record.final_npcs,
+                "relationships": record.relationships,
+                "max_rounds": record.policy.num_rounds,
+            },
+            to=sid,
+        )
+
+    if record.status == "complete":
+        await sio.emit("done", {}, to=sid)
+        if record.economic_report is not None:
+            await sio.emit("economic_report", record.economic_report.model_dump(), to=sid)
+    elif record.status == "error" and record.error_message:
+        await sio.emit(
+            "sim_error",
+            {"message": f"Simulation failed: {record.error_message}"},
+            to=sid,
+        )
 
 
 def _resolved_policy_source_ids(policy: PolicyInput) -> list[str]:
@@ -62,6 +226,7 @@ async def start_simulation(policy: PolicyInput):
 
     simulation_id = str(uuid.uuid4())
     simulations[simulation_id] = SimulationRecord(policy=policy)
+    _persist_simulations()
     logger.info(
         "POST /simulate → id=%s  rounds=%d  policy_sources=%d",
         simulation_id,
@@ -71,15 +236,10 @@ async def start_simulation(policy: PolicyInput):
     return {"simulation_id": simulation_id}
 
 
-@sio.event
-async def start_sim(sid: str, data: dict) -> None:
-    """Client emits 'start_sim' with {simulation_id} to begin streaming."""
-    simulation_id = data.get("simulation_id", "")
-    logger.info("sio start_sim  sid=%s  sim=%s", sid, simulation_id)
-
-    record = simulations.get(simulation_id)
+async def _run_simulation(simulation_id: str) -> None:
+    record = _get_simulation_record(simulation_id)
     if record is None:
-        await sio.emit("sim_error", {"message": "Simulation not found"}, to=sid)
+        logger.warning("Simulation %s disappeared before it could start", simulation_id)
         return
 
     policy = record.policy
@@ -92,20 +252,24 @@ async def start_sim(sid: str, data: dict) -> None:
     record.final_npcs = []
     record.relationships = []
     record.policy_text = ""
+    record.memory_streams = {}
+    _persist_simulations()
 
     graph = build_graph()
 
     async def stream_npc_events(events: list) -> None:
-        try:
-            await sio.emit("npc_events", {"events": events}, to=sid)
-        except Exception:
-            pass
+        await _emit_to_simulation_subscribers(
+            simulation_id,
+            "npc_events",
+            {"events": events},
+        )
 
     async def stream_npc_added(npc: dict) -> None:
-        try:
-            await sio.emit("npc_added", {"npc": npc}, to=sid)
-        except Exception:
-            pass
+        await _emit_to_simulation_subscribers(
+            simulation_id,
+            "npc_added",
+            {"npc": npc},
+        )
 
     initial_state: SimState = {
         "policy_text": "",
@@ -136,37 +300,42 @@ async def start_sim(sid: str, data: dict) -> None:
             if "build_context" in chunk:
                 update = chunk["build_context"]
                 record.policy_text = update.get("policy_text", "")
+                _persist_simulations()
 
             elif "parse_policy" in chunk:
                 update = chunk["parse_policy"]
                 record.entities = update.get("entities", [])
+                _persist_simulations()
                 logger.info(
                     "sim=%s  parse_policy  entities=%d",
                     simulation_id,
                     len(update["entities"]),
                 )
-                await sio.emit(
-                    "policy_analysis", {"entities": update["entities"]}, to=sid
+                await _emit_to_simulation_subscribers(
+                    simulation_id,
+                    "policy_analysis",
+                    {"entities": update["entities"]},
                 )
 
             elif "generate_npcs" in chunk:
                 update = chunk["generate_npcs"]
                 record.final_npcs = update.get("npcs", [])
                 record.relationships = update.get("relationships", [])
+                _persist_simulations()
                 logger.info(
                     "sim=%s  generate_npcs  npcs=%d  rels=%d",
                     simulation_id,
                     len(update["npcs"]),
                     len(update["relationships"]),
                 )
-                await sio.emit(
+                await _emit_to_simulation_subscribers(
+                    simulation_id,
                     "init",
                     {
                         "npcs": update["npcs"],
                         "relationships": update["relationships"],
                         "max_rounds": policy.num_rounds,
                     },
-                    to=sid,
                 )
 
             elif "run_round" in chunk:
@@ -180,6 +349,7 @@ async def start_sim(sid: str, data: dict) -> None:
                 record.relationships = update.get(
                     "relationships", record.relationships
                 )
+                _persist_simulations()
                 round_num = update["current_round"] - 1
                 logger.info(
                     "sim=%s  round %d  events=%d",
@@ -187,7 +357,8 @@ async def start_sim(sid: str, data: dict) -> None:
                     round_num,
                     len(update["events"]),
                 )
-                await sio.emit(
+                await _emit_to_simulation_subscribers(
+                    simulation_id,
                     "round",
                     {
                         "round": round_num,
@@ -198,12 +369,12 @@ async def start_sim(sid: str, data: dict) -> None:
                         "relationships": update.get("relationships", []),
                         "max_rounds": policy.num_rounds,
                     },
-                    to=sid,
                 )
 
         record.status = "complete"
+        _persist_simulations()
         logger.info("sim=%s  done", simulation_id)
-        await sio.emit("done", {}, to=sid)
+        await _emit_to_simulation_subscribers(simulation_id, "done", {})
 
         try:
             report = await generate_economic_report(
@@ -218,7 +389,12 @@ async def start_sim(sid: str, data: dict) -> None:
                 max_rounds=record.policy.num_rounds,
             )
             record.economic_report = report
-            await sio.emit("economic_report", report.model_dump(), to=sid)
+            _persist_simulations()
+            await _emit_to_simulation_subscribers(
+                simulation_id,
+                "economic_report",
+                report.model_dump(),
+            )
             logger.info("sim=%s  economic_report emitted", simulation_id)
         except Exception:
             logger.exception("sim=%s  economic_report generation failed", simulation_id)
@@ -226,20 +402,52 @@ async def start_sim(sid: str, data: dict) -> None:
     except Exception as exc:
         record.status = "error"
         record.error_message = str(exc)
+        _persist_simulations()
         logger.exception("Simulation %s failed", simulation_id)
-        try:
-            await sio.emit(
-                "sim_error", {"message": f"Simulation failed: {exc}"}, to=sid
-            )
-        except Exception:
-            pass
+        await _emit_to_simulation_subscribers(
+            simulation_id,
+            "sim_error",
+            {"message": f"Simulation failed: {exc}"},
+        )
+    finally:
+        simulation_tasks.pop(simulation_id, None)
+
+
+@sio.event
+async def start_sim(sid: str, data: dict) -> None:
+    """Client emits 'start_sim' with {simulation_id} to begin streaming."""
+    simulation_id = data.get("simulation_id", "")
+    logger.info("sio start_sim  sid=%s  sim=%s", sid, simulation_id)
+
+    record = _get_simulation_record(simulation_id)
+    if record is None:
+        await sio.emit("sim_error", {"message": "Simulation not found"}, to=sid)
+        return
+
+    _subscribe_to_simulation(simulation_id, sid)
+
+    should_start = (
+        not _simulation_task_is_active(simulation_id)
+        and record.status in {"pending", "running"}
+    )
+    if should_start:
+        simulation_tasks[simulation_id] = asyncio.create_task(
+            _run_simulation(simulation_id)
+        )
+
+    await _emit_current_state_to_sid(simulation_id, sid, record)
+
+
+@sio.event
+async def disconnect(sid: str) -> None:
+    _unsubscribe_sid(sid)
 
 
 @router.get(
     "/simulate/{simulation_id}/economic-report", response_model=EconomicReportResponse
 )
 async def get_economic_report(simulation_id: str):
-    record = simulations.get(simulation_id)
+    record = _get_simulation_record(simulation_id)
     if record is None or record.status != "complete":
         raise HTTPException(status_code=404, detail="Completed simulation not found.")
 
@@ -257,6 +465,7 @@ async def get_economic_report(simulation_id: str):
         completed_rounds=record.current_round,
         max_rounds=record.policy.num_rounds,
     )
+    _persist_simulations()
     return record.economic_report
 
 
@@ -281,7 +490,7 @@ async def chat_with_npc(sid: str, data: dict) -> None:
         user_message[:30] if user_message else "",
     )
 
-    record = simulations.get(simulation_id)
+    record = _get_simulation_record(simulation_id)
     if not record:
         await sio.emit(
             "npc_chat_error",

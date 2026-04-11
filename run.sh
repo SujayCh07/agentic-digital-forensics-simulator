@@ -5,6 +5,26 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_PID=""
 FRONTEND_PID=""
 
+backend_start_cmd() {
+  if command -v uv >/dev/null 2>&1; then
+    echo "uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000"
+  elif [ -x "$ROOT/backend/.venv/bin/python" ]; then
+    echo "./.venv/bin/python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000"
+  else
+    echo ""
+  fi
+}
+
+frontend_dev_cmd() {
+  if command -v bun >/dev/null 2>&1; then
+    echo "bun dev"
+  elif command -v npm >/dev/null 2>&1; then
+    echo "npm run dev"
+  else
+    echo ""
+  fi
+}
+
 cleanup() {
   trap - EXIT INT TERM HUP
   echo ""
@@ -28,11 +48,21 @@ cleanup() {
 trap cleanup EXIT INT TERM HUP
 
 echo "Starting backend on :8000 …"
-(cd "$ROOT/backend" && uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000) &
+BACKEND_CMD="$(backend_start_cmd)"
+if [ -z "$BACKEND_CMD" ]; then
+  echo "Could not find uv or backend/.venv/bin/python for the backend."
+  exit 1
+fi
+(cd "$ROOT/backend" && eval "$BACKEND_CMD") &
 BACKEND_PID=$!
 
 echo "Starting frontend on :3000 …"
-(cd "$ROOT/frontend" && bun dev) &
+FRONTEND_CMD="$(frontend_dev_cmd)"
+if [ -z "$FRONTEND_CMD" ]; then
+  echo "Could not find bun or npm for the frontend."
+  exit 1
+fi
+(cd "$ROOT/frontend" && eval "$FRONTEND_CMD") &
 FRONTEND_PID=$!
 
 # Wait for either to exit — cleanup handles the rest
