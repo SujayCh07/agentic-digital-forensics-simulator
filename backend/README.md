@@ -1,6 +1,8 @@
-# PolicySim Backend
+# PolicySim + NIPS Backend
 
-FastAPI + LangGraph backend that orchestrates 25 LLM-powered NPC agents simulating reactions to economic policy, with opinion dynamics grounded in peer-reviewed social science.
+FastAPI backend serving two products:
+1. **Policy Sim** — LangGraph pipeline orchestrating 25 LLM-powered NPC agents simulating reactions to economic policy
+2. **NIPS** (Neural Investigative Procedure Simulator) — Gemini-backed forensic investigation agents with streaming chat, tool-calling, and a marketplace
 
 ## Setup
 
@@ -15,16 +17,32 @@ uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 | Variable | Description |
 |----------|-------------|
-| `PROVIDER` | Active provider: `xai`, `k2`, or `gemini` |
-| `XAI_API_KEY` | xAI API key (used when `PROVIDER=xai`) |
-| `K2_API_KEY` | K2 Think API key (used when `PROVIDER=k2`) |
-| `GEMINI_API_KEY` | Gemini API key (used when `PROVIDER=gemini`) |
+| `GEMINI_API_KEY` | **Required** — Gemini API key (also accepts `GOOGLE_API_KEY`) |
+| `MODEL_NAME` | LLM model for policy sim (default: `gemini-2.5-flash`) |
+| `NIPS_MODEL_NAME` | LLM model for NIPS agent chat (default: `gemini-2.5-flash`) |
+| `XAI_API_KEY` | Optional: xAI/Grok API key |
+| `K2_API_KEY` | Optional: K2 Think API key |
+| `OPENAI_API_KEY` | Optional: OpenAI API key |
 
-Provider model mappings are fixed in `config.py`:
+Model selection is based on `MODEL_NAME` content — see `config.py` for routing logic.
 
-- `xai` -> `grok-4.20-non-reasoning` (default), `grok-4-1-fast-non-reasoning` (fast), `grok-4-1-fast-reasoning` (reasoning)
-- `k2` -> `MBZUAI-IFM/K2-Think-v2`
-- `gemini` -> `gemini-3.0-flash`
+## NIPS Agent System
+
+The `nips/` package implements Gemini-backed investigation agents:
+
+| Module | Description |
+|--------|-------------|
+| `nips/models.py` | Pydantic models: `AgentInstance`, `NipsSession`, `EvidenceUpdate`, etc. |
+| `nips/archetypes.py` | LOGIS/NEXUS/FILER/CHRONO archetype definitions |
+| `nips/agent_generator.py` | Unique agent instance generation with traits/pricing |
+| `nips/tools.py` | Investigation tool declarations + execution functions |
+| `nips/scoring.py` | Trait-based performance scoring model |
+| `nips/prompts.py` | Dynamic system prompt builder |
+| `nips/chat.py` | Gemini streaming chat with thinking + tool-calling |
+| `nips/session.py` | In-memory session manager with marketplace |
+| `routers/nips_router.py` | Socket.IO event handlers (`nips_*` prefix) |
+
+All NIPS Socket.IO events use the `nips_` prefix and coexist with policy sim events on the same server.
 
 ## API Endpoints
 
