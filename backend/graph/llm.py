@@ -15,6 +15,7 @@ from typing import Any, TypeVar
 from pydantic import BaseModel
 from openai import AsyncOpenAI
 import os
+import asyncio
 
 from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 
@@ -22,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
+
+llm_semaphore = asyncio.Semaphore(1)
 
 class MockAIResponse:
     def __init__(self, content):
@@ -34,22 +37,23 @@ class ChatOpenAI_Featherless:
         self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         
     async def ainvoke(self, prompt: str) -> MockAIResponse:
-        # Enforcing Featherless Agent Pattern (always include system role + user input)
-        messages = [
-            {"role": "system", "content": "You are a specialized simulation reasoning agent working on a dynamic simulation scenario. Provide accurate structured tracking data and events."},
-            {"role": "user", "content": prompt}
-        ]
-        
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=messages, # type: ignore
-            max_tokens=self.max_tokens
-        )
-        
-        # Featherless REQUIRED: Always extract response.choices[0].message.content
-        output = response.choices[0].message.content
-                
-        return MockAIResponse(content=output)
+        async with llm_semaphore:
+            # Enforcing Featherless Agent Pattern (always include system role + user input)
+            messages = [
+                {"role": "system", "content": "You are a specialized simulation reasoning agent working on a dynamic simulation scenario. Provide accurate structured tracking data and events."},
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages, # type: ignore
+                max_tokens=self.max_tokens
+            )
+            
+            # Featherless REQUIRED: Always extract response.choices[0].message.content
+            output = response.choices[0].message.content
+                    
+            return MockAIResponse(content=output)
 
 # Type alias so other files typing llm: ChatOpenAI don't break during type checking
 ChatOpenAI = ChatOpenAI_Featherless

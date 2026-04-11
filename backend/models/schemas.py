@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, field_validator
 
 from config import MAX_X, MAX_Y
 
@@ -39,6 +39,18 @@ class NPC(BaseModel):
     controversial_ideas: list[str] = Field(default_factory=list)
     x: int = Field(ge=0, le=MAX_X)
     y: int = Field(ge=0, le=MAX_Y)
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def sanitize_role(cls, v: Any) -> str:
+        valid = {"worker", "business_owner", "politician", "student", "retiree", "activist", "farmer", "shopkeeper", "driver"}
+        return v if v in valid else "worker"
+        
+    @field_validator("income_level", mode="before")
+    @classmethod
+    def sanitize_income(cls, v: Any) -> str:
+        valid = {"low", "medium", "high"}
+        return v if v in valid else "medium"
 
 
 class Relationship(BaseModel):
@@ -125,6 +137,14 @@ class PolicyAnalysis(BaseModel):
     economic_impacts: list[str]
     controversy_level: Literal["low", "medium", "high"]
 
+    @field_validator("controversy_level", mode="before")
+    @classmethod
+    def sanitize_controversy(cls, v: Any) -> str:
+        val = str(v).lower()
+        if "low" in val: return "low"
+        if "high" in val: return "high"
+        return "medium"
+
 
 class NPCGenerationResponse(BaseModel):
     """Structured response from the NPC generation LLM call."""
@@ -149,6 +169,14 @@ class NPCEvent(BaseModel):
     to_y: int | None = None
     # mood_shift
     new_mood: str = ""
+
+    @field_validator("event_type", mode="before")
+    @classmethod
+    def sanitize_event_type(cls, v: Any) -> str:
+        valid = {"chat", "move", "protest", "price_change", "mood_shift"}
+        if v in valid:
+            return v
+        return "chat"
 
 
 class NPCRoundResponse(BaseModel):
