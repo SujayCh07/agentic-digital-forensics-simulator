@@ -8,13 +8,21 @@ import { AgentStatusBar } from "@/components/AgentStatusBar";
 import { Dashboard } from "@/components/Dashboard";
 import { EconomicReportModal } from "@/components/EconomicReportModal";
 import { EventFeed } from "@/components/EventFeed";
+import { HelperSelectionPanel } from "@/components/HelperSelectionPanel";
 import { NodeListPanel } from "@/components/NodeListPanel";
 import { NPCInteractionModal } from "@/components/NPCInteractionModal";
 import { TaskAssignmentModal } from "@/components/TaskAssignmentModal";
 import { useInvestigation } from "@/hooks/useInvestigation";
 import { useSimulation } from "@/hooks/useSimulation";
-import type { AgentId } from "@/types/investigation";
+import type { ActiveHelpers, AgentId } from "@/types/investigation";
 import { clearReplayData, getReplayData } from "@/lib/replayStore";
+import {
+  applyCaseRewards,
+  computeCaseRewards,
+  loadProgress,
+  saveProgress,
+  type PlayerProgress,
+} from "@/lib/playerProgress";
 import type { NPCHoverInfo, SimEvent } from "@/types";
 
 const SocialGraph = dynamic(
@@ -155,12 +163,59 @@ function SimulateRouter() {
 }
 
 // ---------------------------------------------------------------------------
-// InvestigateContent — NIPS core gameplay loop
+// InvestigateContent — phase router: team selection → game
 // ---------------------------------------------------------------------------
 
 function InvestigateContent() {
-  const inv = useInvestigation();
+  const [phase, setPhase] = useState<"selecting" | "playing">("selecting");
+  const [activeHelpers, setActiveHelpers] = useState<ActiveHelpers | null>(null);
+  const [progress, setProgress] = useState<PlayerProgress>(() => loadProgress());
+
+  const handleProgressChange = useCallback((p: PlayerProgress) => {
+    setProgress(p);
+    saveProgress(p);
+  }, []);
+
+  const handleConfirm = useCallback((helpers: ActiveHelpers) => {
+    setActiveHelpers(helpers);
+    setPhase("playing");
+  }, []);
+
+  if (phase === "selecting" || !activeHelpers) {
+    return (
+      <HelperSelectionPanel
+        progress={progress}
+        onProgressChange={handleProgressChange}
+        onConfirm={handleConfirm}
+      />
+    );
+  }
+
+  return (
+    <InvestigateGame
+      activeHelpers={activeHelpers}
+      progress={progress}
+      onProgressChange={handleProgressChange}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// InvestigateGame — core gameplay loop (receives confirmed helpers)
+// ---------------------------------------------------------------------------
+
+function InvestigateGame({
+  activeHelpers,
+  progress,
+  onProgressChange,
+}: {
+  activeHelpers: ActiveHelpers;
+  progress: PlayerProgress;
+  onProgressChange: (p: PlayerProgress) => void;
+}) {
+  const inv = useInvestigation(activeHelpers);
   const [showGraph, setShowGraph] = useState(false);
+  const [rewardsShown, setRewardsShown] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [hoverInfo, setHoverInfo] = useState<NPCHoverInfo | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
@@ -386,9 +441,14 @@ function InvestigateContent() {
             </span>
           </div>
           {inv.isComplete && (
-            <span className="text-[9px] font-mono" style={{ color: "#00ff88", textShadow: "0 0 8px rgba(0,255,136,0.5)" }}>
-              CASE CLOSED
-            </span>
+            <button
+              type="button"
+              onClick={() => setRewardsShown(true)}
+              className="text-[9px] font-mono transition-opacity hover:opacity-70"
+              style={{ color: "#00ff88", textShadow: "0 0 8px rgba(0,255,136,0.5)" }}
+            >
+              CASE CLOSED — CLAIM REWARDS →
+            </button>
           )}
           <button
             type="button"
@@ -511,6 +571,107 @@ function InvestigateContent() {
           </div>
         </div>
       )}
+
+      {/* Case Complete — Rewards Modal */}
+      {rewardsShown && inv.isComplete && (
+        <CaseRewardsModal
+          findings={inv.completedFindings}
+          progress={progress}
+          onClose={(updated) => {
+            onProgressChange(updated);
+            setRewardsShown(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CaseRewardsModal
+// ---------------------------------------------------------------------------
+
+function CaseRewardsModal({
+  findings,
+  progress,
+  onClose,
+}: {
+  findings: import("@/types/investigation").AgentResult[];
+  progress: PlayerProgress;
+  onClose: (updated: PlayerProgress) => void;
+}) {
+  const criticalCount = findings.filter((f) => f.severity === "critical").length;
+  const highCount     = findings.filter((f) => f.severity === "high").length;
+  const { credits, reputation } = computeCaseRewards(findings.length, criticalCount, highCount);
+  const updated = applyCaseRewards(progress, credits, reputation);
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.80)" }}
+    >
+      <div className="rpg-panel flex flex-col" style={{ width: 420 }}>
+        {/* Header */}
+        <div className="px-5 py-4" style={{ borderBottom: "1px solid #1e3d5a" }}>
+          <div className="text-[11px] font-mono font-bold" style={{ color: "#00ff88", textShadow: "0 0 10px rgba(0,255,136,0.4)" }}>
+            ◈ CASE CLOSED
+          </div>
+          <div className="text-[8px] font-mono uppercase tracking-widest mt-0.5" style={{ color: "#2a5070" }}>
+            Investigation complete — rewards issued
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div className="px-5 py-4 flex flex-col gap-2">
+          {[
+            { label: "Total findings", value: findings.length },
+            { label: "Critical findings", value: criticalCount },
+            { label: "High findings", value: highCount },
+          ].map(({ label, value }) => (
+            <div key={label} className="flex items-center justify-between">
+              <span className="text-[8px] font-mono" style={{ color: "#4a6580" }}>{label}</span>
+              <span className="text-[9px] font-mono tabular-nums" style={{ color: "#c9d8e8" }}>{value}</span>
+            </div>
+          ))}
+          <div className="mt-2 pt-2" style={{ borderTop: "1px solid #1e3d5a" }}>
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-mono" style={{ color: "#00ff88" }}>Credits earned</span>
+              <span className="text-[11px] font-mono font-bold tabular-nums" style={{ color: "#00ff88" }}>
+                +{credits.toLocaleString()}₡
+              </span>
+            </div>
+            <div className="flex items-center justify-between mt-1">
+              <span className="text-[8px] font-mono" style={{ color: "#b06fff" }}>Reputation</span>
+              <span className="text-[9px] font-mono tabular-nums" style={{ color: "#b06fff" }}>+{reputation}</span>
+            </div>
+          </div>
+          <div className="mt-2 pt-2 flex items-center justify-between" style={{ borderTop: "1px solid #1e3d5a" }}>
+            <span className="text-[8px] font-mono" style={{ color: "#2a5070" }}>Total balance</span>
+            <span className="text-[10px] font-mono tabular-nums" style={{ color: "#00ff88" }}>
+              {updated.credits.toLocaleString()}₡
+            </span>
+          </div>
+        </div>
+
+        <div className="px-5 py-3 flex justify-between items-center" style={{ borderTop: "1px solid #1e3d5a" }}>
+          <span className="text-[7px] font-mono" style={{ color: "#1e3d5a" }}>
+            Spend credits to upgrade helpers before next case
+          </span>
+          <button
+            type="button"
+            onClick={() => onClose(updated)}
+            className="px-4 py-1.5 text-[9px] font-mono rounded transition-all"
+            style={{
+              background: "rgba(0,212,255,0.12)",
+              border: "1px solid #00d4ff",
+              color: "#00d4ff",
+              boxShadow: "0 0 10px rgba(0,212,255,0.15)",
+            }}
+          >
+            CONTINUE →
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

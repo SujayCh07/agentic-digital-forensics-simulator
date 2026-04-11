@@ -33,12 +33,15 @@ import {
   INITIAL_AGENTS,
   TASK_RESULTS,
 } from "@/data/case_midnight_exfil";
+import { DEFAULT_ACTIVE_HELPERS } from "@/data/helpers";
 import { getCapableAgent, resolveIntent } from "@/lib/intentResolver";
 import type {
+  ActiveHelpers,
   AgentDefinition,
   AgentId,
   AgentResult,
   CaseSystemNode,
+  Helper,
   Task,
   TaskType,
 } from "@/types/investigation";
@@ -49,9 +52,9 @@ import type { GraphData } from "./useSimulation";
 // Constants
 // ---------------------------------------------------------------------------
 
-const MOVE_DURATION    = 2000;   // ms agent spends "moving"
-const EXECUTE_DURATION = 1500;   // ms agent spends "executing"
-const REPORT_DURATION  = 800;    // ms agent spends "reporting"
+const MOVE_DURATION        = 2000;   // ms agent spends "moving"
+const BASE_EXECUTE_DURATION = 1500;   // ms base; scaled by helper efficiency
+const REPORT_DURATION      = 800;    // ms agent spends "reporting"
 const MAX_FEED_EVENTS  = 200;
 const PRESSURE_INTERVAL_MS = 45_000; // 45 seconds per pressure tick
 
@@ -140,6 +143,48 @@ function getCommentary(agentId: AgentId, key: CommentaryKey): string {
 }
 
 // ---------------------------------------------------------------------------
+// Helper stat helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Execution duration for a given agent, scaled by helper efficiency.
+ * Efficiency 0.5 → ~1.5× base duration; efficiency 1.0 → ~0.8× (snappy).
+ */
+function getExecuteDuration(helper: Helper | undefined): number {
+  if (!helper) return BASE_EXECUTE_DURATION;
+  // efficiency 0.5→factor 1.5, 0.9→factor 0.9
+  return Math.round(BASE_EXECUTE_DURATION * (1.9 - helper.efficiency));
+}
+
+/** Low-quality vague summaries for rookie helpers (accuracy < 0.65). */
+function degradeSummary(severity: AgentResult["severity"]): string {
+  if (severity === "critical") return "Significant anomaly detected at this node. Full details unclear — analyst confidence low.";
+  if (severity === "high") return "Unusual activity observed. Partial indicators found. Further analysis recommended.";
+  if (severity === "medium") return "Minor irregularity noted. Could be noise. Inconclusive.";
+  return "No clear indicators found at this node with current tools.";
+}
+
+/**
+ * Apply helper accuracy to a result:
+ * - Scales confidence down proportionally
+ * - If accuracy < 0.65: replaces summary with vague text, truncates details
+ */
+function applyHelperAccuracy(result: AgentResult, helper: Helper | undefined): AgentResult {
+  if (!helper) return result;
+  const acc = helper.accuracy;
+  const degraded = acc < 0.65;
+
+  return {
+    ...result,
+    confidence: Math.round(Math.min(result.confidence, result.confidence * acc + 0.08) * 100) / 100,
+    summary: degraded ? degradeSummary(result.severity) : result.summary,
+    details: degraded
+      ? `${result.details.substring(0, Math.floor(result.details.length * 0.55))} ... [analyst confidence low — upgrade helper for complete data]`
+      : result.details,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Metric update
 // ---------------------------------------------------------------------------
 
@@ -177,6 +222,8 @@ function getBridge() {
 // ---------------------------------------------------------------------------
 
 export interface InvestigationHookReturn {
+  /** Active helpers used this case (one per role) */
+  activeHelpers: ActiveHelpers;
   // Evidence feed + metrics (compatible with existing UI components)
   events:          SimEvent[];
   metrics:         SimMetrics;
@@ -220,7 +267,9 @@ export interface InvestigationHookReturn {
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useInvestigation(): InvestigationHookReturn {
+export function useInvestigation(
+  activeHelpers: ActiveHelpers = DEFAULT_ACTIVE_HELPERS,
+): InvestigationHookReturn {
   const [agents,            setAgents]            = useState<AgentDefinition[]>(INITIAL_AGENTS);
   const [systemNodes,       setSystemNodes]        = useState<CaseSystemNode[]>(CASE_NODES);
   const [activeTasks,       setActiveTasks]        = useState<Task[]>([]);
@@ -431,7 +480,7 @@ export function useInvestigation(): InvestigationHookReturn {
         setAgents(prev => prev.map(a =>
           a.id === agentId ? { ...a, status: "idle", currentTaskId: undefined } : a,
         ));
-      }, EXECUTE_DURATION);
+      }, getExecuteDuration(activeHelpers[agentId]));
 
       timeoutsRef.current.push(t2);
     }, MOVE_DURATION * 0.6);
@@ -498,11 +547,11 @@ export function useInvestigation(): InvestigationHookReturn {
       });
 
       const t2 = setTimeout(() => {
-        // Look up pre-written result
+        // Look up pre-written result; apply helper accuracy scaling
         const key = `${nodeId}:${taskType}`;
         const template = TASK_RESULTS[key] ?? { ...FALLBACK_RESULT, nodeId, nodeName: node.name, taskType };
-
-        const result: AgentResult = { ...template, agentId, agentName: agent.name };
+        const rawResult: AgentResult = { ...template, agentId, agentName: agent.name };
+        const result = applyHelperAccuracy(rawResult, activeHelpers[agentId]);
 
         // Update node with finding reference
         setSystemNodes(prev => prev.map(n =>
@@ -609,7 +658,7 @@ export function useInvestigation(): InvestigationHookReturn {
           ));
         }, REPORT_DURATION);
         timeoutsRef.current.push(t3);
-      }, EXECUTE_DURATION);
+      }, getExecuteDuration(activeHelpers[agentId]));
       timeoutsRef.current.push(t2);
     }, MOVE_DURATION);
     timeoutsRef.current.push(t1);
@@ -649,6 +698,7 @@ export function useInvestigation(): InvestigationHookReturn {
   }, [runFailure, runTask]);
 
   return {
+    activeHelpers,
     events,
     metrics,
     metricsHistory,

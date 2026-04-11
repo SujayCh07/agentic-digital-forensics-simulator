@@ -1,6 +1,25 @@
 // NIPS — Investigation domain types
 
 // ---------------------------------------------------------------------------
+// Helper / progression system
+// ---------------------------------------------------------------------------
+
+export interface Helper {
+  id: string;
+  name: string;
+  role: AgentId;
+  level: number;        // 1 = rookie, 2 = veteran
+  efficiency: number;   // 0.4–1.0 → scales task execution speed
+  accuracy: number;     // 0.4–1.0 → scales result confidence + detail quality
+  cost: number;         // player credits required to unlock
+  unlocked: boolean;
+  description: string;
+}
+
+/** One active helper selected per role for the current case */
+export type ActiveHelpers = Record<AgentId, Helper>;
+
+// ---------------------------------------------------------------------------
 // Agent system
 // ---------------------------------------------------------------------------
 
