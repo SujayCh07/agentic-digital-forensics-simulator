@@ -1,317 +1,284 @@
-# AGORA — Agent-based Governance and Outcome Response Analysis
+# ECHO — A Digital Forensics City Simulator
 
-> Simulate how economic policy cascades through society — from government decree to street-level life — in a living pixel-art city.
+> Every cyberattack leaves behind an echo. Find it before it fades.
 
 ---
 
 ## Concept
 
-Input a real-world economic policy (500–1000 words). AGORA spins up 20 AI agents representing every layer of society — government, corporations, small businesses, media, unions, NGOs, and households — and simulates 9 months of cascading reactions across three phases. Watch it unfold in a top-down pixel city: chat bubbles, protests, price spikes, hiring freezes, strikes.
+You inherit a city that already exists — and something has gone wrong. Every building is a machine, every road is a network connection, every citizen is a running process. Your job isn't to build the city. It's to figure out what happened to it.
+
+ECHO is an interactive investigation game where a noir isometric city represents a living digital system. Players act as forensic investigators: exploring buildings (machines), following glowing roads (network traffic), and recovering hidden artifacts to reconstruct how an attack spread. A swarm of AI specialist agents — each embodied as an NPC in the city — collaboratively reconstruct the past in real time.
 
 **Target Prizes:**
-- K2 Think V2 (Best Use) — K2 is the core reasoning engine, not a side call
-- Societal Impact / ASUS — framing: tool for policymakers to stress-test decisions
-- Best UI/UX — the visual sim is the differentiator
+- Best Game Jam Track — fully playable, complete loop
+- Best Digital Forensics (Cipher Tech) — teaches 4+ real forensics concepts
+- Best Gamification — turns forensics into a game loop
+- Best UI/UX — noir isometric city is visually stunning
+- Best Moonshot — nobody has built this before
+- Best Use of AI (Featherless.ai) — all specialist agents powered by open-source LLMs via Featherless
+- Best Data Visualization (Peraton) — the city IS the data visualization
+
+---
+
+## The Mapping
+
+| City Element | Forensics Equivalent |
+|---|---|
+| Buildings | Individual machines / servers |
+| Roads | Network connections |
+| Power grid | System dependencies |
+| Citizens | Running processes |
+| Abandoned buildings | Deleted / corrupted files |
+| Graffiti | Malware signatures |
+| Security cameras | System logs |
+| City archives | Registry artifacts |
+| Underground tunnels | Hidden / encrypted partitions |
+| Blackouts | Denial-of-service events |
+| Delivery trucks (odd hours) | Suspicious network traffic |
+| City timeline scrubber | Event log reconstruction |
 
 ---
 
 ## Tech Stack
 
-| Layer     | Tech                                      |
-|-----------|-------------------------------------------|
-| Frontend  | Phaser 3, Next.js, Bun                    |
-| Backend   | FastAPI, LangGraph, Python                |
-| LLM       | K2 Think V2 (via API) — primary reasoning |
-| Assets    | Kenney RPG Urban Pack (CC0, 16×16 px)    |
-| Map Tool  | Tiled Map Editor → JSON → Phaser Tilemap  |
+| Layer | Tech |
+|---|---|
+| Frontend | Phaser 3, Next.js, Bun |
+| Backend | FastAPI, LangGraph, Python |
+| LLM | Featherless.ai (OpenAI-compatible) — open-source models |
+| Assets | Kenney RPG Urban Pack (CC0, 16×16 px) |
+| Map Tool | Tiled Map Editor → JSON → Phaser Tilemap |
 
-**Tileset:** [Kenney RPG Urban Pack](https://kenney.nl/assets/rpg-urban-pack) — CC0, 480 tiles, 16×16, top-down city with buildings, roads, NPCs, vehicles. Direct download: `kenney_rpg-urban-pack.zip`
+**LLM Provider:** [Featherless.ai](https://featherless.ai) — drop-in OpenAI-compatible API serving hundreds of open-source models. Configured via `FEATHERLESS_API_KEY` + `MODEL_NAME` in backend `.env`.
 
----
-
-## Agent Roster
-
-### Production (20 Agents)
-
-#### Government Layer (2)
-| ID | Name | Role |
-|----|------|------|
-| `gov_federal` | Federal Government | Enacts policy, controls fiscal levers |
-| `gov_central_bank` | Central Bank | Controls monetary policy, interest rates |
-
-#### Corporate Layer (7)
-| ID | Name | Sector |
-|----|------|--------|
-| `corp_manufacturing` | NorthAm Manufacturing | Auto / Industrial |
-| `corp_retail` | RetailGiant | Big-box retail |
-| `corp_tech` | TechCo | Software / Hardware |
-| `corp_energy` | EnergyCo | Utilities / Oil |
-| `sme_shop` | Corner Shop | Small retail |
-| `sme_restaurant` | Main St. Diner | Food service |
-| `sme_contractor` | Local Contractor | Trades / Services |
-
-#### Civil Society (3)
-| ID | Name | Role |
-|----|------|------|
-| `media_outlet` | The Daily Pulse | News — shapes perception |
-| `labor_union` | Workers United | Wage negotiation, strikes |
-| `ngo_advocacy` | Community First | Housing / poverty advocacy |
-
-#### Households (8)
-| ID | Name | Bracket |
-|----|------|---------|
-| `hh_hnw_1` | The Castellanos | High net worth — investor |
-| `hh_hnw_2` | The Hargroves | High net worth — executive |
-| `hh_mc_1` | The Nguyens | Middle class — professional |
-| `hh_mc_2` | The Petersons | Middle class — teacher |
-| `hh_mc_3` | The Okafor family | Middle class — skilled worker |
-| `hh_lm_1` | The Garcias | Lower-middle — service worker |
-| `hh_poor_1` | The Washingtons | Low income — part-time |
-| `hh_poor_2` | The Mirzas | Low income — gig / immigrant |
+**Recommended models:**
+| Use Case | Model |
+|---|---|
+| Analyst reasoning | `meta-llama/Llama-3.3-70B-Instruct` |
+| Fast inference | `mistralai/Mistral-7B-Instruct-v0.3` |
+| Evidence synthesis | `deepseek-ai/DeepSeek-R1-Distill-Llama-70B` |
 
 ---
 
-### Testing (10 Agents — subset)
+## Gameplay Loop
 
-`gov_federal`, `gov_central_bank`, `corp_manufacturing`, `corp_retail`, `sme_shop`, `media_outlet`, `labor_union`, `hh_hnw_1`, `hh_mc_1`, `hh_poor_1`
+### 1. The Incident Report
+You arrive as a newly appointed digital forensics investigator. The mayor (your client) tells you something happened last night — a building burned down, money is missing, a citizen vanished. You have 10 in-game hours to solve it before evidence degrades.
 
----
+### 2. Explore the City
+Click any building to enter and inspect:
+- **Visitor records** — file access logs with entry/exit timestamps
+- **Abandoned rooms** — recoverable deleted files (file carving)
+- **Graffiti on walls** — steganographic messages hidden in images
+- **City hall archives** — registry artifacts showing ownership chains
 
-## Agent Attributes
+### 3. Follow the Network Roads
+Trace suspicious traffic between buildings. Glowing roads pulse with activity; delivery trucks moving at 3AM are leads. Infected roads bleed red corruption into adjacent streets.
 
-### Base (all agents)
-```python
-id:                str       # unique slug
-name:              str       # display name
-agent_type:        str       # "government" | "central_bank" | "large_corp" | ...
-sentiment:         float     # -1.0 (hostile/suffering) → 1.0 (thriving/content)
-trust_government:  float     # 0.0 → 1.0
-social_influence:  float     # 0.0 → 1.0  (weight on others' sentiment each cycle)
-relationships:     dict      # {agent_id: float}  -1 (rival) → 1 (ally)
-memory:            list[str] # ring buffer, last 10 events/messages received
-```
+### 4. Reconstruct the Timeline
+A timeline bar at the bottom lets you scrub through the city's past. Watch buildings light up as events happened, spot anomalies, and find the exact moment the attack propagated from node to node.
 
-### Economic Base (most agents)
-```python
-wealth:           float  # current assets ($)
-monthly_income:   float
-monthly_expenses: float
-```
-
-### Federal Government
-```python
-approval_rating:         float  # 0.0 → 1.0
-tax_revenue_monthly:     float
-public_budget_monthly:   float
-deficit_monthly:         float
-policy_stance:           str    # "expansionary" | "neutral" | "contractionary"
-```
-
-### Central Bank
-```python
-interest_rate:        float  # % (e.g. 5.25)
-inflation_rate:       float  # current observed %
-inflation_target:     float  # target % (default 2.0)
-money_supply_growth:  float  # % YoY
-monetary_stance:      str    # "dovish" | "neutral" | "hawkish"
-```
-
-### Large Corporation
-```python
-revenue_monthly:        float
-profit_margin:          float  # %
-employees:              int
-sector:                 str
-supply_chain_exposure:  float  # 0-1, how much policy affects input costs
-price_pass_through:     float  # 0-1, ability to raise prices on consumers
-lobbying_budget:        float
-hiring_rate:            float  # % per month; negative = layoffs
-```
-
-### SME (Small/Medium Enterprise)
-```python
-revenue_monthly:   float
-profit_margin:     float
-employees:         int
-sector:            str
-debt_ratio:        float  # debt / assets
-resilience:        float  # 0-1; if < 0.2 → closure event triggers
-local_dependency:  float  # 0-1, tied to local consumer spending
-```
-
-### Media
-```python
-audience_reach:   float  # 0-1, fraction of agents reached per cycle
-political_bias:   float  # -1.0 (progressive) → 1.0 (conservative)
-credibility:      float  # 0-1; scales influence weight
-ad_revenue:       float
-```
-
-### Labor Union
-```python
-membership:           int
-negotiating_power:    float  # 0-1
-current_wage_demand:  float  # % increase demanded this cycle
-strike_probability:   float  # 0-1; if > 0.7 → strike event triggers
-```
-
-### NGO / Advocacy
-```python
-cause:              str    # "housing" | "poverty" | "environment"
-public_support:     float  # 0-1
-campaign_intensity: float  # 0-1
-funding:            float
-```
-
-### Household
-```python
-income_bracket:      str    # "high" | "middle" | "lower_middle" | "poor"
-annual_income:       float
-dependents:          int
-employment_status:   str    # "employed" | "unemployed" | "self_employed" | "retired"
-employer_id:         str    # agent_id of employing corporation (if employed)
-savings_rate:        float  # % of income saved monthly
-debt_ratio:          float  # total debt / annual income
-consumer_confidence: float  # 0-1
-price_sensitivity:   float  # 0-1; high = spending cuts sharply when prices rise
-```
+### 5. Make Your Case
+Gather evidence, identify the origin building, trace the attack path, name the responsible process. Submit to the judge (courtroom scene) and get scored on accuracy, speed, and completeness.
 
 ---
 
-## Simulation: Three-Phase Cascade (9 Months)
+## The AI Layer — Specialist Agents
 
-One full simulation = 9 simulated months across 3 phases.
-Each phase = 3 months = 3 LangGraph cycles (1 cycle per simulated month).
+Four specialist NPCs walk the city, independently investigating. They share findings with ECHO, the central intelligence, who builds an evolving hypothesis the player can query.
 
----
+| Agent | Role | City Behavior |
+|---|---|---|
+| **LOGIS** | Log Analyst | Moves between security cameras, reads timestamps, flags anomalies |
+| **NEXUS** | Network Analyst | Walks the roads, tracks traffic patterns, identifies lateral movement |
+| **FILER** | File Analyst | Enters abandoned buildings, recovers deleted files, detects tampering |
+| **CHRONO** | Timeline Analyst | Stationed at the archive, sequences events into causal chains |
 
-### Phase 1 — Immediate Shock (Months 1–3)
+**ECHO** (central AI) aggregates findings into a hypothesis panel. The player can ask natural language questions:
+- *"Which buildings had activity after midnight?"*
+- *"Where did the corruption first appear?"*
+- *"What does FILER think about the warehouse?"*
 
-**What happens:**
-1. **Policy Ingestion** — K2 Think V2 parses the input policy text into structured parameters: affected sectors, cost impact %, timeline, enforcement mechanisms
-2. **Government Broadcast** — `gov_federal` sends policy announcement to all agents
-3. **Media Interpretation** — `media_outlet` filters through its `political_bias`, amplifies to its `audience_reach`; households and SMEs update `trust_government` and `sentiment`
-4. **Corporate Threat Assessment** — each large corp computes `cost_delta = supply_chain_exposure × policy_cost_impact`; signals price adjustment intent
-5. **Household Sentiment Shift** — households absorb news via media weight × credibility; `consumer_confidence` drops proportional to negative news
-6. **Central Bank Hold** — `gov_central_bank` observes but holds rates; monitors inflation signal
-
-**K2 role:** Interprets raw policy text → structured JSON parameters; generates each agent's first-person reaction message
-
-**Outputs:** Initial sentiment map, price-intent signals, consumer confidence delta
-
----
-
-### Phase 2 — Market Adjustment (Months 4–6)
-
-**What happens:**
-1. **Price Implementation** — corps execute price changes: `new_price_index += cost_delta × price_pass_through`
-2. **Employment Shifts** — corps adjust `hiring_rate` based on margin squeeze; households with `employer_id = corp_X` update `employment_status` if layoff threshold crossed
-3. **SME Squeeze** — SMEs face dual pressure: supplier cost increases + reduced consumer spending. `resilience -= stress_factor`; if `resilience < 0.2` → **closure event**
-4. **Wage Negotiation** — `labor_union` escalates `current_wage_demand` proportional to inflation and layoff rate; corps accept or reject; if rejected, `strike_probability` rises
-5. **Consumer Retrenchment** — households reduce spending based on `price_sensitivity × price_index_change`; lower income brackets feel more impact
-6. **Monetary Response** — `gov_central_bank` adjusts `interest_rate` based on observed inflation signal; stance shifts
-
-**K2 role:** Generates each agent's internal reasoning and outbound message per cycle; decides negotiation outcomes with multi-step reasoning
-
-**Outputs:** Price index, unemployment delta, SME closures count, interest rate shift
-
----
-
-### Phase 3 — Societal Cascade (Months 7–9)
-
-**What happens:**
-1. **Threshold Events** — accumulated stress triggers discrete events:
-   - `strike_probability > 0.70` → **Strike event**: corps lose revenue, union gains power
-   - `sme.resilience < 0.20` → **Business closure**: local unemployment spikes
-   - `household.sentiment < -0.60` (3+ households) → **Protest event**: visible in city
-   - `gov_federal.approval_rating < 0.30` → **Policy reversal signal**: government agent re-evaluates
-2. **NGO Activation** — `ngo_advocacy` ramps `campaign_intensity` proportional to poverty indicators; generates public pressure on government
-3. **Media Cascade** — media covers threshold events; `audience_reach` boosts for event cycles; feedback loop amplifies sentiment shifts
-4. **Government Response** — `gov_federal` K2 reasoning considers approval_rating + NGO pressure + media tone → may issue policy amendments, relief packages, or double down
-5. **Final Stabilization** — agents settle into new equilibrium
-
-**K2 role:** Most critical phase — multi-agent reasoning chains; government counterfactual analysis; protest/strike outcome modeling
-
-**Output Metrics Dashboard:**
-| Metric | Description |
-|--------|-------------|
-| Price Index | Avg % price change across corps |
-| Unemployment Rate | % of household agents unemployed |
-| Social Unrest Index | Mean negative sentiment score |
-| Business Survival Rate | % of SMEs still operating |
-| Government Approval | `gov_federal.approval_rating` |
-| Interest Rate | `gov_central_bank.interest_rate` |
+ECHO occasionally flags anomalies she can't explain — the player must investigate why. She sometimes gives wrong leads (red herrings), mirroring how real AI tools need human verification. Her **confidence meter** updates in real time as evidence accumulates.
 
 ---
 
 ## LangGraph Architecture
 
 ```
-Policy Input
-     ↓
-[K2 Parser Node] → structured policy params
-     ↓
-[Orchestrator Node] — broadcasts to all agents
-     ↓
-┌────────────────────────────────────┐
-│  Agent Subgraphs (parallel)        │
-│  gov → bank → corps → sme →        │
-│  media → union → ngo → households  │
-└────────────────────────────────────┘
-     ↓
-[Aggregator Node] — collects messages, computes metrics
-     ↓
-[State Update Node] — updates all agent attributes
-     ↓
-[Event Check Node] — fires threshold events
-     ↓
-[Phase Gate] — next month or next phase
-     ↓
-[Dashboard Output] + [Frontend SSE Stream]
+Incident Scenario Load
+        ↓
+[Scenario Parser] → structured evidence graph + hidden ground truth
+        ↓
+[ECHO Orchestrator] — distributes investigation tasks to agents
+        ↓
+┌──────────────────────────────────────────┐
+│  Specialist Agent Subgraphs (parallel)   │
+│  LOGIS → NEXUS → FILER → CHRONO         │
+└──────────────────────────────────────────┘
+        ↓
+[Evidence Aggregator] — merges findings, scores confidence
+        ↓
+[Hypothesis Node] — builds / updates current theory
+        ↓
+[Red Herring Node] — occasionally injects plausible false leads
+        ↓
+[Player Query Handler] — natural language Q&A via ECHO
+        ↓
+[Frontend WebSocket Stream] — city animations + agent NPC movement
 ```
 
 ---
 
-## Frontend: Pixel City
+## Frontend: Noir Isometric City
 
 **Engine:** Phaser 3
-**Tileset:** Kenney RPG Urban Pack (CC0) — roads, buildings, sidewalks, cars, NPCs
-**Map:** Built in Tiled, exported as JSON
+**Tileset:** Kenney RPG Urban Pack (CC0) — roads, buildings, sidewalks, vehicles, NPCs
+**Map:** Built in Tiled, exported as JSON, rendered isometric
 
-| Entity | Sprite | Behavior |
-|--------|--------|----------|
-| Households | Walking NPCs | Roam streets; protest when sentiment < -0.6 |
-| SMEs | Storefront buildings | Door closes / "CLOSED" sign on closure event |
-| Corps | Large office buildings | Hiring banner / layoff notice overlay |
-| Government | City hall building | Flag color shifts with approval rating |
-| Media | Billboard / broadcast tower | Flashes headlines |
-| Union | Town square | Workers gather during strike event |
-| Chat bubbles | Above any agent | Shows K2-generated reaction message |
+| Entity | Visual | Behavior |
+|---|---|---|
+| Machines | Dark office buildings | Pulse with data activity; glow red when infected |
+| Specialist NPCs | Walking investigators | Move to points of interest; emit thought bubbles |
+| Network roads | Glowing streets | Pulse with traffic; red bleed when corrupted |
+| Logs | Security camera overlays | Timestamp feeds visible on building inspect |
+| Deleted files | Abandoned, dark buildings | Partially lit when file carving recovers data |
+| Malware signatures | Graffiti overlays | Spray-paint style; reveals on building inspect |
+| Timeline | Bottom scrubber bar | Scrub past; buildings light up on event timestamps |
+| ECHO panel | Side HUD | Chat interface + confidence meter + hypothesis feed |
 
-**Event animations:**
-- Protest: NPC sprites cluster at government building with placard sprites
-- Strike: Workers gather outside factory, picketing
-- Business closure: Storefront darkens, "CLOSED" overlay
-- Price spike: $ counter floats up from shop
+**Visual language:**
+- Healthy systems: cool blue glow, steady pulse
+- Infected systems: red bleed, flickering, screen-tear effect
+- Recovered evidence: buildings light up clean and whole
+- Attack propagation: red corruption animation spreading road to road
+
+---
+
+## Forensics Mechanics
+
+| Mechanic | Description | Real Skill Taught |
+|---|---|---|
+| **File carving** | Recover data from abandoned buildings | Recovering deleted files from disk images |
+| **Steganography** | Decode graffiti to find hidden messages | LSB steganography, image analysis |
+| **Traffic analysis** | Follow suspicious delivery trucks | Network packet analysis, lateral movement |
+| **Log correlation** | Cross-reference camera timestamps | SIEM log correlation, timeline reconstruction |
+| **Registry forensics** | Read city hall ownership records | Windows registry artifact analysis |
+| **Timeline reconstruction** | Scrub events to find patient zero | Digital timeline construction, event ordering |
+
+---
+
+## Scenario Structure
+
+Each scenario is a self-contained mystery. The backend generates (or loads) a structured evidence graph:
+
+```python
+scenario: {
+  name:          str          # "The Midnight Exfiltration"
+  incident:      str          # Mayor's briefing text
+  ground_truth:  dict         # hidden: origin_node, attack_path, payload_type
+  evidence_nodes: list[Node]  # buildings with embedded clues
+  network_graph:  list[Edge]  # road connections + traffic metadata
+  timeline:       list[Event] # timestamped events (real + decoy)
+  red_herrings:   list[Clue]  # plausible but false leads
+}
+```
+
+**Included scenarios (MVP):**
+1. *The Midnight Exfiltration* — ransomware lateral movement, 6-node network
+2. *Ghost in the Grid* — insider threat covering tracks via log deletion
+
+---
+
+## Featherless.ai Integration
+
+```python
+# backend/services/llm.py
+from langchain_openai import ChatOpenAI
+
+def get_llm(model: str = None) -> ChatOpenAI:
+    return ChatOpenAI(
+        model=model or settings.MODEL_NAME,
+        openai_api_key=settings.FEATHERLESS_API_KEY,
+        openai_api_base="https://api.featherless.ai/v1",
+        temperature=0.3,
+    )
+```
+
+```env
+# backend/.env
+FEATHERLESS_API_KEY=fl-...
+MODEL_NAME=meta-llama/Llama-3.3-70B-Instruct
+```
+
+Each specialist agent can run a different model — CHRONO (timeline) uses a reasoning-heavy model; LOGIS (log scan) uses a faster one for throughput.
+
+---
+
+## 36-Hour Milestones
+
+| Hour Range | Milestone |
+|---|---|
+| 0–4 | Isometric grid renders, 5–6 building types, click to inspect |
+| 4–10 | Log system, timeline scrubber, network road connections |
+| 10–16 | 3 forensics mechanics: file carving, steganography, traffic analysis |
+| 16–22 | ECHO AI integration + specialist NPC agents, Scenario 1 playable end-to-end |
+| 22–30 | Corruption spread animation, sound design, courtroom verdict scene |
+| 30–36 | Bug fixes, demo prep, Scenario 2 if time allows |
+
+---
+
+## LangGraph Node Map
+
+```
+[load_scenario]
+      ↓
+[orchestrate_agents]  ←──────────────────────────────────┐
+      ↓                                                   │
+┌─────────────┬──────────────┬────────────┬────────────┐  │
+│ logis_node  │ nexus_node   │ filer_node │ chrono_node│  │
+│ (log scan)  │ (net traffic)│ (file carve│ (timeline) │  │
+└──────┬──────┴──────┬───────┴─────┬──────┴─────┬──────┘  │
+       └─────────────┴─────────────┴────────────┘         │
+                         ↓                                │
+               [aggregate_evidence]                       │
+                         ↓                                │
+               [update_hypothesis]                        │
+                         ↓                                │
+               [inject_red_herrings]  (probabilistic)     │
+                         ↓                                │
+               [stream_to_frontend]                       │
+                         ↓                                │
+               [await_player_action] ──── new clue found──┘
+                         ↓
+               [handle_player_query]  (ECHO Q&A)
+                         ↓
+               [evaluate_accusation]  (final verdict)
+```
 
 ---
 
 ## Demo Script (90 seconds for judges)
 
-1. Paste: *"The government imposes a 25% tariff on all imported steel and aluminum, effective immediately, with no exemptions."*
-2. K2 parses → parameters appear on screen
-3. Phase 1 plays: chat bubbles from corps ("Our input costs just jumped 25%"), households ("Prices are going up again...")
-4. Phase 2: factory storefront flashes "LAYOFFS", Corner Shop sentiment goes red
-5. Phase 3: NPCs cluster in protest, Corner Shop shows "CLOSED"
-6. Dashboard shows: Price Index +18%, Unemployment +4.2%, Approval Rating -31%
-7. Show counterfactual: replay with a subsidy policy → compare outcome
+1. **Show the city** — noir, rainy, neon-lit. Buildings pulse with data. One district glows red and "bleeding."
+2. **Read the incident** — *"Last night, 40GB of source code left this city. Find where it started."*
+3. **Click a building** — inspect logs, see suspicious 3AM access entry, visitor ID flagged.
+4. **Follow a road** — delivery truck crosses three dark blocks at odd hours; truck trail glows red.
+5. **Open an abandoned building** — file carving recovers a partial document; FILER pings ECHO.
+6. **Ask ECHO** — *"Where did the attack originate?"* — confidence meter jumps to 74%, ECHO names a suspect building.
+7. **Submit accusation** — courtroom scene, verdict, accuracy score appears.
 
 ---
 
 ## Prize Positioning
 
 | Prize | Argument |
-|-------|----------|
-| **K2 Think V2** | K2 is the entire reasoning backbone — every agent message, negotiation, event outcome, and policy parse runs through K2. Non-trivial multi-step simulation reasoning. |
-| **Societal Impact** | Gives policymakers, journalists, and educators a tool to visualize second-order effects of economic decisions before they're enacted. |
-| **Best UI/UX** | A living pixel city that reacts to policy in real time is not something judges have seen before. |
+|---|---|
+| **Best Game Jam** | Fully playable mystery loop — investigate, deduce, accuse, score |
+| **Cipher Tech Forensics** | 6 real forensics mechanics implemented: file carving, steg, traffic analysis, log correlation, registry, timeline |
+| **Best Gamification** | Turns invisible technical process into spatial, interactive narrative |
+| **Best UI/UX** | Noir isometric city with corruption spread and evidence lighting is visually arresting |
+| **Best Moonshot** | No one has built a forensics investigation city sim before |
+| **Featherless.ai** | Entire multi-agent intelligence layer (4 specialists + ECHO) runs on open-source models via Featherless |
+| **Peraton Data Viz** | The city IS the data visualization — every pixel encodes real forensics state |
