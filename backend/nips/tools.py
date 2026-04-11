@@ -66,6 +66,31 @@ _NODE_DATA: dict[str, dict[str, Any]] = {
     },
 }
 
+_NODE_ALIASES: dict[str, str] = {}
+for _nid, _nd in _NODE_DATA.items():
+    _NODE_ALIASES[_nid.lower()] = _nid
+    _NODE_ALIASES[_nd["name"].lower()] = _nid
+    for _word in _nd["name"].lower().split():
+        if len(_word) > 2:
+            _NODE_ALIASES[_word] = _nid
+# Frontend uses WKS-03 for the workstation, backend data uses WS-03
+_NODE_ALIASES["wks-03"] = "WS-03"
+_NODE_ALIASES["workstation alpha"] = "WS-03"
+
+
+def resolve_node_id(raw: str) -> str:
+    """Try to resolve a natural-language node reference to a real node ID."""
+    if raw in _NODE_DATA:
+        return raw
+    lower = raw.lower().strip()
+    if lower in _NODE_ALIASES:
+        return _NODE_ALIASES[lower]
+    for alias, nid in _NODE_ALIASES.items():
+        if alias in lower or lower in alias:
+            return nid
+    return raw
+
+
 _KNOWN_CONNECTIONS: list[dict[str, str]] = [
     {"source": "WS-03", "target": "MAIL-01", "type": "SSH lateral"},
     {"source": "WS-03", "target": "DB-02", "type": "SSH tunnel"},
@@ -84,11 +109,11 @@ _KNOWN_CONNECTIONS: list[dict[str, str]] = [
 TOOL_DECLARATIONS: list[dict[str, Any]] = [
     {
         "name": "inspect_logs",
-        "description": "Inspect system/service/auth logs on a given node. Returns log entries filtered by optional scope and focus keywords.",
+        "description": "Inspect system/service/auth logs on a given node. Returns log entries filtered by optional scope and focus keywords. Node ID can be a formal ID like 'WS-03' or a natural name like 'workstation' or 'mail server'.",
         "parameters": {
             "type": "object",
             "properties": {
-                "node_id": {"type": "string", "description": "ID of the system node to inspect"},
+                "node_id": {"type": "string", "description": "ID or name of the system node to inspect (e.g. 'WS-03', 'workstation', 'mail server')"},
                 "scope": {"type": "string", "description": "Scope: 'auth', 'service', 'system', 'all'", "enum": ["auth", "service", "system", "all"]},
                 "focus": {"type": "string", "description": "Optional keyword to focus on (e.g. 'failed login', 'export')"},
             },
@@ -97,12 +122,12 @@ TOOL_DECLARATIONS: list[dict[str, Any]] = [
     },
     {
         "name": "trace_network",
-        "description": "Trace network connections from/to a given node. Identifies lateral movement, exfiltration paths, and connection types.",
+        "description": "Trace network connections from/to a given node. Identifies lateral movement, exfiltration paths, and connection types. Node ID can be a formal ID or natural name.",
         "parameters": {
             "type": "object",
             "properties": {
-                "node_id": {"type": "string", "description": "ID of the system node to trace from"},
-                "target": {"type": "string", "description": "Optional target node ID to trace path to"},
+                "node_id": {"type": "string", "description": "ID or name of the system node to trace from"},
+                "target": {"type": "string", "description": "Optional target node ID or name to trace path to"},
                 "depth": {"type": "integer", "description": "Hop depth for path tracing (1-3)", "minimum": 1, "maximum": 3},
             },
             "required": ["node_id"],
@@ -110,11 +135,11 @@ TOOL_DECLARATIONS: list[dict[str, Any]] = [
     },
     {
         "name": "analyze_file_artifacts",
-        "description": "Analyze file artifacts, metadata, and suspicious files on a given node. Can recover deleted files and detect hidden payloads.",
+        "description": "Analyze file artifacts, metadata, and suspicious files on a given node. Can recover deleted files and detect hidden payloads. Node ID can be a formal ID or natural name.",
         "parameters": {
             "type": "object",
             "properties": {
-                "node_id": {"type": "string", "description": "ID of the system node to analyze"},
+                "node_id": {"type": "string", "description": "ID or name of the system node to analyze"},
                 "artifact_hint": {"type": "string", "description": "Optional hint about what to look for (e.g. 'deleted files', 'executables', 'config changes')"},
             },
             "required": ["node_id"],
@@ -122,11 +147,11 @@ TOOL_DECLARATIONS: list[dict[str, Any]] = [
     },
     {
         "name": "reconstruct_timeline",
-        "description": "Reconstruct a timeline of events on a specific node or across the entire case. Correlates timestamps and builds causal chains.",
+        "description": "Reconstruct a timeline of events on a specific node or across the entire case. Correlates timestamps and builds causal chains. If no node specified, returns case-wide timeline.",
         "parameters": {
             "type": "object",
             "properties": {
-                "node_id": {"type": "string", "description": "Optional node ID for node-specific timeline. Omit for case-wide."},
+                "node_id": {"type": "string", "description": "Optional node ID or name for node-specific timeline. Omit for case-wide."},
                 "start_time": {"type": "string", "description": "Optional start time filter (e.g. '03:40')"},
                 "end_time": {"type": "string", "description": "Optional end time filter (e.g. '04:00')"},
             },
@@ -159,11 +184,11 @@ TOOL_DECLARATIONS: list[dict[str, Any]] = [
     },
     {
         "name": "summarize_node_state",
-        "description": "Get a summary of the current known state of a specific node including threat level, status, and findings.",
+        "description": "Get a summary of the current known state of a specific node including threat level, status, and findings. Node ID can be a formal ID or natural name.",
         "parameters": {
             "type": "object",
             "properties": {
-                "node_id": {"type": "string", "description": "ID of the node to summarize"},
+                "node_id": {"type": "string", "description": "ID or name of the node to summarize (e.g. 'DB-02', 'database', 'firewall')"},
             },
             "required": ["node_id"],
         },
@@ -202,9 +227,10 @@ async def execute_inspect_logs(
     *,
     evidence: list[dict[str, Any]] | None = None,
 ) -> str:
+    node_id = resolve_node_id(node_id)
     node = _NODE_DATA.get(node_id)
     if not node:
-        return f"Node {node_id} not found in accessible systems."
+        return f"Node {node_id} not found in accessible systems. Available: {', '.join(_NODE_DATA.keys())}"
     logs = node.get("logs", "No log data available.")
     result = f"=== Log inspection: {node['name']} ({node_id}) ===\nScope: {scope}\n\n{logs}"
     if focus:
@@ -219,9 +245,12 @@ async def execute_trace_network(
     *,
     evidence: list[dict[str, Any]] | None = None,
 ) -> str:
+    node_id = resolve_node_id(node_id)
+    if target:
+        target = resolve_node_id(target)
     node = _NODE_DATA.get(node_id)
     if not node:
-        return f"Node {node_id} not found in accessible systems."
+        return f"Node {node_id} not found in accessible systems. Available: {', '.join(_NODE_DATA.keys())}"
 
     connections = [
         c for c in _KNOWN_CONNECTIONS
@@ -251,9 +280,10 @@ async def execute_analyze_file_artifacts(
     *,
     evidence: list[dict[str, Any]] | None = None,
 ) -> str:
+    node_id = resolve_node_id(node_id)
     node = _NODE_DATA.get(node_id)
     if not node:
-        return f"Node {node_id} not found in accessible systems."
+        return f"Node {node_id} not found in accessible systems. Available: {', '.join(_NODE_DATA.keys())}"
     files = node.get("files", "No file artifacts found.")
     result = f"=== File artifact analysis: {node['name']} ({node_id}) ===\n\n{files}"
     if artifact_hint:
@@ -269,9 +299,10 @@ async def execute_reconstruct_timeline(
     evidence: list[dict[str, Any]] | None = None,
 ) -> str:
     if node_id:
+        node_id = resolve_node_id(node_id)
         node = _NODE_DATA.get(node_id)
         if not node:
-            return f"Node {node_id} not found in accessible systems."
+            return f"Node {node_id} not found in accessible systems. Available: {', '.join(_NODE_DATA.keys())}"
         tl = node.get("timeline", "No timeline data.")
         return f"=== Timeline: {node['name']} ({node_id}) ===\n\n{tl}"
 
@@ -345,9 +376,10 @@ async def execute_summarize_node_state(
     *,
     evidence: list[dict[str, Any]] | None = None,
 ) -> str:
+    node_id = resolve_node_id(node_id)
     node = _NODE_DATA.get(node_id)
     if not node:
-        return f"Node {node_id} not found."
+        return f"Node {node_id} not found. Available: {', '.join(_NODE_DATA.keys())}"
     node_evidence = [e for e in (evidence or []) if e.get("node_id") == node_id]
     return (
         f"=== Node state: {node['name']} ({node_id}) ===\n"

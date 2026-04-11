@@ -18,7 +18,8 @@ const ARCHETYPE_COLORS: Record<string, string> = {
   CHRONO: "#34d399",
 };
 
-function StatMini({ label, value }: { label: string; value: number }) {
+function StatMini({ label, value, color }: { label: string; value: number; color: string }) {
+  const pct = Math.round(value * 100);
   return (
     <div className="flex items-center gap-1">
       <span className="text-[8px] font-mono uppercase text-[var(--muted)]">
@@ -26,14 +27,15 @@ function StatMini({ label, value }: { label: string; value: number }) {
       </span>
       <div className="h-1 w-10 rounded-full bg-white/10">
         <div
-          className="h-full rounded-full"
+          className="h-full rounded-full transition-all"
           style={{
-            width: `${Math.round(value * 100)}%`,
-            backgroundColor: "var(--accent-cyan)",
+            width: `${pct}%`,
+            backgroundColor: color,
             opacity: 0.4 + value * 0.6,
           }}
         />
       </div>
+      <span className="text-[7px] font-mono text-[var(--muted)]">{pct}</span>
     </div>
   );
 }
@@ -77,10 +79,10 @@ function OfferCard({
       </p>
 
       <div className="mb-2 grid grid-cols-2 gap-x-2 gap-y-0.5">
-        <StatMini label="THR" value={a.thoroughness} />
-        <StatMini label="SPD" value={a.speed} />
-        <StatMini label="REL" value={a.reliability} />
-        <StatMini label="CRE" value={a.creativity} />
+        <StatMini label="THR" value={a.thoroughness} color={color} />
+        <StatMini label="SPD" value={a.speed} color={color} />
+        <StatMini label="REL" value={a.reliability} color={color} />
+        <StatMini label="CRE" value={a.creativity} color={color} />
       </div>
 
       <div className="mb-2 flex flex-wrap gap-1">

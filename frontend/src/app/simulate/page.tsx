@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { AgentCommandModal } from "@/components/AgentCommandModal";
+import { AgentCommandModal, type MessageEntry } from "@/components/AgentCommandModal";
 import { AgentDirectory } from "@/components/AgentDirectory";
 import { AgentMarketplace } from "@/components/AgentMarketplace";
 import { AgentStatusBar } from "@/components/AgentStatusBar";
@@ -14,7 +14,6 @@ import { EventFeed } from "@/components/EventFeed";
 import { HelperSelectionPanel } from "@/components/HelperSelectionPanel";
 import { NodeListPanel } from "@/components/NodeListPanel";
 import { NPCInteractionModal } from "@/components/NPCInteractionModal";
-import { TaskAssignmentModal } from "@/components/TaskAssignmentModal";
 import { useInvestigation } from "@/hooks/useInvestigation";
 import { useSimulation } from "@/hooks/useSimulation";
 import type { ActiveHelpers, AgentId, NipsAgentInstance, NipsMarketplaceOffer, NipsEvidenceUpdate } from "@/types/investigation";
@@ -239,6 +238,7 @@ function InvestigateGame({
   const [nipsFunds, setNipsFunds] = useState(1500);
   const [nipsNextRefresh, setNipsNextRefresh] = useState(0);
   const [chatAgent, setChatAgent] = useState<NipsAgentInstance | null>(null);
+  const [chatHistories, setChatHistories] = useState<Record<string, MessageEntry[]>>({});
   const [showDirectory, setShowDirectory] = useState(false);
   const [showMarketplace, setShowMarketplace] = useState(false);
 
@@ -655,21 +655,7 @@ function InvestigateGame({
         </button>
       )}
 
-      {/* Task assignment modal */}
-      {selectedNode && (
-        <TaskAssignmentModal
-          node={selectedNode}
-          agents={inv.agents}
-          lockedAgents={inv.lockedAgents}
-          funds={inv.funds}
-          onSubmitInstruction={(agentId: AgentId, rawInstruction: string) => {
-            inv.submitInstruction(agentId, selectedNode.id, rawInstruction);
-            inv.setSelectedNodeId(null);
-          }}
-          onUnlockAgent={(agentId: AgentId) => inv.unlockAgent(agentId)}
-          onClose={() => inv.setSelectedNodeId(null)}
-        />
-      )}
+      {/* Task assignment modal removed — agents now use chat-based commands */}
 
       {/* Attack Graph Modal */}
       {showGraph && (
@@ -727,7 +713,11 @@ function InvestigateGame({
         <AgentCommandModal
           agent={chatAgent}
           nodeContext={nodeContextStr}
-          onClose={() => setChatAgent(null)}
+          initialMessages={chatHistories[chatAgent.instance_id]}
+          onClose={(msgs) => {
+            setChatHistories((prev) => ({ ...prev, [chatAgent.instance_id]: msgs }));
+            setChatAgent(null);
+          }}
         />
       )}
 

@@ -120,7 +120,8 @@ export function AgentDirectory({
                     <button
                       type="button"
                       onClick={() => onOpenChat(agent)}
-                      className="rounded border border-[var(--accent-cyan)]/50 px-3 py-1.5 text-[9px] font-mono uppercase text-[var(--accent-cyan)] hover:bg-[var(--accent-cyan)]/10"
+                      className="rounded border px-3 py-1.5 text-[9px] font-mono uppercase hover:bg-white/5"
+                      style={{ borderColor: `${color}80`, color }}
                     >
                       Chat
                     </button>

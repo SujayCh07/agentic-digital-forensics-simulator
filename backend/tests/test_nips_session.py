@@ -29,7 +29,10 @@ def test_create_session():
     assert session.sid == "test-sid-1"
     assert session.funds == 1500
     assert len(session.marketplace_offers) == 4
-    assert len(session.deployed_agents) == 0
+    # 4 starter agents (one per archetype) are auto-deployed
+    assert len(session.deployed_agents) == 4
+    archetypes = {a.archetype for a in session.deployed_agents}
+    assert archetypes == {"LOGIS", "NEXUS", "FILER", "CHRONO"}
     destroy_session("test-sid-1")
 
 
@@ -43,6 +46,7 @@ def test_get_session():
 def test_buy_agent_deducts_funds():
     session = create_session("test-sid-buy")
     session.funds = 50000
+    starter_count = len(session.deployed_agents)
     offer = session.marketplace_offers[0]
     initial_funds = session.funds
     agent_cost = offer.agent.cost
@@ -50,8 +54,8 @@ def test_buy_agent_deducts_funds():
     result = buy_agent(session, offer.offer_id)
     assert result is not None
     assert session.funds == initial_funds - agent_cost
-    assert len(session.deployed_agents) == 1
-    assert session.deployed_agents[0].instance_id == result.instance_id
+    assert len(session.deployed_agents) == starter_count + 1
+    assert session.deployed_agents[-1].instance_id == result.instance_id
     assert len(session.marketplace_offers) == 3
     destroy_session("test-sid-buy")
 
@@ -59,10 +63,11 @@ def test_buy_agent_deducts_funds():
 def test_buy_agent_insufficient_funds():
     session = create_session("test-sid-broke")
     session.funds = 0
+    starter_count = len(session.deployed_agents)
     offer = session.marketplace_offers[0]
     result = buy_agent(session, offer.offer_id)
     assert result is None
-    assert len(session.deployed_agents) == 0
+    assert len(session.deployed_agents) == starter_count
     destroy_session("test-sid-broke")
 
 
@@ -97,9 +102,6 @@ def test_maybe_refresh_respects_timer():
 
 def test_chat_session_management():
     session = create_session("test-sid-chat")
-    session.funds = 50000
-    offer = session.marketplace_offers[0]
-    buy_agent(session, offer.offer_id)
     agent = session.deployed_agents[0]
 
     chat = get_or_create_chat(session, agent.instance_id)
@@ -138,14 +140,11 @@ def test_add_evidence():
 
 def test_get_agent_instance():
     session = create_session("test-sid-getinst")
-    session.funds = 50000
-    offer = session.marketplace_offers[0]
-    bought = buy_agent(session, offer.offer_id)
-    assert bought is not None
+    starter = session.deployed_agents[0]
 
-    found = get_agent_instance(session, bought.instance_id)
+    found = get_agent_instance(session, starter.instance_id)
     assert found is not None
-    assert found.instance_id == bought.instance_id
+    assert found.instance_id == starter.instance_id
 
     not_found = get_agent_instance(session, "nonexistent")
     assert not_found is None
@@ -155,11 +154,13 @@ def test_get_agent_instance():
 def test_purchased_agents_persist_across_refresh():
     session = create_session("test-sid-persist")
     session.funds = 50000
+    starter_count = len(session.deployed_agents)
     offer = session.marketplace_offers[0]
     bought = buy_agent(session, offer.offer_id)
     assert bought is not None
 
     refresh_marketplace(session)
-    assert len(session.deployed_agents) == 1
-    assert session.deployed_agents[0].instance_id == bought.instance_id
+    assert len(session.deployed_agents) == starter_count + 1
+    ids = [a.instance_id for a in session.deployed_agents]
+    assert bought.instance_id in ids
     destroy_session("test-sid-persist")
