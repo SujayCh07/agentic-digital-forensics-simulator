@@ -5,13 +5,13 @@ import { useAnimatedValue } from "@/hooks/useAnimatedValue";
 type Severity = "good" | "warn" | "bad" | "neutral";
 
 const SEVERITY_HEX: Record<Severity, string> = {
-  good: "#3E7C34",
-  warn: "#C97D1A",
-  bad: "#B83A52",
-  neutral: "#5A8DB8",
+  good: "#00ff88",
+  warn: "#f59e0b",
+  bad: "#ff3a3a",
+  neutral: "#00d4ff",
 };
 
-const EMPTY_BG = "#E8D5A3";
+const EMPTY_BG = "#1e3d5a";
 
 /* ─── Pixel Icon renderer ─── */
 
@@ -282,14 +282,14 @@ export function PixelStatBar({
   return (
     <div
       className="px-2 py-1.5 last:border-b-0"
-      style={{ borderBottom: "1px solid #E8D5A3" }}
+      style={{ borderBottom: "1px solid #1e3d5a" }}
     >
       {/* Label row */}
       <div className="flex items-center gap-1.5 mb-1">
         <span className="shrink-0 flex items-center">{icon}</span>
         <span
           className="flex-1 text-[9px] font-mono uppercase tracking-widest truncate"
-          style={{ color: "#8B7355" }}
+          style={{ color: "#4a6580" }}
         >
           {label}
         </span>

@@ -1,27 +1,28 @@
 @import "tailwindcss";
 
 :root {
-  --background: #4a7a3b;
-  --foreground: #3d2510;
-  --accent: #d4a520;
-  --surface: #f5e6c8;
-  --border: #6b4226;
-  --panel-bg: #f5e6c8;
-  --muted: #8b7355;
+  --background: #080c12;
+  --foreground: #c9d8e8;
+  --accent: #00d4ff;
+  --surface: #0d1520;
+  --border: #1e3d5a;
+  --panel-bg: #0f1927;
+  --muted: #4a6580;
 
-  /* Stardew palette tokens */
-  --sdv-wood-dark: #3d2510;
-  --sdv-wood-mid: #6b4226;
-  --sdv-wood-light: #a0824a;
-  --sdv-parchment: #f5e6c8;
-  --sdv-cream: #fdf5e6;
-  --sdv-gold: #d4a520;
-  --sdv-green: #3e7c34;
-  --sdv-sky: #5a8db8;
-  --sdv-berry: #b83a52;
-  --sdv-purple: #7b68ee;
-  --sdv-orange: #c97d1a;
-  --sdv-border: #c4a46c;
+  /* NIPS noir tokens */
+  --nip-bg: #080c12;
+  --nip-surface: #0d1520;
+  --nip-panel: #0f1927;
+  --nip-border: #1e3d5a;
+  --nip-border-bright: #2a6080;
+  --nip-cyan: #00d4ff;
+  --nip-red: #ff3a3a;
+  --nip-amber: #f59e0b;
+  --nip-green: #00ff88;
+  --nip-purple: #b06fff;
+  --nip-text: #c9d8e8;
+  --nip-muted: #4a6580;
+  --nip-dim: #1e3d5a;
 }
 
 @keyframes aurora {
@@ -31,6 +32,11 @@
   to {
     background-position: 350% 50%, 350% 50%;
   }
+}
+
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
 }
 
 @theme inline {
@@ -53,19 +59,19 @@ body {
   font-family: var(--font-mono), ui-monospace, monospace;
 }
 
-/* Stardew Valley scrollbar */
+/* Noir scrollbar */
 .scrollbar-thin::-webkit-scrollbar {
   width: 6px;
 }
 .scrollbar-thin::-webkit-scrollbar-track {
-  background: #e8d5a3;
+  background: #0a1520;
 }
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: #a0824a;
+  background: #1e3d5a;
   border-radius: 3px;
 }
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background: #8b6914;
+  background: #2a6080;
 }
 
 /* Chat bubble animation */
@@ -80,24 +86,25 @@ body {
   }
 }
 
-/* Stardew wooden panel style */
+/* Noir investigation panel */
 .rpg-panel {
-  background: var(--sdv-parchment);
-  border: 3px solid var(--sdv-wood-mid);
-  border-radius: 6px;
+  background: var(--nip-panel);
+  border: 1px solid var(--nip-border);
+  border-radius: 4px;
   box-shadow:
-    inset 2px 2px 0 rgba(196, 164, 108, 0.55),
-    inset -2px -2px 0 rgba(61, 37, 16, 0.25),
-    3px 3px 0 rgba(61, 37, 16, 0.35);
+    inset 0 1px 0 rgba(0, 212, 255, 0.05),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.4),
+    0 4px 24px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(0, 212, 255, 0.03);
 }
 
-/* RPG range slider — warm Stardew style */
+/* Terminal-style range slider */
 .rpg-slider {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
-  height: 6px;
-  border-radius: 3px;
+  height: 4px;
+  border-radius: 2px;
   background: transparent;
   outline: none;
   cursor: pointer;
@@ -105,35 +112,35 @@ body {
 .rpg-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 12px;
-  height: 20px;
+  width: 10px;
+  height: 18px;
   border-radius: 2px;
-  background: #d4a520;
-  border: 2px solid #6b4226;
-  box-shadow: 1px 1px 0 rgba(61, 37, 16, 0.4);
+  background: #00d4ff;
+  border: 1px solid #2a6080;
+  box-shadow: 0 0 6px rgba(0, 212, 255, 0.4);
   cursor: pointer;
   margin-top: -7px;
 }
 .rpg-slider::-moz-range-thumb {
-  width: 12px;
-  height: 20px;
+  width: 10px;
+  height: 18px;
   border-radius: 2px;
-  background: #d4a520;
-  border: 2px solid #6b4226;
-  box-shadow: 1px 1px 0 rgba(61, 37, 16, 0.4);
+  background: #00d4ff;
+  border: 1px solid #2a6080;
+  box-shadow: 0 0 6px rgba(0, 212, 255, 0.4);
   cursor: pointer;
 }
 .rpg-slider::-webkit-slider-runnable-track {
-  height: 6px;
-  border-radius: 3px;
-  background: #e8d5a3;
-  border: 1px solid #c4a46c;
+  height: 4px;
+  border-radius: 2px;
+  background: #1e3d5a;
+  border: 1px solid #2a5070;
 }
 .rpg-slider::-moz-range-track {
-  height: 6px;
-  border-radius: 3px;
-  background: #e8d5a3;
-  border: 1px solid #c4a46c;
+  height: 4px;
+  border-radius: 2px;
+  background: #1e3d5a;
+  border: 1px solid #2a5070;
 }
 
 /* Modal entrance */
@@ -154,14 +161,14 @@ body {
   image-rendering: crisp-edges;
 }
 
-/* Dashboard gauge glow pulse for danger states */
+/* Gauge glow pulse for danger states */
 @keyframes gaugeGlow {
   0%,
   100% {
     filter: drop-shadow(0 0 3px currentColor);
   }
   50% {
-    filter: drop-shadow(0 0 8px currentColor);
+    filter: drop-shadow(0 0 10px currentColor);
   }
 }
 
@@ -170,7 +177,7 @@ body {
 }
 
 .pixel-bar-segment-bad {
-  animation: segmentPulse 2s ease-in-out infinite;
+  animation: segmentPulse 1.5s ease-in-out infinite;
 }
 
 @keyframes segmentPulse {
@@ -179,74 +186,76 @@ body {
     opacity: 1;
   }
   50% {
-    opacity: 0.75;
+    opacity: 0.55;
   }
 }
 
-/* Warm shadow utilities — Stardew style (replaces neon glows) */
+/* Neon glow utilities */
 .neon-purple {
-  filter: drop-shadow(0 0 4px rgba(123, 104, 238, 0.4));
+  filter: drop-shadow(0 0 6px rgba(176, 111, 255, 0.6));
 }
 
 .neon-teal {
-  filter: drop-shadow(0 0 4px rgba(62, 124, 52, 0.5));
+  filter: drop-shadow(0 0 6px rgba(0, 212, 255, 0.5));
 }
 
 .neon-yellow {
-  filter: drop-shadow(0 0 4px rgba(212, 165, 32, 0.5));
+  filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.6));
 }
 
 .neon-pink {
-  filter: drop-shadow(0 0 4px rgba(184, 58, 82, 0.5));
+  filter: drop-shadow(0 0 6px rgba(255, 58, 58, 0.6));
 }
 
 .neon-indigo {
-  filter: drop-shadow(0 0 4px rgba(123, 104, 238, 0.4));
+  filter: drop-shadow(0 0 6px rgba(176, 111, 255, 0.5));
 }
 
 .neon-text-white {
-  text-shadow: 0 1px 2px rgba(61, 37, 16, 0.2);
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.4);
 }
 
 .neon-text-purple {
-  text-shadow: 0 1px 2px rgba(61, 37, 16, 0.3);
+  text-shadow: 0 0 8px rgba(176, 111, 255, 0.6);
 }
 
 .neon-text-teal {
-  text-shadow: 0 1px 2px rgba(62, 124, 52, 0.3);
+  text-shadow: 0 0 8px rgba(0, 212, 255, 0.7);
 }
 
 .neon-text-yellow {
-  text-shadow: 0 1px 2px rgba(212, 165, 32, 0.3);
+  text-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
 }
 
 .neon-text-pink {
-  text-shadow: 0 1px 2px rgba(184, 58, 82, 0.3);
+  text-shadow: 0 0 8px rgba(255, 58, 58, 0.6);
 }
 
 .neon-text-indigo {
-  text-shadow: 0 1px 2px rgba(123, 104, 238, 0.3);
+  text-shadow: 0 0 8px rgba(176, 111, 255, 0.5);
 }
 
 .neon-border-purple {
   box-shadow:
-    inset 1px 1px 0 rgba(196, 164, 108, 0.5),
-    2px 2px 0 rgba(61, 37, 16, 0.3);
+    0 0 12px rgba(176, 111, 255, 0.2),
+    inset 0 0 12px rgba(176, 111, 255, 0.05);
 }
 
-/* Canvas wooden frame glow */
+/* Canvas noir frame */
 .canvas-glow {
-  box-shadow: 3px 3px 0 rgba(61, 37, 16, 0.4);
+  box-shadow:
+    0 0 30px rgba(0, 0, 0, 0.8),
+    0 0 1px rgba(0, 212, 255, 0.2);
 }
 
 /* Loading screen progress bar glow */
 @keyframes progressGlow {
   0%,
   100% {
-    box-shadow: 0 0 8px rgba(212, 165, 32, 0.4);
+    box-shadow: 0 0 8px rgba(0, 212, 255, 0.4);
   }
   50% {
-    box-shadow: 0 0 16px rgba(212, 165, 32, 0.7);
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.8);
   }
 }
 

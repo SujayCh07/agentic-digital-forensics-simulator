@@ -21,22 +21,20 @@ const SocialGraph = dynamic(
     ssr: false,
     loading: () => (
       <div
-        className="flex h-full items-center justify-center text-[8px] font-pixel uppercase tracking-widest"
-        style={{ color: "#A0824A" }}
+        className="flex h-full items-center justify-center text-[8px] font-mono uppercase tracking-widest"
+        style={{ color: "#2a5070" }}
       >
-        Loading graph...
+        Loading network...
       </div>
     ),
   },
 );
 
 // Mirror game/constants values here to avoid importing Phaser during SSR.
-// game/config.ts imports Phaser at top level which requires `window`.
 const GAME_WIDTH = 1280;
 const GAME_HEIGHT = 960;
-const SCALE_FACTOR = 1; // must match constants.ts — 1:1, Phaser Scale.FIT handles display
+const SCALE_FACTOR = 1;
 
-// Phaser requires browser APIs — must be client-only
 const GameCanvas = dynamic(
   () =>
     import("@/components/GameCanvas").then((m) => ({ default: m.GameCanvas })),
@@ -50,14 +48,14 @@ function GameCanvasPlaceholder() {
       style={{
         width: GAME_WIDTH * SCALE_FACTOR,
         height: GAME_HEIGHT * SCALE_FACTOR,
-        background: "#E8D5A3",
+        background: "#080c12",
       }}
     >
       <span
-        className="text-[8px] font-pixel uppercase tracking-widest animate-pulse"
-        style={{ color: "#A0824A" }}
+        className="text-[8px] font-mono uppercase tracking-widest animate-pulse"
+        style={{ color: "#1e3d5a" }}
       >
-        Loading world...
+        Initializing grid...
       </span>
     </div>
   );
@@ -67,10 +65,10 @@ const SENTIMENT_LABEL: Record<
   NPCHoverInfo["sentiment"],
   { symbol: string; color: string }
 > = {
-  happy: { symbol: "+", color: "#3E7C34" },
-  neutral: { symbol: "~", color: "#8B7355" },
-  worried: { symbol: "?", color: "#C97D1A" },
-  angry: { symbol: "!", color: "#B83A52" },
+  happy:   { symbol: "+", color: "#00ff88" },
+  neutral: { symbol: "~", color: "#4a6580" },
+  worried: { symbol: "?", color: "#f59e0b" },
+  angry:   { symbol: "!", color: "#ff3a3a" },
 };
 
 interface OverlayMetrics {
@@ -101,27 +99,24 @@ function NPCTooltip({
       }}
     >
       <div
-        className="rounded px-2 py-1 shadow-md"
+        className="rounded px-2 py-1"
         style={{
-          background: "#FDF5E6",
-          border: "2px solid #A0824A",
-          boxShadow: "2px 2px 0 rgba(61,37,16,.3)",
+          background: "#0f1927",
+          border: "1px solid #1e3d5a",
+          boxShadow: "0 0 12px rgba(0,0,0,0.8)",
         }}
       >
         <div className="flex items-center gap-1.5">
-          <span className="text-[10px] font-pixel" style={{ color: "#5B3A1E" }}>
+          <span className="text-[10px] font-mono" style={{ color: "#c9d8e8" }}>
             {info.name}
           </span>
-          <span
-            className="text-[10px] font-pixel"
-            style={{ color: sent.color }}
-          >
+          <span className="text-[10px] font-mono" style={{ color: sent.color }}>
             [{sent.symbol}]
           </span>
         </div>
         <div
           className="text-[8px] font-mono tracking-widest uppercase"
-          style={{ color: "#8B7355" }}
+          style={{ color: "#4a6580" }}
         >
           {info.role}
         </div>
@@ -186,7 +181,6 @@ function SimulateContent() {
     }
   }, [focusMode]);
 
-  // Auto-start simulation once we have a simulation ID (or immediately in mock/replay mode)
   const hasStartedRef = useRef(false);
   useEffect(() => {
     if (hasStartedRef.current) return;
@@ -206,7 +200,6 @@ function SimulateContent() {
     };
   }, [simulationId, isReplay]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reset transient overlay UI when Phaser re-initializes the NPC set.
   useEffect(() => {
     let cleanup: (() => void) | undefined;
     import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
@@ -219,7 +212,6 @@ function SimulateContent() {
     return () => cleanup?.();
   }, []);
 
-  // Listen for NPC hover events from Phaser
   useEffect(() => {
     let cleanup: (() => void) | undefined;
     import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
@@ -235,14 +227,11 @@ function SimulateContent() {
     return () => cleanup?.();
   }, []);
 
-  // Open NPC profile when clicked on canvas
   useEffect(() => {
     let cleanup: (() => void) | undefined;
     import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
       const handler = (data: { npcId: string }) => {
         setSelectedNpcId(data.npcId);
-        // Removed automatic camera snap to allow manual control
-        // eventBridge.emitCameraSnapToNPC(data.npcId);
       };
       eventBridge.on("sim:npc-click", handler);
       cleanup = () => eventBridge.off("sim:npc-click", handler);
@@ -250,7 +239,6 @@ function SimulateContent() {
     return () => cleanup?.();
   }, []);
 
-  // Fullscreen toggle
   const toggleFullscreen = useCallback(() => {
     const el = canvasContainerRef.current;
     if (!el) return;
@@ -261,14 +249,12 @@ function SimulateContent() {
     }
   }, []);
 
-  // Track fullscreen state
   useEffect(() => {
     const handler = () => setIsFullscreen(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", handler);
     return () => document.removeEventListener("fullscreenchange", handler);
   }, []);
 
-  // Measure the real Phaser canvas box so DOM overlays stay locked to sprite positions.
   useEffect(() => {
     const container = canvasContainerRef.current;
     if (!container) return;
@@ -326,7 +312,6 @@ function SimulateContent() {
     };
   }, []);
 
-  // Camera panning via click+drag
   useEffect(() => {
     const el = canvasContainerRef.current;
     if (!el) return;
@@ -340,7 +325,7 @@ function SimulateContent() {
       dragging = true;
       lastX = e.clientX;
       lastY = e.clientY;
-      el.style.cursor = "grabbing";
+      el.style.cursor = "crosshair";
       el.setPointerCapture(e.pointerId);
     };
 
@@ -358,16 +343,15 @@ function SimulateContent() {
     const onUp = (e: PointerEvent) => {
       if (!dragging) return;
       dragging = false;
-      el.style.cursor = "grab";
+      el.style.cursor = "crosshair";
       el.releasePointerCapture(e.pointerId);
     };
 
-    el.style.cursor = "grab";
+    el.style.cursor = "crosshair";
     el.addEventListener("pointerdown", onDown);
     el.addEventListener("pointermove", onMove);
     el.addEventListener("pointerup", onUp);
 
-    // Camera zooming via mouse wheel
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const delta = e.deltaY < 0 ? 1 : -1;
@@ -398,7 +382,6 @@ function SimulateContent() {
     };
   }, []);
 
-  // Close modals / focus mode on ESC
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -423,47 +406,40 @@ function SimulateContent() {
       setShowReport(true);
     }
   }, [sim.isComplete, sim.reportLoading, sim.report]);
+
   if (!simulationId && !isMock && !isReplay) {
     return (
       <div
         className="flex min-h-screen flex-col items-center justify-center px-6"
-        style={{ background: "#4a7a3b" }}
+        style={{ background: "#080c12" }}
       >
         <div
-          className="flex max-w-md flex-col items-center gap-4 p-8 text-center"
-          style={{
-            background: "#F5E6C8",
-            border: "4px solid #6B4226",
-            borderRadius: "8px",
-            boxShadow:
-              "inset 2px 2px 0 rgba(196,164,108,.55), inset -2px -2px 0 rgba(61,37,16,.25), 4px 4px 0 rgba(61,37,16,.4)",
-          }}
+          className="flex max-w-md flex-col items-center gap-4 p-8 text-center rpg-panel"
         >
           <span
-            className="text-[10px] font-pixel tracking-widest"
-            style={{ color: "#5B3A1E" }}
+            className="text-[10px] font-mono tracking-widest"
+            style={{ color: "#00d4ff" }}
           >
-            {"\u2605"} SIMULACRA {"\u2605"}
+            ◈ NIPS — No Incident Loaded
           </span>
           <p
             className="text-[10px] font-mono uppercase tracking-widest"
-            style={{ color: "#3D2510" }}
+            style={{ color: "#c9d8e8" }}
           >
-            No policy specified.
+            No incident loaded.
           </p>
           <p
             className="text-[10px] font-mono uppercase tracking-widest"
-            style={{ color: "#8B7355" }}
+            style={{ color: "#4a6580" }}
           >
-            Please describe an economic policy on the home page before running a
-            simulation.
+            Load an incident from the home screen to begin your investigation.
           </p>
           <Link
             href="/"
-            className="rpg-panel mt-2 px-6 py-2 text-[10px] font-pixel transition-opacity hover:opacity-80"
-            style={{ color: "#5B3A1E", background: "#E8D5A3" }}
+            className="rpg-panel mt-2 px-6 py-2 text-[10px] font-mono transition-opacity hover:opacity-80"
+            style={{ color: "#00d4ff", border: "1px solid #1e3d5a" }}
           >
-            {">> Enter Policy <<"}
+            {">> Load Incident <<"}
           </Link>
         </div>
       </div>
@@ -473,40 +449,49 @@ function SimulateContent() {
   return (
     <div
       className="relative flex h-screen flex-col overflow-clip"
-      style={{ background: "#4a7a3b" }}
+      style={{ background: "#080c12" }}
       data-testid="simulate-page"
     >
-      {/* Phase indicator bar */}
+      {/* Stage indicator bar */}
       <div
         className={`rpg-panel flex h-10 shrink-0 items-center justify-between rounded-none border-x-0 border-t-0 px-4 panel-slide-top ${focusMode ? "panel-hidden-top" : ""}`}
-        style={{ background: "#E8D5A3", borderBottom: "3px solid #6B4226" }}
+        style={{ borderBottom: "1px solid #1e3d5a" }}
         data-testid="phase-bar"
       >
         <div className="flex items-center gap-3">
           <span
-            className="text-[10px] font-pixel tracking-tight"
-            style={{ color: "#5B3A1E" }}
+            className="text-[10px] font-mono tracking-tight"
+            style={{ color: "#00d4ff" }}
           >
-            {"\u2605"} SIMULACRA
+            ◈ NIPS
           </span>
-          <span className="text-[10px] font-mono" style={{ color: "#C4A46C" }}>
+          <span className="text-[10px] font-mono" style={{ color: "#1e3d5a" }}>
             |
           </span>
+          {/* Stage dots */}
           <div className="flex gap-1">
             {[1, 2, 3].map((p) => (
               <div
                 key={p}
                 className="h-2 w-12 rounded-sm transition-colors duration-500"
                 style={{
-                  border: "1px solid #C4A46C",
+                  border: "1px solid #1e3d5a",
                   background:
                     sim.phase >= p
                       ? p === 3
-                        ? "#B83A52"
+                        ? "#ff3a3a"
                         : p === 2
-                          ? "#C97D1A"
-                          : "#3E7C34"
-                      : "#F5E6C8",
+                          ? "#f59e0b"
+                          : "#00d4ff"
+                      : "#0d1520",
+                  boxShadow:
+                    sim.phase >= p
+                      ? p === 3
+                        ? "0 0 6px rgba(255,58,58,0.5)"
+                        : p === 2
+                          ? "0 0 6px rgba(245,158,11,0.5)"
+                          : "0 0 6px rgba(0,212,255,0.5)"
+                      : "none",
                 }}
               />
             ))}
@@ -514,7 +499,7 @@ function SimulateContent() {
           {sim.phase > 0 && (
             <span
               className="text-[9px] font-mono uppercase tracking-widest ml-2"
-              style={{ color: "#6B4C2A" }}
+              style={{ color: "#4a6580" }}
             >
               {sim.phaseLabel}
             </span>
@@ -524,31 +509,31 @@ function SimulateContent() {
         <div className="relative z-[2] flex items-center gap-3">
           {sim.isRunning && isRecording && (
             <span
-              className="text-[9px] font-pixel animate-pulse"
-              style={{ color: "#B83A52" }}
+              className="text-[9px] font-mono animate-pulse"
+              style={{ color: "#ff3a3a" }}
             >
-              REC
+              ● REC
             </span>
           )}
           {sim.isComplete && (
             <>
               <span
-                className="text-[9px] font-pixel"
-                style={{ color: "#3E7C34" }}
+                className="text-[9px] font-mono"
+                style={{ color: "#00ff88", textShadow: "0 0 8px rgba(0,255,136,0.5)" }}
               >
-                COMPLETE
+                CASE CLOSED
               </span>
               <button
                 type="button"
                 onClick={() => setShowReport(true)}
                 className="text-[9px] font-mono uppercase tracking-widest transition-opacity hover:opacity-60"
-                style={{ color: "#6B4C2A" }}
+                style={{ color: "#4a6580" }}
               >
                 {sim.reportLoading
-                  ? "[Report...]"
+                  ? "[Evidence...]"
                   : sim.report
-                    ? "[Report]"
-                    : "[Report Pending]"}
+                    ? "[Evidence]"
+                    : "[Evidence Pending]"}
               </button>
               {sim.getRecording() && (
                 <button
@@ -563,12 +548,12 @@ function SimulateContent() {
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement("a");
                     a.href = url;
-                    a.download = `agora-sim-${Date.now()}.json`;
+                    a.download = `nips-case-${Date.now()}.json`;
                     a.click();
                     URL.revokeObjectURL(url);
                   }}
                   className="text-[9px] font-mono uppercase tracking-widest transition-opacity hover:opacity-60"
-                  style={{ color: "#6B4C2A" }}
+                  style={{ color: "#4a6580" }}
                 >
                   SAVE JSON
                 </button>
@@ -577,10 +562,10 @@ function SimulateContent() {
           )}
           {sim.isRunning && !isRecording && (
             <span
-              className="text-[9px] font-mono uppercase tracking-widest"
-              style={{ color: "#8B7355" }}
+              className="text-[9px] font-mono uppercase tracking-widest animate-pulse"
+              style={{ color: "#4a6580" }}
             >
-              Simulating...
+              Investigating...
             </span>
           )}
           <button
@@ -588,9 +573,9 @@ function SimulateContent() {
             onClick={() => setFocusMode((f) => !f)}
             className="rpg-panel px-3 py-1 text-[9px] font-mono font-bold tracking-widest transition-all hover:opacity-80"
             style={{
-              color: focusMode ? "#D4A520" : "#8B7355",
-              background: focusMode ? "rgba(212,165,32,0.1)" : undefined,
-              borderColor: focusMode ? "#D4A520" : undefined,
+              color: focusMode ? "#00d4ff" : "#4a6580",
+              border: `1px solid ${focusMode ? "#00d4ff" : "#1e3d5a"}`,
+              boxShadow: focusMode ? "0 0 10px rgba(0,212,255,0.2)" : "none",
             }}
             title="Toggle focus mode (hides panels)"
           >
@@ -601,28 +586,28 @@ function SimulateContent() {
 
       {/* Main layout */}
       <div className="flex flex-1 gap-2 overflow-hidden p-2">
-        {/* Left: Event feed */}
+        {/* Left: Evidence feed */}
         <div
           className={`rpg-panel flex h-full w-64 shrink-0 flex-col panel-slide-left ${focusMode ? "panel-hidden-left" : ""}`}
         >
           <div
             className="flex items-center justify-between px-3 py-2"
-            style={{ borderBottom: "2px solid #C4A46C" }}
+            style={{ borderBottom: "1px solid #1e3d5a" }}
           >
             <h2
-              className="text-[8px] font-pixel uppercase"
-              style={{ color: "#5B3A1E" }}
+              className="text-[8px] font-mono uppercase tracking-widest"
+              style={{ color: "#00d4ff" }}
             >
-              Event Log
+              Evidence Feed
             </h2>
             <button
               type="button"
               onClick={() => setShowGraph(true)}
               className="text-[9px] font-mono uppercase tracking-widest transition-opacity hover:opacity-60"
-              style={{ color: "#8B7355" }}
-              title="Open Social Graph"
+              style={{ color: "#4a6580" }}
+              title="Open Attack Graph"
             >
-              GRAPH
+              ATTACK MAP
             </button>
           </div>
           <div className="flex-1 overflow-hidden">
@@ -630,20 +615,20 @@ function SimulateContent() {
           </div>
         </div>
 
-        {/* Center: Game canvas with overlays - now full width */}
+        {/* Center: Game canvas */}
         <div
           className={
             focusMode
               ? "fixed inset-0 z-50 flex items-center justify-center overflow-hidden"
               : "relative flex min-w-0 flex-1 items-center justify-center overflow-hidden"
           }
-          style={focusMode ? { background: "#060010" } : undefined}
+          style={focusMode ? { background: "#080c12" } : undefined}
         >
           <div
             ref={canvasContainerRef}
             className="relative shrink-0 canvas-glow canvas-expand"
             style={{
-              border: "3px solid #6B4226",
+              border: "1px solid #1e3d5a",
               borderRadius: 4,
               ...(focusMode
                 ? {
@@ -658,19 +643,17 @@ function SimulateContent() {
           >
             <GameCanvas />
 
-            {/* Fullscreen toggle + Zoom controls */}
+            {/* Zoom / Fullscreen controls */}
             <div className="absolute top-2 right-2 z-40 flex gap-1">
               <button
                 type="button"
                 onClick={() => {
-                  import("@/game/bridge/EventBridge").then(
-                    ({ eventBridge }) => {
-                      eventBridge.emitCameraZoom(1);
-                    },
-                  );
+                  import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+                    eventBridge.emitCameraZoom(1);
+                  });
                 }}
-                className="rpg-panel px-1.5 py-1 text-[10px] font-mono transition-opacity hover:opacity-70"
-                style={{ color: "#5B3A1E", background: "#E8D5A3" }}
+                className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70"
+                style={{ color: "#4a6580" }}
                 title="Zoom in"
               >
                 ZOOM+
@@ -678,14 +661,12 @@ function SimulateContent() {
               <button
                 type="button"
                 onClick={() => {
-                  import("@/game/bridge/EventBridge").then(
-                    ({ eventBridge }) => {
-                      eventBridge.emitCameraZoom(-1);
-                    },
-                  );
+                  import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+                    eventBridge.emitCameraZoom(-1);
+                  });
                 }}
-                className="rpg-panel px-1.5 py-1 text-[10px] font-mono transition-opacity hover:opacity-70"
-                style={{ color: "#5B3A1E", background: "#E8D5A3" }}
+                className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70"
+                style={{ color: "#4a6580" }}
                 title="Zoom out"
               >
                 ZOOM-
@@ -693,8 +674,8 @@ function SimulateContent() {
               <button
                 type="button"
                 onClick={toggleFullscreen}
-                className="rpg-panel px-1.5 py-1 text-[10px] font-mono transition-opacity hover:opacity-70"
-                style={{ color: "#5B3A1E", background: "#E8D5A3" }}
+                className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70"
+                style={{ color: "#4a6580" }}
                 title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
               >
                 {isFullscreen ? "EXIT" : "FULL"}
@@ -723,7 +704,7 @@ function SimulateContent() {
         </div>
       </div>
 
-      {/* Viewport-fixed dashboard so it stays fully visible instead of being clipped by the canvas area */}
+      {/* Viewport-fixed dashboard */}
       <div
         className={`fixed bottom-3 right-3 z-40 pointer-events-auto ${focusMode ? "opacity-0 pointer-events-none" : ""}`}
       >
@@ -736,23 +717,19 @@ function SimulateContent() {
         />
       </div>
 
-      {/* Focus mode exit overlay */}
+      {/* Focus mode exit button */}
       {focusMode && (
         <button
           type="button"
           className="fixed top-4 right-4 z-[60] rpg-panel px-3 py-1.5 text-[9px] font-mono transition-opacity hover:opacity-70"
-          style={{
-            color: "#5B3A1E",
-            background: "#E8D5A3",
-            border: "2px solid #6B4226",
-          }}
+          style={{ color: "#4a6580", border: "1px solid #1e3d5a" }}
           onClick={() => setFocusMode(false)}
         >
           [ESC] exit focus
         </button>
       )}
 
-      {/* NPC Interaction Modal (Profile + Chat side-by-side) */}
+      {/* Agent Profile Modal */}
       {selectedNpc && (
         <NPCInteractionModal
           npc={selectedNpc}
@@ -761,44 +738,38 @@ function SimulateContent() {
         />
       )}
 
-      {/* Social Graph Modal */}
+      {/* Attack Graph Modal */}
       {showGraph && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowGraph(false);
           }}
         >
           <div
-            className="relative flex flex-col animate-[modalIn_200ms_ease-out]"
+            className="relative flex flex-col animate-[modalIn_200ms_ease-out] rpg-panel"
             style={{
               width: 700,
               height: 560,
-              background: "#F5E6C8",
-              border: "4px solid #6B4226",
-              borderRadius: "8px",
-              boxShadow:
-                "inset 2px 2px 0 rgba(196,164,108,.55), inset -2px -2px 0 rgba(61,37,16,.25), 4px 4px 0 rgba(61,37,16,.4)",
             }}
           >
             <div
               className="flex items-center justify-between px-4 py-2"
               style={{
-                background: "#E8D5A3",
-                borderBottom: "2px solid #C4A46C",
+                borderBottom: "1px solid #1e3d5a",
               }}
             >
               <h2
-                className="text-[10px] font-pixel uppercase"
-                style={{ color: "#5B3A1E" }}
+                className="text-[10px] font-mono uppercase tracking-widest"
+                style={{ color: "#00d4ff" }}
               >
-                {"\u2605"} Social Graph
+                ◈ Attack Graph
               </h2>
               <button
                 type="button"
                 onClick={() => setShowGraph(false)}
                 className="text-[10px] font-mono uppercase tracking-widest transition-opacity hover:opacity-60"
-                style={{ color: "#8B7355" }}
+                style={{ color: "#4a6580" }}
               >
                 [ESC]
               </button>
@@ -824,30 +795,20 @@ function SimulateContent() {
         />
       )}
 
-      {/* Error overlay — shown when backend restarts or simulation is lost */}
+      {/* Connection error overlay */}
       {sim.error && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div
-            className="rpg-panel px-6 py-4 text-center"
-            style={{ background: "#FDF5E6" }}
-          >
-            <p
-              className="font-mono text-sm font-bold"
-              style={{ color: "#B83A52" }}
-            >
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+          <div className="rpg-panel px-6 py-4 text-center">
+            <p className="font-mono text-sm font-bold" style={{ color: "#ff3a3a" }}>
               Connection Lost
             </p>
-            <p
-              className="mt-2 font-mono text-xs"
-              style={{ color: "#6B4C2A" }}
-            >
-              The simulation server restarted. Please go back and start a new
-              simulation.
+            <p className="mt-2 font-mono text-xs" style={{ color: "#4a6580" }}>
+              The investigation server disconnected. Please return home and load a new incident.
             </p>
             <a
               href="/"
               className="mt-3 block font-mono text-xs underline"
-              style={{ color: "#A0824A" }}
+              style={{ color: "#2a5070" }}
             >
               {"<-"} Back to home
             </a>
