@@ -106,6 +106,11 @@ const RULES: Array<{ re: RegExp; taskType: TaskType; score: number }> = [
   { re: /\b(compare|match.{0,20}event|simultaneous|concurrent)\b/i, taskType: "correlate_events", score: 1.0 },
   { re: /\b(related|connection.?between|link(ed)?.?to|same.?time.?as)\b/i, taskType: "correlate_events", score: 0.9 },
   { re: /\b(other.?system|across.{0,20}(node|machine|system|server))\b/i, taskType: "correlate_events", score: 1.0 },
+
+  // ── general/broad matchers (lax strictness) ───────────────────────────────
+  { re: /\b(issue|problem|investigate|find.?bad|find.?out)\b/i,      taskType: "detect_anomalies", score: 0.7 },
+  { re: /\b(what.?happened|tell.?me|what('s| is).?going.?on)\b/i,    taskType: "reconstruct_timeline", score: 0.7 },
+  { re: /\b(check|look.?at|examine|analyze)\b/i,                     taskType: "detect_anomalies", score: 0.5 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -123,8 +128,19 @@ const TASK_INTERPRETATION: Record<TaskType, string> = {
   correlate_events:       "Cross-referencing events across all observed systems",
 };
 
+const TASK_SUGGESTIONS: Record<TaskType, string> = {
+  analyze_logs: '"Check auth logs for failed logins"',
+  detect_anomalies: '"Scan for file changes" or "Look for unusual behavior"',
+  trace_connections: '"Trace outbound connections"',
+  trace_lateral_movement: '"See how it spread"',
+  recover_files: '"Recover deleted files"',
+  inspect_artifacts: '"Inspect the binary"',
+  reconstruct_timeline: '"Reconstruct the timeline"',
+  correlate_events: '"Cross-reference events"',
+};
+
 // Minimum aggregate score required to accept a resolution
-const THRESHOLD = 0.85;
+const THRESHOLD = 0.5;
 
 // Rough ceiling for normalization (multiple strong matches sum to ~3.5)
 const SCORE_CEILING = 3.0;
@@ -160,7 +176,7 @@ export function resolveIntent(rawInstruction: string): IntentResolution {
       confidence: 0,
       interpretation: text,
       rawInstruction: text,
-      failReason: "Cannot determine task. Be more specific about what to investigate.",
+      failReason: "Cannot determine task. Broaden your search or try asking to check logs, trace connections, recover files, or inspect artifacts.",
     };
   }
 
@@ -172,12 +188,14 @@ export function resolveIntent(rawInstruction: string): IntentResolution {
   }
 
   if (bestScore < THRESHOLD) {
+    const suggestion = best ? TASK_SUGGESTIONS[best] : "check logs or trace connections";
+    const humanTask = best ? TASK_INTERPRETATION[best].toLowerCase() : "investigate";
     return {
       taskType: null,
       confidence: Math.min(0.4, bestScore / SCORE_CEILING),
       interpretation: text,
       rawInstruction: text,
-      failReason: "Ambiguous instruction. Specify the type of analysis needed.",
+      failReason: `Ambiguous instruction. Did you mean to ${humanTask}? Try asking: ${suggestion}`,
     };
   }
 
