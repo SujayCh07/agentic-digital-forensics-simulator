@@ -1,23 +1,16 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 import FuzzyText from "@/components/FuzzyText/FuzzyText";
 import IntroAnimation from "@/components/IntroAnimation";
 import LogoLoop from "@/components/LogoLoop/LogoLoop";
 import { Particles } from "@/components/Particles/Particles";
-import { SimLoadingScreen } from "@/components/SimLoadingScreen";
 import { AuroraLayer } from "@/components/ui/aurora-background";
 import { setReplayData } from "@/lib/replayStore";
 import { simulacraTechLogos } from "@/lib/simulacraTechLogos";
 import type { SavedSimulation } from "@/types/backend";
-
-const NodeCanvasClient = dynamic(
-  () => import("@/components/NodeCanvas/NodeCanvasClient"),
-  { ssr: false },
-);
 
 function isSavedSimulation(data: unknown): data is SavedSimulation {
   if (!data || typeof data !== "object") return false;
@@ -63,10 +56,7 @@ function CornerBracket({
 
 export default function Home() {
   const [showIntro, setShowIntro] = useState(true);
-  const [showLoading, setShowLoading] = useState(false);
-  const [showEditor, setShowEditor] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
-  const [showCurtain, setShowCurtain] = useState(false);
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -77,11 +67,8 @@ export default function Home() {
   const handlePlay = useCallback(() => {
     if (isTransitioning) return;
     setIsTransitioning(true);
-    setTimeout(() => {
-      setShowCurtain(true);
-      setShowEditor(true);
-    }, 500);
-  }, [isTransitioning]);
+    setTimeout(() => router.push("/simulate?case=midnight-ledger"), 450);
+  }, [isTransitioning, router]);
 
   const handleLoadFile = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -410,89 +397,8 @@ export default function Home() {
             </span>
           </motion.footer>
 
-          {/* ── Incident editor overlay ──────────────────────────── */}
-          <AnimatePresence>
-            {showEditor && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.15 }}
-                className="fixed inset-0 z-[50] flex flex-col"
-                style={{ background: "#080c12" }}
-              >
-                <div
-                  className="absolute inset-0 z-[1] pointer-events-none"
-                  style={{
-                    backgroundImage:
-                      "linear-gradient(rgba(0,212,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(0,212,255,0.025) 1px, transparent 1px)",
-                    backgroundSize: "48px 48px",
-                  }}
-                />
-                <AuroraLayer className="z-[2] opacity-20" showRadialGradient={false} />
-                <div
-                  className="relative z-[20] flex h-10 shrink-0 items-center justify-between px-5"
-                  style={{
-                    background: "rgba(15, 25, 39, 0.98)",
-                    borderBottom: "1px solid #1e3d5a",
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setShowEditor(false)}
-                    className="text-[9px] font-mono uppercase tracking-wide transition-opacity hover:opacity-70"
-                    style={{ color: "#4a6580" }}
-                  >
-                    {"\u2190"} Back
-                  </button>
-                  <span
-                    className="text-[9px] font-mono tracking-wide"
-                    style={{ color: "#00d4ff" }}
-                  >
-                    ◈ New Investigation
-                  </span>
-                  <span
-                    className="text-[8px] font-mono"
-                    style={{ color: "#00ff88" }}
-                  >
-                    ● READY
-                  </span>
-                </div>
-                <div className="relative z-[10] min-h-0 flex-1 flex items-center justify-center pt-20">
-                  <NodeCanvasClient
-                    onSimulateStart={() => setShowLoading(true)}
-                  />
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* ── Loading screen ───────────────────────────────────── */}
-          <SimLoadingScreen isVisible={showLoading} />
         </motion.div>
       )}
-
-      {/* ── Slide curtain transition ─────────────────────────── */}
-      <AnimatePresence>
-        {showCurtain && (
-          <motion.div
-            key="slide-curtain"
-            className="fixed inset-0 z-[300]"
-            style={{ background: "#080c12" }}
-            initial={{ x: "100%" }}
-            animate={{ x: ["100%", "0%", "0%", "-100%"] }}
-            transition={{
-              duration: 1.1,
-              times: [0, 0.28, 0.52, 1],
-              ease: "easeInOut",
-            }}
-            onAnimationComplete={() => {
-              setShowCurtain(false);
-              setIsTransitioning(false);
-            }}
-          />
-        )}
-      </AnimatePresence>
     </AnimatePresence>
   );
 }

@@ -51,6 +51,8 @@ export class WorldScene extends Phaser.Scene {
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
   private sceneReady = false;
   private cleanedUp = false;
+  private pointerBound = false;
+  private interactionMode: "assign" | "pan" = "assign";
 
   constructor() {
     super({ key: "WorldScene" });
@@ -154,6 +156,7 @@ export class WorldScene extends Phaser.Scene {
     eventBridge.on("sim:camera-zoom", this.onCameraZoom, this);
 
     eventBridge.on("sim:camera-snap-npc", this.onCameraSnapNPC, this);
+    eventBridge.on("sim:interaction-mode", this.onInteractionMode, this);
 
     // ─── NPC Animations & System ───
     this.registerNPCAnimations();
@@ -169,6 +172,10 @@ export class WorldScene extends Phaser.Scene {
     // Keyboard controls
     if (this.input?.keyboard) {
       this.cursors = this.input.keyboard.createCursorKeys();
+    }
+    if (this.input && !this.pointerBound) {
+      this.input.on("pointerdown", this.onPointerDown, this);
+      this.pointerBound = true;
     }
 
     // Emit ready state
@@ -519,6 +526,23 @@ export class WorldScene extends Phaser.Scene {
     return this.cameras?.main ?? null;
   }
 
+  private onPointerDown(pointer: Phaser.Input.Pointer) {
+    if (this.interactionMode !== "assign") return;
+    const worldPoint = pointer.positionToCamera(this.cameras.main);
+    const col = Math.floor(worldPoint.x / TILE_SIZE);
+    const row = Math.floor(worldPoint.y / TILE_SIZE);
+    eventBridge.emitSystemClick({
+      col,
+      row,
+      worldX: worldPoint.x,
+      worldY: worldPoint.y,
+    });
+  }
+
+  private onInteractionMode(mode: "assign" | "pan") {
+    this.interactionMode = mode;
+  }
+
   private cleanupScene() {
     if (this.cleanedUp) return;
 
@@ -530,6 +554,7 @@ export class WorldScene extends Phaser.Scene {
     eventBridge.off("sim:camera-zoom", this.onCameraZoom, this);
 
     eventBridge.off("sim:camera-snap-npc", this.onCameraSnapNPC, this);
+    eventBridge.off("sim:interaction-mode", this.onInteractionMode, this);
     this.simEventHandler?.destroy();
     this.simEventHandler = undefined;
     this.cursors = undefined;
@@ -544,6 +569,10 @@ export class WorldScene extends Phaser.Scene {
     this.phaseOverlay = undefined;
     this.useChunks = false;
     this.useCitypackChunks = false;
+    if (this.input && this.pointerBound) {
+      this.input.off("pointerdown", this.onPointerDown, this);
+      this.pointerBound = false;
+    }
   }
 
   shutdown() {

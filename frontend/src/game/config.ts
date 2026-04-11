@@ -48,6 +48,9 @@ export function createGameConfig(
       mode: Phaser.Scale.FIT,
       autoCenter: Phaser.Scale.CENTER_BOTH,
     },
+    audio: {
+      noAudio: true,
+    },
     scene: scenes,
     backgroundColor: "#1a1510",
   };

@@ -38,6 +38,13 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "") or os.environ.get(
     "GOOGLE_API_KEY", ""
 )
 MODEL_NAME = os.environ.get("MODEL_NAME", "gemini-2.5-flash")
+INVESTIGATION_AGENT_MODEL = os.environ.get(
+    "INVESTIGATION_AGENT_MODEL",
+    MODEL_NAME if "gemini" in MODEL_NAME.lower() else "gemini-2.5-flash",
+).strip() or "gemini-2.5-flash"
+INVESTIGATION_AGENT_THINKING_LEVEL = os.environ.get(
+    "INVESTIGATION_AGENT_THINKING_LEVEL", "high"
+).strip() or "high"
 
 if "gemini" in MODEL_NAME.lower():
     LLM_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"

@@ -26,6 +26,10 @@ function eventIcon(type: SimEvent["type"]): string {
       return "◆";
     case "phase_change":
       return "◉";
+    case "assignment":
+      return "⌁";
+    case "intel":
+      return "◈";
     default:
       return "○";
   }
@@ -49,6 +53,10 @@ function eventColor(type: SimEvent["type"]): string {
       return "#00ff88";
     case "phase_change":
       return "#b06fff";
+    case "assignment":
+      return "#38e5b0";
+    case "intel":
+      return "#00d4ff";
     default:
       return "#4a6580";
   }

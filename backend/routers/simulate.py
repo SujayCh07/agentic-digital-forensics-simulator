@@ -9,10 +9,21 @@ from fastapi import APIRouter, HTTPException
 
 from graph.builder import build_graph
 from graph.chat import generate_npc_chat_response
-from models.schemas import EconomicReportResponse, PolicyInput
+from models.schemas import (
+    EconomicReportResponse,
+    InvestigationAgentChatRequest,
+    InvestigationAgentChatResponse,
+    InvestigationTaskCompletionRequest,
+    InvestigationTaskCompletionResponse,
+    PolicyInput,
+)
 from models.state import SimState
 from services.context_store import get_source
 from services.economic_report import generate_economic_report
+from services.investigation_agents import (
+    chat_with_investigation_agent,
+    complete_investigation_task,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +131,13 @@ def _resolved_policy_source_ids(policy: PolicyInput) -> list[str]:
     return []
 
 
+def _public_agent_error_message(exc: BaseException) -> str:
+    message = _public_simulation_error_message(exc)
+    if message.startswith("Simulation failed:"):
+        return message.replace("Simulation failed:", "Agent request failed:", 1)
+    return f"Agent request failed: {message}"
+
+
 @router.post("/simulate")
 async def start_simulation(policy: PolicyInput):
     policy_ids = _resolved_policy_source_ids(policy)
@@ -140,6 +158,42 @@ async def start_simulation(policy: PolicyInput):
         len(policy_ids),
     )
     return {"simulation_id": simulation_id}
+
+
+@router.post(
+    "/investigation/agents/chat",
+    response_model=InvestigationAgentChatResponse,
+)
+async def investigation_agent_chat(request: InvestigationAgentChatRequest):
+    try:
+        return await chat_with_investigation_agent(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        _log_llm_failure(logger, "Investigation agent chat failed", exc)
+        raise HTTPException(
+            status_code=502,
+            detail=_public_agent_error_message(exc),
+        ) from exc
+
+
+@router.post(
+    "/investigation/agents/complete-task",
+    response_model=InvestigationTaskCompletionResponse,
+)
+async def investigation_agent_complete_task(
+    request: InvestigationTaskCompletionRequest,
+):
+    try:
+        return await complete_investigation_task(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        _log_llm_failure(logger, "Investigation agent task completion failed", exc)
+        raise HTTPException(
+            status_code=502,
+            detail=_public_agent_error_message(exc),
+        ) from exc
 
 
 @sio.event

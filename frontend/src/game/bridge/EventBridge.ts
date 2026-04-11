@@ -129,6 +129,20 @@ class EventBridge {
   emitNPCHoverOut() {
     this.emit("sim:npc-hover-out");
   }
+
+  // Phaser → React: player clicked a world tile/system
+  emitSystemClick(payload: {
+    col: number;
+    row: number;
+    worldX: number;
+    worldY: number;
+  }) {
+    this.emit("sim:system-click", payload);
+  }
+
+  emitInteractionMode(mode: "assign" | "pan") {
+    this.emit("sim:interaction-mode", mode);
+  }
 }
 
 export const eventBridge = EventBridge.getInstance();

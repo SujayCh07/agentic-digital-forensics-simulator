@@ -74,6 +74,18 @@ TrendDirection = Literal["up", "down", "flat", "unknown"]
 ReportDirection = Literal["positive", "negative", "mixed"]
 ReportSeverity = Literal["low", "medium", "high"]
 ReportTrend = Literal["up", "down", "flat", "mixed"]
+InvestigationTaskType = Literal[
+    "analyze_logs",
+    "detect_anomalies",
+    "trace_connections",
+    "identify_lateral_movement",
+    "recover_files",
+    "inspect_artifacts",
+    "reconstruct_timeline",
+    "correlate_events",
+]
+InvestigationAgentStatus = Literal["idle", "in_transit", "running_task"]
+ThreatLevelLiteral = Literal["low", "medium", "high", "critical"]
 
 
 class IndicatorSnapshot(BaseModel):
@@ -250,3 +262,69 @@ class EconomicReportResponse(BaseModel):
     pie_chart: PieChartData
     bar_chart: BarChartData
     notable_events: list[str]
+
+
+class InvestigationFindingContext(BaseModel):
+    node_id: str
+    summary: str
+    confidence: float = Field(ge=0, le=1)
+    severity: ThreatLevelLiteral
+    evidence_type: Literal["log", "network", "artifact", "timeline"]
+
+
+class InvestigationNodeContext(BaseModel):
+    id: str
+    name: str
+    type: Literal["server", "workstation", "router", "database", "gateway"]
+    threat_level: ThreatLevelLiteral
+    known_findings: list[InvestigationFindingContext] = Field(default_factory=list)
+
+
+class InvestigationRecentEvent(BaseModel):
+    id: str
+    type: str
+    agent_name: str
+    message: str
+    round: int = 0
+
+
+class InvestigationTaskDispatch(BaseModel):
+    task_type: InvestigationTaskType
+    objective: str = Field(min_length=1, max_length=400)
+    rationale: str = Field(min_length=1, max_length=600)
+    confidence: float = Field(default=0.5, ge=0, le=1)
+
+
+class InvestigationAgentChatRequest(BaseModel):
+    agent_id: str
+    message: str = Field(min_length=1, max_length=4000)
+    previous_interaction_id: str | None = None
+    current_objective: str = Field(default="", max_length=500)
+    agent_status: InvestigationAgentStatus = "idle"
+    selected_node: InvestigationNodeContext | None = None
+    completed_findings: list[InvestigationFindingContext] = Field(default_factory=list)
+    recent_events: list[InvestigationRecentEvent] = Field(default_factory=list)
+
+
+class InvestigationAgentChatResponse(BaseModel):
+    reply: str
+    interaction_id: str | None = None
+    dispatched_task: InvestigationTaskDispatch | None = None
+    refusal_reason: str | None = None
+
+
+class InvestigationTaskCompletionRequest(BaseModel):
+    agent_id: str
+    task_type: InvestigationTaskType
+    task_objective: str = Field(default="", max_length=400)
+    current_objective: str = Field(default="", max_length=500)
+    selected_node: InvestigationNodeContext
+    completed_findings: list[InvestigationFindingContext] = Field(default_factory=list)
+    recent_events: list[InvestigationRecentEvent] = Field(default_factory=list)
+
+
+class InvestigationTaskCompletionResponse(BaseModel):
+    summary: str = Field(min_length=1, max_length=500)
+    confidence: float = Field(ge=0, le=1)
+    severity: ThreatLevelLiteral
+    evidence_type: Literal["log", "network", "artifact", "timeline"]
