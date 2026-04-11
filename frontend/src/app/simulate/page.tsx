@@ -4,11 +4,16 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { AgentStatusBar } from "@/components/AgentStatusBar";
 import { Dashboard } from "@/components/Dashboard";
 import { EconomicReportModal } from "@/components/EconomicReportModal";
 import { EventFeed } from "@/components/EventFeed";
+import { NodeListPanel } from "@/components/NodeListPanel";
 import { NPCInteractionModal } from "@/components/NPCInteractionModal";
+import { TaskAssignmentModal } from "@/components/TaskAssignmentModal";
+import { useInvestigation } from "@/hooks/useInvestigation";
 import { useSimulation } from "@/hooks/useSimulation";
+import type { AgentId, TaskType } from "@/types/investigation";
 import { clearReplayData, getReplayData } from "@/lib/replayStore";
 import type { NPCHoverInfo, SimEvent } from "@/types";
 
@@ -137,8 +142,342 @@ const DEFAULT_OVERLAY_METRICS: OverlayMetrics = {
 export default function SimulatePage() {
   return (
     <Suspense fallback={<GameCanvasPlaceholder />}>
-      <SimulateContent />
+      <SimulateRouter />
     </Suspense>
+  );
+}
+
+function SimulateRouter() {
+  const searchParams = useSearchParams();
+  const mode = searchParams.get("mode");
+  if (mode === "investigate") return <InvestigateContent />;
+  return <SimulateContent />;
+}
+
+// ---------------------------------------------------------------------------
+// InvestigateContent — NIPS core gameplay loop
+// ---------------------------------------------------------------------------
+
+function InvestigateContent() {
+  const inv = useInvestigation();
+  const [showGraph, setShowGraph] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
+  const [hoverInfo, setHoverInfo] = useState<NPCHoverInfo | null>(null);
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const [overlayMetrics, setOverlayMetrics] = useState<OverlayMetrics>(DEFAULT_OVERLAY_METRICS);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [focusScale, setFocusScale] = useState(1);
+
+  // Reuse the same canvas event plumbing from SimulateContent
+  useEffect(() => {
+    if (focusMode) {
+      setFocusScale(Math.max(window.innerWidth / GAME_WIDTH, window.innerHeight / GAME_HEIGHT));
+    } else {
+      setFocusScale(1);
+    }
+  }, [focusMode]);
+
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+      const onHover = (info: NPCHoverInfo) => setHoverInfo(info);
+      const onHoverOut = () => setHoverInfo(null);
+      eventBridge.on("sim:npc-hover", onHover);
+      eventBridge.on("sim:npc-hover-out", onHoverOut);
+      cleanup = () => {
+        eventBridge.off("sim:npc-hover", onHover);
+        eventBridge.off("sim:npc-hover-out", onHoverOut);
+      };
+    });
+    return () => cleanup?.();
+  }, []);
+
+  useEffect(() => {
+    const container = canvasContainerRef.current;
+    if (!container) return;
+    let observedTarget: Element | null = null;
+    const updateMetrics = () => {
+      const canvas = container.querySelector("canvas") ?? container.querySelector("[data-testid='game-canvas']");
+      const target = canvas instanceof HTMLElement ? canvas : null;
+      if (!target) return;
+      if (observedTarget !== target) {
+        if (observedTarget) resizeObserver.unobserve(observedTarget);
+        observedTarget = target;
+        resizeObserver.observe(target);
+      }
+      const containerRect = container.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const next: OverlayMetrics = {
+        offsetX: targetRect.left - containerRect.left,
+        offsetY: targetRect.top - containerRect.top,
+        width: targetRect.width,
+        height: targetRect.height,
+        scaleX: targetRect.width / GAME_WIDTH,
+        scaleY: targetRect.height / GAME_HEIGHT,
+      };
+      setOverlayMetrics((prev) => {
+        const changed = Math.abs(prev.offsetX - next.offsetX) > 0.5 || Math.abs(prev.offsetY - next.offsetY) > 0.5 || Math.abs(prev.width - next.width) > 0.5 || Math.abs(prev.height - next.height) > 0.5;
+        return changed ? next : prev;
+      });
+    };
+    const resizeObserver = new ResizeObserver(() => updateMetrics());
+    resizeObserver.observe(container);
+    const mutationObserver = new MutationObserver(() => updateMetrics());
+    mutationObserver.observe(container, { childList: true, subtree: true });
+    window.addEventListener("resize", updateMetrics);
+    document.addEventListener("fullscreenchange", updateMetrics);
+    updateMetrics();
+    return () => {
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+      window.removeEventListener("resize", updateMetrics);
+      document.removeEventListener("fullscreenchange", updateMetrics);
+    };
+  }, []);
+
+  useEffect(() => {
+    const el = canvasContainerRef.current;
+    if (!el) return;
+    let dragging = false;
+    let lastX = 0;
+    let lastY = 0;
+    const onDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      dragging = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      el.setPointerCapture(e.pointerId);
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!dragging) return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+        eventBridge.emitCameraPan(-dx / SCALE_FACTOR, -dy / SCALE_FACTOR);
+      });
+    };
+    const onUp = (e: PointerEvent) => {
+      if (!dragging) return;
+      dragging = false;
+      el.releasePointerCapture(e.pointerId);
+    };
+    el.style.cursor = "crosshair";
+    el.addEventListener("pointerdown", onDown);
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 1 : -1;
+      const zoomTarget = el.querySelector("canvas") ?? el.querySelector("[data-testid='game-canvas']");
+      const rect = zoomTarget instanceof HTMLElement ? zoomTarget.getBoundingClientRect() : el.getBoundingClientRect();
+      const scaleX = rect.width > 0 ? GAME_WIDTH / rect.width : 1;
+      const scaleY = rect.height > 0 ? GAME_HEIGHT / rect.height : 1;
+      const mouseX = (e.clientX - rect.left) * scaleX;
+      const mouseY = (e.clientY - rect.top) * scaleY;
+      import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+        eventBridge.emitCameraZoom(delta, mouseX, mouseY);
+      });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      el.removeEventListener("pointerdown", onDown);
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
+      el.removeEventListener("wheel", onWheel);
+    };
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setFocusMode(false); setShowGraph(false); inv.setSelectedNodeId(null); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [inv]);
+
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", handler);
+    return () => document.removeEventListener("fullscreenchange", handler);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    const el = canvasContainerRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) document.exitFullscreen();
+    else el.requestFullscreen();
+  }, []);
+
+  const selectedNode = inv.selectedNodeId
+    ? inv.systemNodes.find((n) => n.id === inv.selectedNodeId) ?? null
+    : null;
+
+  return (
+    <div
+      className="relative flex h-screen flex-col overflow-clip"
+      style={{ background: "#080c12" }}
+      data-testid="investigate-page"
+    >
+      {/* Top bar: NIPS header + agent status */}
+      <div
+        className={`rpg-panel flex h-14 shrink-0 items-center gap-3 rounded-none border-x-0 border-t-0 px-4 panel-slide-top ${focusMode ? "panel-hidden-top" : ""}`}
+        style={{ borderBottom: "1px solid #1e3d5a" }}
+      >
+        <div className="flex items-center gap-3 shrink-0 mr-3">
+          <span className="text-[10px] font-mono tracking-tight" style={{ color: "#00d4ff" }}>
+            ◈ NIPS
+          </span>
+          <span className="text-[10px] font-mono" style={{ color: "#1e3d5a" }}>|</span>
+          {/* Stage dots */}
+          <div className="flex gap-1">
+            {[1, 2, 3].map((s) => (
+              <div
+                key={s}
+                className="h-2 w-10 rounded-sm transition-colors duration-500"
+                style={{
+                  border: "1px solid #1e3d5a",
+                  background: inv.stage >= s ? (s === 3 ? "#ff3a3a" : s === 2 ? "#f59e0b" : "#00d4ff") : "#0d1520",
+                  boxShadow: inv.stage >= s ? (s === 3 ? "0 0 6px rgba(255,58,58,0.5)" : s === 2 ? "0 0 6px rgba(245,158,11,0.5)" : "0 0 6px rgba(0,212,255,0.5)") : "none",
+                }}
+              />
+            ))}
+          </div>
+          <span className="text-[8px] font-mono uppercase tracking-widest" style={{ color: "#2a5070" }}>
+            C{inv.currentCycle}
+          </span>
+        </div>
+
+        {/* Agent status bar */}
+        <div className="flex-1 h-full py-1.5 overflow-x-auto">
+          <AgentStatusBar agents={inv.agents} activeTasks={inv.activeTasks} />
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0 ml-3">
+          {inv.isComplete && (
+            <span className="text-[9px] font-mono" style={{ color: "#00ff88", textShadow: "0 0 8px rgba(0,255,136,0.5)" }}>
+              CASE CLOSED
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowGraph(true)}
+            className="rpg-panel px-2 py-1 text-[8px] font-mono uppercase tracking-widest transition-opacity hover:opacity-70"
+            style={{ color: "#4a6580" }}
+          >
+            ATTACK MAP
+          </button>
+          <button
+            type="button"
+            onClick={() => setFocusMode((f) => !f)}
+            className="rpg-panel px-2 py-1 text-[8px] font-mono uppercase tracking-widest transition-opacity hover:opacity-70"
+            style={{ color: focusMode ? "#00d4ff" : "#4a6580", border: `1px solid ${focusMode ? "#00d4ff" : "#1e3d5a"}` }}
+          >
+            {focusMode ? "[ EXIT FOCUS ]" : "[ FOCUS ]"}
+          </button>
+        </div>
+      </div>
+
+      {/* Main layout */}
+      <div className="flex flex-1 gap-2 overflow-hidden p-2">
+        {/* Left: Evidence feed */}
+        <div className={`rpg-panel flex h-full w-60 shrink-0 flex-col panel-slide-left ${focusMode ? "panel-hidden-left" : ""}`}>
+          <div className="flex items-center px-3 py-2 shrink-0" style={{ borderBottom: "1px solid #1e3d5a" }}>
+            <h2 className="text-[8px] font-mono uppercase tracking-widest" style={{ color: "#00d4ff" }}>
+              Evidence Feed
+            </h2>
+          </div>
+          <div className="flex-1 overflow-hidden">
+            <EventFeed events={inv.events} />
+          </div>
+        </div>
+
+        {/* Center: Game canvas */}
+        <div
+          className={focusMode ? "fixed inset-0 z-50 flex items-center justify-center overflow-hidden" : "relative flex min-w-0 flex-1 items-center justify-center overflow-hidden"}
+          style={focusMode ? { background: "#080c12" } : undefined}
+        >
+          <div
+            ref={canvasContainerRef}
+            className="relative shrink-0 canvas-glow canvas-expand"
+            style={{
+              border: "1px solid #1e3d5a",
+              borderRadius: 4,
+              ...(focusMode ? { transform: `scale(${focusScale})`, transformOrigin: "center center", border: "none", padding: 0, boxShadow: "none" } : {}),
+            }}
+          >
+            <GameCanvas />
+            {/* Zoom / Fullscreen controls */}
+            <div className="absolute top-2 right-2 z-40 flex gap-1">
+              <button type="button" onClick={() => { import("@/game/bridge/EventBridge").then(({ eventBridge }) => eventBridge.emitCameraZoom(1)); }} className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70" style={{ color: "#4a6580" }}>ZOOM+</button>
+              <button type="button" onClick={() => { import("@/game/bridge/EventBridge").then(({ eventBridge }) => eventBridge.emitCameraZoom(-1)); }} className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70" style={{ color: "#4a6580" }}>ZOOM-</button>
+              <button type="button" onClick={toggleFullscreen} className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70" style={{ color: "#4a6580" }}>{isFullscreen ? "EXIT" : "FULL"}</button>
+            </div>
+            {/* NPC hover tooltip */}
+            {hoverInfo && (
+              <div className="pointer-events-none absolute z-30 overflow-hidden" style={{ left: overlayMetrics.offsetX, top: overlayMetrics.offsetY, width: overlayMetrics.width, height: overlayMetrics.height }}>
+                <NPCTooltip info={hoverInfo} scaleX={overlayMetrics.scaleX} scaleY={overlayMetrics.scaleY} />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right: Node list panel */}
+        <div className={`panel-slide-right ${focusMode ? "panel-hidden-right" : ""}`}>
+          <NodeListPanel
+            nodes={inv.systemNodes}
+            selectedNodeId={inv.selectedNodeId}
+            onSelectNode={(id) => inv.setSelectedNodeId(inv.selectedNodeId === id ? null : id)}
+          />
+        </div>
+      </div>
+
+      {/* Viewport-fixed dashboard */}
+      <div className={`fixed bottom-3 right-60 z-40 pointer-events-auto ${focusMode ? "opacity-0 pointer-events-none" : ""}`}>
+        <Dashboard
+          metrics={inv.metrics}
+          metricsHistory={inv.metricsHistory}
+          phase={inv.stage}
+          round={inv.currentCycle}
+          maxRounds={99}
+        />
+      </div>
+
+      {/* Focus mode exit button */}
+      {focusMode && (
+        <button type="button" className="fixed top-4 right-4 z-[60] rpg-panel px-3 py-1.5 text-[9px] font-mono transition-opacity hover:opacity-70" style={{ color: "#4a6580", border: "1px solid #1e3d5a" }} onClick={() => setFocusMode(false)}>
+          [ESC] exit focus
+        </button>
+      )}
+
+      {/* Task assignment modal */}
+      {selectedNode && (
+        <TaskAssignmentModal
+          node={selectedNode}
+          agents={inv.agents}
+          onAssign={(agentId: AgentId, taskType: TaskType) => {
+            inv.assignTask(agentId, selectedNode.id, taskType);
+          }}
+          onClose={() => inv.setSelectedNodeId(null)}
+        />
+      )}
+
+      {/* Attack Graph Modal */}
+      {showGraph && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={(e) => { if (e.target === e.currentTarget) setShowGraph(false); }}>
+          <div className="relative flex flex-col animate-[modalIn_200ms_ease-out] rpg-panel" style={{ width: 700, height: 560 }}>
+            <div className="flex items-center justify-between px-4 py-2" style={{ borderBottom: "1px solid #1e3d5a" }}>
+              <h2 className="text-[10px] font-mono uppercase tracking-widest" style={{ color: "#00d4ff" }}>◈ Attack Graph</h2>
+              <button type="button" onClick={() => setShowGraph(false)} className="text-[10px] font-mono uppercase tracking-widest transition-opacity hover:opacity-60" style={{ color: "#4a6580" }}>[ESC]</button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <SocialGraph npcs={inv.graphData.npcs} relationships={inv.graphData.relationships} influenceEvents={inv.graphData.influenceEvents} version={inv.graphData.version} />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
