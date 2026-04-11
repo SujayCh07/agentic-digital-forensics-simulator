@@ -17,13 +17,28 @@ llm_semaphore = asyncio.Semaphore(1)
 T = TypeVar("T", bound=BaseModel)
 
 def get_llm(max_tokens: int | None = None, **kwargs: Any) -> ChatOpenAI:
-    llm_kwargs: dict[str, Any] = {"model": LLM_MODEL, "api_key": LLM_API_KEY}
-    if LLM_BASE_URL:
-        llm_kwargs["base_url"] = LLM_BASE_URL
+    key = LLM_API_KEY or ""
+    if LLM_BASE_URL and "generativelanguage.googleapis.com" in LLM_BASE_URL:
+        if not key:
+            raise RuntimeError(
+                "GEMINI_API_KEY (or GOOGLE_API_KEY) is missing in backend/.env. "
+                "Get a key at https://aistudio.google.com/apikey and set "
+                'MODEL_NAME to a Gemini id (e.g. gemini-2.5-flash).'
+            )
+        # Some LangChain/OpenAI client builds omit Bearer for this host; Gemini requires it.
+        llm_kwargs: dict[str, Any] = {
+            "model": LLM_MODEL,
+            "api_key": key,
+            "base_url": LLM_BASE_URL,
+            "default_headers": {"Authorization": f"Bearer {key}"},
+        }
+    else:
+        llm_kwargs = {"model": LLM_MODEL, "api_key": key or None}
+        if LLM_BASE_URL:
+            llm_kwargs["base_url"] = LLM_BASE_URL
     if max_tokens is not None:
         llm_kwargs["max_tokens"] = max_tokens
 
-    # Default to generic OpenAI base url if NONE
     return ChatOpenAI(**llm_kwargs, **kwargs)
 
 async def invoke_llm_structured(

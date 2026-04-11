@@ -34,7 +34,9 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 FEATHERLESS_API_KEY = os.environ.get("FEATHERLESS_API_KEY", "")
 XAI_API_KEY = os.environ.get("XAI_API_KEY", "")
 K2_API_KEY = os.environ.get("K2_API_KEY", "")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "") or os.environ.get(
+    "GOOGLE_API_KEY", ""
+)
 MODEL_NAME = os.environ.get("MODEL_NAME", "gemini-2.5-flash")
 
 if "gemini" in MODEL_NAME.lower():
@@ -57,3 +59,5 @@ else:
     LLM_BASE_URL = "https://api.k2think.ai/v1"
     LLM_MODEL = "MBZUAI-IFM/K2-Think-v2"
     LLM_API_KEY = K2_API_KEY
+
+LLM_API_KEY = (LLM_API_KEY or "").strip()

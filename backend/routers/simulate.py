@@ -1,4 +1,5 @@
 import logging
+import traceback
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -14,6 +15,76 @@ from services.context_store import get_source
 from services.economic_report import generate_economic_report
 
 logger = logging.getLogger(__name__)
+
+# Max chars sent to the browser on sim_error. LLM client exceptions often embed the
+# full prompt (user policy text) in str(exc), which looks like the app is "showing
+# your policy as an error".
+_MAX_CLIENT_ERROR_CHARS = 420
+
+
+def _public_simulation_error_message(exc: BaseException) -> str:
+    """Short, user-safe message for WebSocket/UI. Full detail stays in server logs."""
+    text = str(exc).strip()
+    lowered = text.lower()
+
+    if any(
+        x in lowered
+        for x in (
+            "api key",
+            "incorrect api key",
+            "invalid api",
+            "authentication",
+            "unauthorized",
+        )
+    ) or "401" in text:
+        return (
+            "Simulation failed: LLM API authentication error. "
+            "Check API keys and MODEL_NAME in backend .env (see backend terminal)."
+        )
+    if "429" in text or "rate limit" in lowered:
+        return "Simulation failed: LLM rate limit reached. Try again in a moment."
+    if any(
+        x in lowered
+        for x in (
+            "model_not_found",
+            "does not exist",
+            "invalid model",
+            "unknown model",
+        )
+    ):
+        return (
+            "Simulation failed: model not available or name is wrong. "
+            "Adjust MODEL_NAME in backend .env."
+        )
+    if len(text) > _MAX_CLIENT_ERROR_CHARS or text.count("\n") > 12:
+        # Do not echo str(exc) — it often contains the full prompt repeated by the SDK.
+        return (
+            "Simulation failed: the LLM or network request failed. "
+            "Open the backend terminal for the full error and traceback."
+        )
+    return f"Simulation failed: {text}"
+
+
+def _log_llm_failure(logger_: logging.Logger, prefix: str, exc: BaseException) -> None:
+    """Log traceback frames without dumping str(exc) when the SDK echoes the full prompt."""
+    raw = str(exc).strip()
+    if len(raw) > 500 or raw.count("\n") > 8:
+        raw = (
+            f"<{len(str(exc))}-char message omitted — LLM clients often echo the request body>"
+        )
+    tb = (
+        "".join(traceback.format_tb(exc.__traceback__))
+        if exc.__traceback__
+        else "(no traceback)"
+    )
+    logger_.error(
+        "%s: %s: %s\nTraceback (stack frames only):\n%s",
+        prefix,
+        type(exc).__name__,
+        raw,
+        tb,
+    )
+
 
 router = APIRouter()
 
@@ -220,17 +291,20 @@ async def start_sim(sid: str, data: dict) -> None:
             record.economic_report = report
             await sio.emit("economic_report", report.model_dump(), to=sid)
             logger.info("sim=%s  economic_report emitted", simulation_id)
-        except Exception:
-            logger.exception("sim=%s  economic_report generation failed", simulation_id)
+        except Exception as report_exc:
+            _log_llm_failure(
+                logger,
+                f"sim={simulation_id} economic_report generation failed",
+                report_exc,
+            )
 
     except Exception as exc:
         record.status = "error"
-        record.error_message = str(exc)
-        logger.exception("Simulation %s failed", simulation_id)
+        safe_message = _public_simulation_error_message(exc)
+        record.error_message = safe_message
+        _log_llm_failure(logger, f"Simulation {simulation_id} failed", exc)
         try:
-            await sio.emit(
-                "sim_error", {"message": f"Simulation failed: {exc}"}, to=sid
-            )
+            await sio.emit("sim_error", {"message": safe_message}, to=sid)
         except Exception:
             pass
 
@@ -315,9 +389,14 @@ async def chat_with_npc(sid: str, data: dict) -> None:
             to=sid,
         )
     except Exception as e:
-        logger.exception("Chat with NPC %s failed: %s", npc_id, e)
+        _log_llm_failure(logger, f"Chat with NPC {npc_id} failed", e)
+        err_text = str(e).strip()
+        if len(err_text) > 280:
+            err_text = "Chat request failed (see server logs)."
+        else:
+            err_text = f"Chat failed: {err_text}"
         await sio.emit(
             "npc_chat_error",
-            {"npc_id": npc_id, "message": f"Chat failed: {e}"},
+            {"npc_id": npc_id, "message": err_text},
             to=sid,
         )
