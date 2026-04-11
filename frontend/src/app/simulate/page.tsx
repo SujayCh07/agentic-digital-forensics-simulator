@@ -12,7 +12,9 @@ import { HelperSelectionPanel } from "@/components/HelperSelectionPanel";
 import { NodeListPanel } from "@/components/NodeListPanel";
 import { NPCInteractionModal } from "@/components/NPCInteractionModal";
 import { TaskAssignmentModal } from "@/components/TaskAssignmentModal";
+import { UserBoard } from "@/components/UserBoard/UserBoard";
 import { useInvestigation } from "@/hooks/useInvestigation";
+import { useBoardState } from "@/hooks/useBoardState";
 import { useSimulation } from "@/hooks/useSimulation";
 import type { ActiveHelpers, AgentId } from "@/types/investigation";
 import { clearReplayData, getReplayData } from "@/lib/replayStore";
@@ -215,7 +217,9 @@ function InvestigateGame({
 }) {
   const inv = useInvestigation(activeHelpers);
   const [showGraph, setShowGraph] = useState(false);
+  const [showBoard, setShowBoard] = useState(false);
   const [rewardsShown, setRewardsShown] = useState(false);
+  const board = useBoardState();
   const [focusMode, setFocusMode] = useState(false);
   const [hoverInfo, setHoverInfo] = useState<NPCHoverInfo | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
@@ -346,7 +350,7 @@ function InvestigateGame({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { setFocusMode(false); setShowGraph(false); inv.setSelectedNodeId(null); }
+      if (e.key === "Escape") { setFocusMode(false); setShowGraph(false); setShowBoard(false); inv.setSelectedNodeId(null); }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -452,6 +456,14 @@ function InvestigateGame({
           )}
           <button
             type="button"
+            onClick={() => setShowBoard(true)}
+            className="rpg-panel px-2 py-1 text-[8px] font-mono uppercase tracking-widest transition-opacity hover:opacity-70"
+            style={{ color: showBoard ? "#b06fff" : "#b06fff80", border: `1px solid ${showBoard ? "#b06fff" : "#1e3d5a"}`, boxShadow: showBoard ? "0 0 8px rgba(176,111,255,0.2)" : undefined }}
+          >
+            BOARD
+          </button>
+          <button
+            type="button"
             onClick={() => setShowGraph(true)}
             className="rpg-panel px-2 py-1 text-[8px] font-mono uppercase tracking-widest transition-opacity hover:opacity-70"
             style={{ color: "#4a6580" }}
@@ -479,7 +491,18 @@ function InvestigateGame({
             </h2>
           </div>
           <div className="flex-1 overflow-hidden">
-            <EventFeed events={inv.events} />
+            <EventFeed
+              events={inv.events}
+              onPinEvent={(event: SimEvent) => {
+                // Find matching finding key and pin it
+                const finding = inv.completedFindings.find(f =>
+                  event.message.includes(f.summary.substring(0, 30))
+                );
+                if (finding) {
+                  board.pinEvidence(`${finding.nodeId}:${finding.taskType}`);
+                }
+              }}
+            />
           </div>
         </div>
 
@@ -570,6 +593,16 @@ function InvestigateGame({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Investigation Board */}
+      {showBoard && (
+        <UserBoard
+          board={board}
+          completedFindings={inv.completedFindings}
+          lockedAgents={inv.lockedAgents}
+          onClose={() => setShowBoard(false)}
+        />
       )}
 
       {/* Case Complete — Rewards Modal */}

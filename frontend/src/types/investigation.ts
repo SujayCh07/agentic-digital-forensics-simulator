@@ -223,3 +223,79 @@ export interface EchoHypothesis {
   attackPath: string[];
   openQuestions?: string[];
 }
+
+// ---------------------------------------------------------------------------
+// User Board types
+// ---------------------------------------------------------------------------
+
+export type BoardNodeType = "system" | "unknown" | "outcome" | "hypothesis";
+export type BoardNodeStatus = "normal" | "suspicious" | "confirmed" | "contradicted" | "isolated";
+export type BoardEdgeStatus = "unknown" | "suspected" | "confirmed" | "contradicted" | "isolated";
+export type HypothesisStatus = "open" | "supported" | "challenged" | "inconclusive";
+export type BoardRelation = "supports" | "questions" | "causes" | "contradicts" | "relates";
+
+export interface BoardGraphNode {
+  id: string;
+  type: BoardNodeType;
+  label: string;
+  status: BoardNodeStatus;
+  revealed: boolean;
+  linkedEvidenceIds: string[];
+  systemNodeId?: string;        // link back to CaseSystemNode.id
+  metadata?: Record<string, unknown>;
+  position: { x: number; y: number };
+}
+
+export interface BoardGraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  status: BoardEdgeStatus;
+  revealed: boolean;
+  linkedEvidenceIds: string[];
+  label?: string;
+}
+
+export interface HypothesisNode {
+  id: string;
+  text: string;
+  attachedToIds: string[];
+  status: HypothesisStatus;
+  createdAt: number;
+  position: { x: number; y: number };
+}
+
+export interface BoardConnection {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  relation: BoardRelation;
+}
+
+/** Defines what happens when evidence is placed on a specific board node */
+export interface EvidencePlacement {
+  evidenceKey: string;     // `${nodeId}:${taskType}` key
+  revealsNodeId?: string;  // unhide a hidden board node
+  upgradesEdgeId?: string; // change edge status
+  upgradesEdgeTo?: BoardEdgeStatus;
+  marksNodeId?: string;    // change a node's status
+  marksNodeAs?: BoardNodeStatus;
+}
+
+export interface ConsultationResponse {
+  agentId: AgentId;
+  agentName: string;
+  message: string;
+  tone: "agreement" | "skepticism" | "contradiction" | "nuance" | "suggestion";
+  timestamp: number;
+}
+
+export interface BoardState {
+  pinnedEvidenceIds: string[];
+  graphNodes: BoardGraphNode[];
+  graphEdges: BoardGraphEdge[];
+  hypotheses: HypothesisNode[];
+  connections: BoardConnection[];
+  selectedItemIds: string[];
+  consultations: ConsultationResponse[];
+}

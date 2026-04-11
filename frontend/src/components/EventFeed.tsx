@@ -6,6 +6,7 @@ import type { SimEvent } from "@/types";
 interface EventFeedProps {
   events: SimEvent[];
   onEventClick?: (event: SimEvent) => void;
+  onPinEvent?: (event: SimEvent) => void;
 }
 
 function eventIcon(type: SimEvent["type"]): string {
@@ -54,7 +55,7 @@ function eventColor(type: SimEvent["type"]): string {
   }
 }
 
-export function EventFeed({ events, onEventClick }: EventFeedProps) {
+export function EventFeed({ events, onEventClick, onPinEvent }: EventFeedProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -148,6 +149,16 @@ export function EventFeed({ events, onEventClick }: EventFeedProps) {
               >
                 {event.message}
               </p>
+              {onPinEvent && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onPinEvent(event); }}
+                  className="mt-1 text-[7px] font-mono uppercase tracking-widest transition-opacity hover:opacity-60"
+                  style={{ color: "#b06fff" }}
+                >
+                  📌 PIN TO BOARD
+                </button>
+              )}
             </div>
           );
         })}
