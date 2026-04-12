@@ -1079,7 +1079,17 @@ function InvestigateGame({
           nodeContext={nodeContextStr}
           currentFunds={nipsFunds}
           initialMessages={chatHistories[chatAgent.instance_id]}
-          onEvidenceUpdate={(ev) => inv.addExternalEvidence(ev)}
+          onEvidenceUpdate={(ev) => {
+            inv.addExternalEvidence(ev);
+            if (typeof ev.funds === "number") {
+              setNipsFunds(ev.funds);
+            } else {
+              const rewardCredits = ev.reward_credits;
+              if (typeof rewardCredits === "number") {
+                setNipsFunds((prev) => prev + rewardCredits);
+              }
+            }
+          }}
           onFundsChange={setNipsFunds}
           onOpenRadio={() => {
             radio.setSelectedAgent(chatAgent);
