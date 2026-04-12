@@ -498,6 +498,7 @@ function InvestigateGame({
           finalizing: false,
           won: false,
         },
+    isTutorial,
   );
 
   const discoveredNodes = useMemo(

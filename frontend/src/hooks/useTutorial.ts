@@ -59,14 +59,19 @@ export interface UseTutorialReturn {
   dismissed: boolean;
 }
 
-export function useTutorial(gameState: TutorialGameState): UseTutorialReturn {
+export function useTutorial(
+  gameState: TutorialGameState,
+  enabled: boolean,
+): UseTutorialReturn {
   const [stepIndex, setStepIndex] = useState(0);
   const [dismissed, setDismissed] = useState(false);
   const autoAdvanceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const totalSteps = TUTORIAL_STEPS.length;
   const step =
-    dismissed || stepIndex >= totalSteps ? null : TUTORIAL_STEPS[stepIndex];
+    !enabled || dismissed || stepIndex >= totalSteps
+      ? null
+      : TUTORIAL_STEPS[stepIndex];
 
   // ── Play TTS whenever step changes ─────────────────────────────────────────
   useEffect(() => {
