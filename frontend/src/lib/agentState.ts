@@ -1,60 +1,54 @@
-"use client";
-
 import type {
   AgentId,
   NipsAgentInstance,
   NipsMarketplaceOffer,
+  NipsArchetype,
 } from "@/types/investigation";
 
+/**
+ * The priority order for displaying agent roles in the UI.
+ */
 export const ROLE_ORDER: AgentId[] = ["logis", "nexus", "filer", "chrono"];
 
+/**
+ * Maps a NIPS backend archetype string to a frontend AgentId.
+ */
+export function toAgentId(archetype: string | undefined): AgentId | null {
+  if (!archetype) return null;
+  const lower = archetype.toLowerCase();
+  if (lower.startsWith("logis")) return "logis";
+  if (lower.startsWith("nexus")) return "nexus";
+  if (lower.startsWith("filer")) return "filer";
+  if (lower.startsWith("chrono")) return "chrono";
+  return null;
+}
+
+/**
+ * Normalizes agent instances from the backend into a consistent format.
+ * Ensures that archetype is upper-cased for UI consistency.
+ */
+export function normalizeOwnedAgents(agents: any[]): NipsAgentInstance[] {
+  if (!agents) return [];
+  return agents.map((a) => ({
+    ...a,
+    archetype: (a.archetype || "").toUpperCase() as NipsArchetype,
+  }));
+}
+
 export interface AgentStateModel {
-  roleUnlocks: Record<AgentId, boolean>;
-  lockedRoles: AgentId[];
   ownedAgents: NipsAgentInstance[];
-  ownedAgentsByRole: Partial<Record<AgentId, NipsAgentInstance>>;
   ownedRoleIds: AgentId[];
-  deployedAgents: NipsAgentInstance[];
-  deployedAgentsByRole: Partial<Record<AgentId, NipsAgentInstance>>;
-  deployedRoleIds: AgentId[];
-  offersByRole: Partial<Record<AgentId, NipsMarketplaceOffer>>;
   slotAgentsByRole: Partial<Record<AgentId, NipsAgentInstance>>;
+  ownedAgentsByRole: Partial<Record<AgentId, NipsAgentInstance>>;
+  offersByRole: Partial<Record<AgentId, NipsMarketplaceOffer>>;
+  deployedAgents: NipsAgentInstance[];
+  lockedRoles: AgentId[];
 }
 
-export function toAgentId(value: string): AgentId | null {
-  const normalized = value.trim().toLowerCase();
-  return ROLE_ORDER.includes(normalized as AgentId)
-    ? (normalized as AgentId)
-    : null;
-}
-
-function preferAgent(
-  current: NipsAgentInstance | undefined,
-  candidate: NipsAgentInstance,
-) {
-  if (!current) return candidate;
-  if (candidate.created_at !== current.created_at) {
-    return candidate.created_at > current.created_at ? candidate : current;
-  }
-  return candidate.instance_id > current.instance_id ? candidate : current;
-}
-
-export function normalizeOwnedAgents(
-  agents: NipsAgentInstance[],
-): NipsAgentInstance[] {
-  const byRole: Partial<Record<AgentId, NipsAgentInstance>> = {};
-
-  for (const agent of agents) {
-    const roleId = toAgentId(agent.archetype);
-    if (!roleId) continue;
-    byRole[roleId] = preferAgent(byRole[roleId], agent);
-  }
-
-  return ROLE_ORDER.map((roleId) => byRole[roleId]).filter(
-    (agent): agent is NipsAgentInstance => Boolean(agent),
-  );
-}
-
+/**
+ * Aggregates information about owned agents and marketplace offers to determine
+ * which roles are currently filled, locked, or recruitable.
+ */
 export function buildAgentStateModel({
   ownedAgents,
   marketplaceOffers,
@@ -64,70 +58,45 @@ export function buildAgentStateModel({
   marketplaceOffers: NipsMarketplaceOffer[];
   baseLockedRoles: AgentId[];
 }): AgentStateModel {
-  const normalizedOwnedAgents = normalizeOwnedAgents(ownedAgents);
-  const ownedAgentsByRole: Partial<Record<AgentId, NipsAgentInstance>> = {};
-
-  for (const agent of normalizedOwnedAgents) {
-    const roleId = toAgentId(agent.archetype);
-    if (!roleId) continue;
-    ownedAgentsByRole[roleId] = agent;
-  }
-
-  const offersByRole: Partial<Record<AgentId, NipsMarketplaceOffer>> = {};
-  for (const offer of marketplaceOffers) {
-    const roleId = toAgentId(offer.agent.archetype);
-    if (!roleId || ownedAgentsByRole[roleId] || offersByRole[roleId]) continue;
-    offersByRole[roleId] = offer;
-  }
-
-  const roleUnlocks = ROLE_ORDER.reduce<Record<AgentId, boolean>>(
-    (acc, roleId) => {
-      acc[roleId] =
-        Boolean(ownedAgentsByRole[roleId]) || !baseLockedRoles.includes(roleId);
-      return acc;
-    },
-    {
-      logis: false,
-      nexus: false,
-      filer: false,
-      chrono: false,
-    },
-  );
-
-  const lockedRoles = ROLE_ORDER.filter((roleId) => !roleUnlocks[roleId]);
-  const ownedRoleIds = ROLE_ORDER.filter((roleId) => Boolean(ownedAgentsByRole[roleId]));
-
-  const deployedAgentsByRole: Partial<Record<AgentId, NipsAgentInstance>> = {};
-  for (const roleId of ROLE_ORDER) {
-    if (!roleUnlocks[roleId]) continue;
-    const ownedAgent = ownedAgentsByRole[roleId];
-    if (ownedAgent) {
-      deployedAgentsByRole[roleId] = ownedAgent;
-    }
-  }
-
-  const deployedRoleIds = ROLE_ORDER.filter((roleId) =>
-    Boolean(deployedAgentsByRole[roleId]),
-  );
-  const deployedAgents = deployedRoleIds
-    .map((roleId) => deployedAgentsByRole[roleId])
-    .filter((agent): agent is NipsAgentInstance => Boolean(agent));
-
   const slotAgentsByRole: Partial<Record<AgentId, NipsAgentInstance>> = {};
-  for (const roleId of ROLE_ORDER) {
-    slotAgentsByRole[roleId] = ownedAgentsByRole[roleId] ?? offersByRole[roleId]?.agent;
-  }
+  const ownedRoleIds: AgentId[] = [];
+
+  // Populate owned agents into slots
+  ownedAgents.forEach((agent) => {
+    const roleId = toAgentId(agent.archetype);
+    if (roleId) {
+      // If multiple agents of same role exist, pick the one already in the slot or just use latest
+      slotAgentsByRole[roleId] = agent;
+      if (!ownedRoleIds.includes(roleId)) {
+        ownedRoleIds.push(roleId);
+      }
+    }
+  });
+
+  // Map marketplace offers by role
+  const offersByRole: Partial<Record<AgentId, NipsMarketplaceOffer>> = {};
+  marketplaceOffers.forEach((offer) => {
+    const roleId = toAgentId(offer.agent.archetype);
+    if (roleId) {
+      offersByRole[roleId] = offer;
+    }
+  });
+
+  // Locked roles are those in baseLockedRoles that we don't own yet
+  const lockedRoles = baseLockedRoles.filter((roleId) => !ownedRoleIds.includes(roleId));
+
+  // Determine which agents are actually "deployed" (in a slot)
+  const deployedAgents = ROLE_ORDER.map((roleId) => slotAgentsByRole[roleId]).filter(
+    Boolean,
+  ) as NipsAgentInstance[];
 
   return {
-    roleUnlocks,
-    lockedRoles,
-    ownedAgents: normalizedOwnedAgents,
-    ownedAgentsByRole,
+    ownedAgents,
     ownedRoleIds,
-    deployedAgents,
-    deployedAgentsByRole,
-    deployedRoleIds,
-    offersByRole,
     slotAgentsByRole,
+    ownedAgentsByRole: slotAgentsByRole,
+    offersByRole,
+    deployedAgents,
+    lockedRoles,
   };
 }

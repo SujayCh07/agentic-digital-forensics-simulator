@@ -216,11 +216,16 @@ def append_user_message(chat: AgentChatSession, content: str) -> ChatMessage:
     return msg
 
 
-def append_assistant_message(chat: AgentChatSession, content: str) -> ChatMessage:
+def append_assistant_message(
+    chat: AgentChatSession,
+    content: str | None,
+    tool_calls: list[dict[str, Any]] | None = None,
+) -> ChatMessage:
     msg = ChatMessage(
         id=str(uuid.uuid4()),
         role="assistant",
         content=content,
+        tool_calls=tool_calls,
     )
     chat.messages.append(msg)
     chat.interaction_id = str(uuid.uuid4())

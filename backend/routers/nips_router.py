@@ -137,6 +137,13 @@ def register_nips_events(sio: Any) -> None:
                 elif event_type == "tool_call_start":
                     await sio.emit("nips_tool_activity", {"status": "started", **event}, to=sid)
 
+                elif event_type == "assistant_tool_calls":
+                    append_assistant_message(
+                        chat,
+                        content=event.get("content"),
+                        tool_calls=event.get("tool_calls"),
+                    )
+
                 elif event_type == "tool_call_result":
                     await sio.emit("nips_tool_activity", {"status": "completed", **event}, to=sid)
                     append_tool_message(

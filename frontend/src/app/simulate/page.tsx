@@ -12,7 +12,7 @@ import { Dashboard } from "@/components/Dashboard";
 import { EconomicReportModal } from "@/components/EconomicReportModal";
 import { EventFeed } from "@/components/EventFeed";
 import { HelperSelectionPanel } from "@/components/HelperSelectionPanel";
-import { NodeListPanel } from "@/components/NodeListPanel";
+import { SectorStatusPanel } from "@/components/SectorStatusPanel";
 import { NPCInteractionModal } from "@/components/NPCInteractionModal";
 import { PauseOverlay } from "@/components/PauseOverlay";
 import { UserBoard } from "@/components/UserBoard/UserBoard";
@@ -24,7 +24,7 @@ import { useBoardState } from "@/hooks/useBoardState";
 import { useSimulation } from "@/hooks/useSimulation";
 import { useRadio } from "@/hooks/useRadio";
 import { RadioPanel } from "@/components/RadioPanel";
-import type { ActiveHelpers, AgentDefinition, AgentId, CaseSystemNode, NipsAgentInstance, NipsMarketplaceOffer, NipsEvidenceUpdate } from "@/types/investigation";
+import type { ActiveHelpers, AgentDefinition, AgentId, CaseSystemNode, NipsAgentInstance, NipsMarketplaceOffer, NipsEvidenceUpdate, SectorId } from "@/types/investigation";
 import type { BackendNPC } from "@/types/backend";
 import { clearReplayData, getReplayData } from "@/lib/replayStore";
 import {
@@ -48,6 +48,9 @@ import {
   type PlayerProgress,
 } from "@/lib/playerProgress";
 import { audioManager } from "@/lib/audioManager";
+import { CaseModal } from "@/components/CaseModal";
+import type { SectorCase } from "@/types/sectors";
+import { SECTOR_COLORS, SECTOR_NAMES } from "@/types/sectors";
 import type { NPCHoverInfo, NPCState, SimEvent } from "@/types";
 
 // Mirror game/constants values here to avoid importing Phaser during SSR.
@@ -377,6 +380,9 @@ function InvestigateGame({
   const [showDirectory, setShowDirectory] = useState(false);
   const [lockedAgentInfo, setLockedAgentInfo] = useState<NipsAgentInstance | null>(null);
   const [npcPositions, setNpcPositions] = useState<Record<string, NPCState>>({});
+  const [caseModalSector, setCaseModalSector] = useState<SectorId | null>(null);
+  const [activeSectorId, setActiveSectorId] = useState<SectorId | null>(null);
+
   const agentState = useMemo(
     () =>
       buildAgentStateModel({
@@ -602,6 +608,35 @@ function InvestigateGame({
       };
     });
     return () => cleanup?.();
+  }, []);
+
+  // ── Sector landmark clicks → open CaseModal ─────────────────────────────────
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+      const handler = (data: { sectorId: string }) => {
+        audioManager.playButtonClick();
+        setCaseModalSector(data.sectorId as SectorId);
+      };
+      eventBridge.on("sim:landmark-click", handler);
+      cleanup = () => eventBridge.off("sim:landmark-click", handler);
+    });
+    return () => cleanup?.();
+  }, []);
+
+  const handleStartInvestigation = useCallback((sectorCase: SectorCase) => {
+    setActiveSectorId(sectorCase.sectorId);
+    setCaseModalSector(null);
+    import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+      eventBridge.emitCaseActivate(sectorCase.sectorId);
+    });
+  }, []);
+
+  const handleDeactivateCase = useCallback(() => {
+    setActiveSectorId(null);
+    import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+      eventBridge.emitCaseDeactivate();
+    });
   }, []);
 
   useEffect(() => {
@@ -910,22 +945,14 @@ function InvestigateGame({
           </div>
         </div>
 
-        {/* Right: Node list panel */}
-        <div className="panel-slide-right shrink-0">
-          <NodeListPanel
-            nodes={inv.systemNodes}
-            selectedNodeId={inv.selectedNodeId}
-            onSelectNode={(id) => inv.setSelectedNodeId(inv.selectedNodeId === id ? null : id)}
-            summary={
-              <Dashboard
-                metrics={inv.metrics}
-                metricsHistory={inv.metricsHistory}
-                phase={inv.stage}
-                round={inv.currentCycle}
-                maxRounds={99}
-                embedded
-              />
-            }
+        {/* Right: Sector integrity panel */}
+        <div className="panel-slide-right shrink-0 h-full">
+          <SectorStatusPanel
+            activeSectorId={activeSectorId}
+            pressureLevel={inv.pressureLevel}
+            onSectorClick={(sectorId) => {
+              setCaseModalSector(sectorId);
+            }}
           />
         </div>
       </div>
@@ -1052,7 +1079,17 @@ function InvestigateGame({
           nodeContext={nodeContextStr}
           currentFunds={nipsFunds}
           initialMessages={chatHistories[chatAgent.instance_id]}
-          onEvidenceUpdate={(ev) => inv.addExternalEvidence(ev)}
+          onEvidenceUpdate={(ev) => {
+            inv.addExternalEvidence(ev);
+            if (typeof ev.funds === "number") {
+              setNipsFunds(ev.funds);
+            } else {
+              const rewardCredits = ev.reward_credits;
+              if (typeof rewardCredits === "number") {
+                setNipsFunds((prev) => prev + rewardCredits);
+              }
+            }
+          }}
           onFundsChange={setNipsFunds}
           onOpenRadio={() => {
             radio.setSelectedAgent(chatAgent);
@@ -1081,6 +1118,45 @@ function InvestigateGame({
             onProgressChange(updated);
             setRewardsShown(false);
           }}
+        />
+      )}
+
+      {/* Active sector banner */}
+      {activeSectorId && (
+        <div
+          className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 flex items-center gap-3 rounded-full px-4 py-2"
+          style={{
+            background: "#0a0f1a",
+            border: `1px solid ${SECTOR_COLORS[activeSectorId] ?? "#00d4ff"}55`,
+            boxShadow: `0 0 20px ${SECTOR_COLORS[activeSectorId] ?? "#00d4ff"}22`,
+          }}
+        >
+          <span
+            className="w-2 h-2 rounded-full animate-pulse"
+            style={{ background: SECTOR_COLORS[activeSectorId] ?? "#00d4ff" }}
+          />
+          <span className="text-[10px] font-mono tracking-widest" style={{ color: SECTOR_COLORS[activeSectorId] ?? "#00d4ff" }}>
+            ACTIVE INVESTIGATION
+          </span>
+          <span className="text-[10px] font-mono text-slate-400">
+            {SECTOR_NAMES[activeSectorId]}
+          </span>
+          <button
+            type="button"
+            onClick={handleDeactivateCase}
+            className="text-[10px] font-mono text-slate-600 hover:text-slate-400 ml-1"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {/* Sector Case Modal */}
+      {caseModalSector && (
+        <CaseModal
+          sectorId={caseModalSector}
+          onStartInvestigation={handleStartInvestigation}
+          onClose={() => setCaseModalSector(null)}
         />
       )}
     </div>
@@ -1790,34 +1866,74 @@ function GameMiniMap({
 }) {
   const MAP_W = 1600;
   const MAP_H = 1280;
-  const MINI_W = 170;
-  const MINI_H = 122;
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isStowed, setIsStowed] = useState(false);
+  const miniWidth = isExpanded ? 280 : 170;
+  const miniHeight = isExpanded ? 196 : 122;
+  const frameWidth = miniWidth + 8;
+  const frameHeight = miniHeight + 30;
+  const stowedPeek = 28;
 
-  const toMiniX = (wx: number) => (wx / MAP_W) * MINI_W;
-  const toMiniY = (wy: number) => (wy / MAP_H) * MINI_H;
+  const toMiniX = (wx: number) => (wx / MAP_W) * miniWidth;
+  const toMiniY = (wy: number) => (wy / MAP_H) * miniHeight;
 
   return (
     <div
-      className="fixed bottom-4 left-4 z-40 rpg-panel p-1 animate-[panelSlideLeft_0.4s_ease-out]"
+      className="fixed bottom-4 left-4 z-40 rpg-panel p-1 transition-transform duration-300 ease-out"
       style={{
-        width: MINI_W + 8,
-        height: MINI_H + 24,
+        width: frameWidth,
+        height: frameHeight,
         background: "rgba(8,12,18,0.95)",
         border: "1px solid #1e3d5a",
+        transform: isStowed ? `translateX(-${frameWidth - stowedPeek}px)` : "translateX(0)",
       }}
     >
-      <div className="flex items-center justify-between px-1 mb-1 border-b border-[#1e3d5a] pb-0.5">
-        <span className="text-[8px] font-mono uppercase tracking-[0.16em] text-[#4a6580]">
-          Tactical Map
-        </span>
-        <span className="text-[8px] font-mono text-[#1e3d5a]">
-          {markers.length} AGENTS
-        </span>
+      <div className="relative flex items-center justify-between px-1 mb-1 border-b border-[#1e3d5a] pb-0.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-[8px] font-mono uppercase tracking-[0.16em] text-[#4a6580]">
+            Tactical Map
+          </span>
+          <span className="text-[8px] font-mono text-[#1e3d5a]">
+            {markers.length} AGENTS
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => {
+              setIsExpanded((prev) => !prev);
+              if (isStowed) setIsStowed(false);
+            }}
+            className="rounded border border-[#1e3d5a] px-1.5 py-0.5 text-[8px] font-mono uppercase tracking-[0.12em] text-[#4a6580] transition-colors hover:border-[#2a5070] hover:text-[#c9d8e8]"
+            title={isExpanded ? "Collapse map" : "Expand map"}
+          >
+            {isExpanded ? "−" : "+"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsStowed((prev) => !prev)}
+            className="rounded border border-[#1e3d5a] px-1.5 py-0.5 text-[8px] font-mono uppercase tracking-[0.12em] text-[#4a6580] transition-colors hover:border-[#2a5070] hover:text-[#c9d8e8]"
+            title={isStowed ? "Bring map back" : "Stow map to the side"}
+          >
+            {isStowed ? ">" : "<"}
+          </button>
+        </div>
+        {isStowed && (
+          <button
+            type="button"
+            onClick={() => setIsStowed(false)}
+            className="absolute -right-1 top-8 flex h-20 w-6 items-center justify-center rounded-r border border-[#1e3d5a] bg-[#08111b] text-[8px] font-mono uppercase tracking-[0.18em] text-[#4a6580] transition-colors hover:border-[#2a5070] hover:text-[#c9d8e8]"
+            style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
+            title="Bring tactical map back"
+          >
+            MAP
+          </button>
+        )}
       </div>
 
       <div
         className="relative overflow-hidden rounded bg-[#0d1520]"
-        style={{ width: MINI_W, height: MINI_H }}
+        style={{ width: miniWidth, height: miniHeight }}
       >
         <div
           className="absolute inset-0 opacity-20"

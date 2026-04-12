@@ -1,12 +1,9 @@
 import * as Phaser from "phaser";
 import { CYBER_CITY_SECTOR_SEEDS } from "@/data/cyberCitySectors";
 import type { BuildingPositions } from "@/types";
+import type { SectorId } from "@/types/investigation";
 import { eventBridge } from "../bridge/EventBridge";
-import {
-  GAME_HEIGHT,
-  GAME_WIDTH,
-  TILE_SIZE,
-} from "../config";
+import { GAME_HEIGHT, GAME_WIDTH, TILE_SIZE } from "../config";
 import { SimEventHandler } from "../events/SimEventHandler";
 import {
   ALL_CHARACTERS,
@@ -15,6 +12,7 @@ import {
   getWalkFrames,
 } from "../map/NPCCharacterRegistry";
 import { NPCManager } from "../systems/NPCManager";
+import { SectorOverlay } from "../systems/SectorOverlay";
 
 const VISIBLE_MIN_COL = 2;
 const VISIBLE_MAX_COL = 37;
@@ -59,6 +57,8 @@ export class WorldScene extends Phaser.Scene {
   private phaseOverlay?: Phaser.GameObjects.Rectangle;
   private npcManager?: NPCManager;
   private simEventHandler?: SimEventHandler;
+  private sectorOverlay?: SectorOverlay;
+  private landmarkZones: Phaser.GameObjects.Rectangle[] = [];
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
   private sceneReady = false;
   private cleanedUp = false;
@@ -123,6 +123,8 @@ export class WorldScene extends Phaser.Scene {
     eventBridge.on("sim:phase-change", this.onPhaseChange, this);
     eventBridge.on("sim:camera-pan", this.onCameraPan, this);
     eventBridge.on("sim:camera-snap-npc", this.onCameraSnapNPC, this);
+    eventBridge.on("sim:case-activate", this.onCaseActivate, this);
+    eventBridge.on("sim:case-deactivate", this.onCaseDeactivate, this);
 
     this.registerNPCAnimations();
     this.npcManager = new NPCManager(
@@ -133,6 +135,15 @@ export class WorldScene extends Phaser.Scene {
       this.getRoadTypeFn(),
     );
     this.simEventHandler = new SimEventHandler(this, this.npcManager);
+
+    // Sector visual overlay (landmark glows + active case highlight)
+    this.sectorOverlay = new SectorOverlay(this);
+
+    // Invisible click zones over landmark tiles
+    this.setupLandmarkZones();
+
+    // Spawn autonomous network-process NPCs for the sector map
+    this.npcManager.spawnProcessNPCs(10);
 
     if (this.input.keyboard) {
       this.cursors = this.input.keyboard.createCursorKeys();
@@ -268,6 +279,51 @@ export class WorldScene extends Phaser.Scene {
     this.phaseOverlay.setFillStyle(color, alpha);
   }
 
+  private setupLandmarkZones() {
+    for (const seed of CYBER_CITY_SECTOR_SEEDS) {
+      // Use full sector bounds as the click zone
+      const bx = seed.bounds.x * TILE_SIZE;
+      const by = seed.bounds.y * TILE_SIZE;
+      const bw = seed.bounds.width * TILE_SIZE;
+      const bh = seed.bounds.height * TILE_SIZE;
+
+      const zone = this.add.rectangle(
+        bx + bw / 2,
+        by + bh / 2,
+        bw,
+        bh,
+        0x000000,
+        0,
+      );
+      zone.setDepth(9); // above sector overlay, below NPCs
+      zone.setInteractive({ useHandCursor: true });
+
+      const sectorId = seed.id as SectorId;
+      zone.on("pointerdown", () => {
+        eventBridge.emitLandmarkClick(sectorId);
+      });
+
+      zone.on("pointerover", () => {
+        this.game.canvas.style.cursor = "pointer";
+        this.sectorOverlay?.hoverSector(sectorId);
+      });
+      zone.on("pointerout", () => {
+        this.game.canvas.style.cursor = "default";
+        this.sectorOverlay?.unhoverSector();
+      });
+
+      this.landmarkZones.push(zone);
+    }
+  }
+
+  private onCaseActivate(data: { sectorId: string }) {
+    this.sectorOverlay?.activateCase(data.sectorId as SectorId);
+  }
+
+  private onCaseDeactivate() {
+    this.sectorOverlay?.deactivateCase();
+  }
+
   private clampCamera() {
     const cam = this.cameras.main;
     const visibleWidth = cam.width / cam.zoom;
@@ -299,6 +355,12 @@ export class WorldScene extends Phaser.Scene {
     eventBridge.off("sim:phase-change", this.onPhaseChange, this);
     eventBridge.off("sim:camera-pan", this.onCameraPan, this);
     eventBridge.off("sim:camera-snap-npc", this.onCameraSnapNPC, this);
+    eventBridge.off("sim:case-activate", this.onCaseActivate, this);
+    eventBridge.off("sim:case-deactivate", this.onCaseDeactivate, this);
+    this.sectorOverlay?.destroy();
+    this.sectorOverlay = undefined;
+    for (const z of this.landmarkZones) z.destroy();
+    this.landmarkZones = [];
     this.simEventHandler?.destroy();
     this.simEventHandler = undefined;
     this.npcManager?.destroy();

@@ -88,7 +88,12 @@ def _history_to_messages(messages: list[ChatMessage]) -> list[dict[str, Any]]:
         if msg.role == "user":
             openai_msgs.append({"role": "user", "content": msg.content})
         elif msg.role == "assistant":
-            openai_msgs.append({"role": "assistant", "content": msg.content})
+            data: dict[str, Any] = {"role": "assistant"}
+            if msg.content:
+                data["content"] = msg.content
+            if msg.tool_calls:
+                data["tool_calls"] = msg.tool_calls
+            openai_msgs.append(data)
         elif msg.role == "tool" and msg.tool_name:
             openai_msgs.append({
                 "role": "tool",
@@ -204,6 +209,12 @@ async def stream_agent_chat(
                 ]
             }
             messages.append(assistant_msg)
+
+            yield {
+                "type": "assistant_tool_calls",
+                "content": assistant_content or None,
+                "tool_calls": assistant_msg["tool_calls"],
+            }
 
             # Execute tool calls
             for tc in current_tool_calls.values():

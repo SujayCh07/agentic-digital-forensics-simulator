@@ -128,12 +128,13 @@ class MarketplaceOffer(BaseModel):
 class ChatMessage(BaseModel):
     id: str
     role: Literal["user", "assistant", "system", "tool"]
-    content: str
+    content: str | None = None
     created_at: float = Field(default_factory=time.time)
     tool_name: str | None = None
     tool_args: dict[str, Any] | None = None
     tool_result: str | None = None
     tool_call_id: str | None = None
+    tool_calls: list[dict[str, Any]] | None = None
 
 
 class AgentChatSession(BaseModel):
