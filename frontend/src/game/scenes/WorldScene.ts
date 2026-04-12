@@ -1,5 +1,6 @@
 import * as Phaser from "phaser";
 import { CYBER_CITY_SECTOR_SEEDS } from "@/data/cyberCitySectors";
+import type { SectorId } from "@/types/investigation";
 import type { BuildingPositions } from "@/types";
 import { eventBridge } from "../bridge/EventBridge";
 import {
@@ -15,6 +16,7 @@ import {
   getWalkFrames,
 } from "../map/NPCCharacterRegistry";
 import { NPCManager } from "../systems/NPCManager";
+import { SectorOverlay } from "../systems/SectorOverlay";
 
 const VISIBLE_MIN_COL = 2;
 const VISIBLE_MAX_COL = 37;
@@ -59,6 +61,8 @@ export class WorldScene extends Phaser.Scene {
   private phaseOverlay?: Phaser.GameObjects.Rectangle;
   private npcManager?: NPCManager;
   private simEventHandler?: SimEventHandler;
+  private sectorOverlay?: SectorOverlay;
+  private landmarkZones: Phaser.GameObjects.Rectangle[] = [];
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
   private sceneReady = false;
   private cleanedUp = false;
@@ -123,6 +127,8 @@ export class WorldScene extends Phaser.Scene {
     eventBridge.on("sim:phase-change", this.onPhaseChange, this);
     eventBridge.on("sim:camera-pan", this.onCameraPan, this);
     eventBridge.on("sim:camera-snap-npc", this.onCameraSnapNPC, this);
+    eventBridge.on("sim:case-activate", this.onCaseActivate, this);
+    eventBridge.on("sim:case-deactivate", this.onCaseDeactivate, this);
 
     this.registerNPCAnimations();
     this.npcManager = new NPCManager(
@@ -133,6 +139,15 @@ export class WorldScene extends Phaser.Scene {
       this.getRoadTypeFn(),
     );
     this.simEventHandler = new SimEventHandler(this, this.npcManager);
+
+    // Sector visual overlay (landmark glows + active case highlight)
+    this.sectorOverlay = new SectorOverlay(this);
+
+    // Invisible click zones over landmark tiles
+    this.setupLandmarkZones();
+
+    // Spawn autonomous network-process NPCs for the sector map
+    this.npcManager.spawnProcessNPCs(10);
 
     if (this.input.keyboard) {
       this.cursors = this.input.keyboard.createCursorKeys();
@@ -268,6 +283,48 @@ export class WorldScene extends Phaser.Scene {
     this.phaseOverlay.setFillStyle(color, alpha);
   }
 
+  private setupLandmarkZones() {
+    for (const seed of CYBER_CITY_SECTOR_SEEDS) {
+      const worldX = seed.anchor.tileX * TILE_SIZE + TILE_SIZE / 2;
+      const worldY = seed.anchor.tileY * TILE_SIZE + TILE_SIZE / 2;
+
+      // Transparent interactive zone — 3×3 tiles
+      const zone = this.add.rectangle(
+        worldX,
+        worldY,
+        TILE_SIZE * 3,
+        TILE_SIZE * 3,
+        0x000000,
+        0,
+      );
+      zone.setDepth(9); // above sector overlay, below NPCs
+      zone.setInteractive({ useHandCursor: true });
+
+      const sectorId = seed.id;
+      zone.on("pointerdown", () => {
+        eventBridge.emitLandmarkClick(sectorId);
+      });
+
+      // Pointer-over cursor feedback
+      zone.on("pointerover", () => {
+        this.game.canvas.style.cursor = "pointer";
+      });
+      zone.on("pointerout", () => {
+        this.game.canvas.style.cursor = "default";
+      });
+
+      this.landmarkZones.push(zone);
+    }
+  }
+
+  private onCaseActivate(data: { sectorId: string }) {
+    this.sectorOverlay?.activateCase(data.sectorId as SectorId);
+  }
+
+  private onCaseDeactivate() {
+    this.sectorOverlay?.deactivateCase();
+  }
+
   private clampCamera() {
     const cam = this.cameras.main;
     const visibleWidth = cam.width / cam.zoom;
@@ -299,6 +356,12 @@ export class WorldScene extends Phaser.Scene {
     eventBridge.off("sim:phase-change", this.onPhaseChange, this);
     eventBridge.off("sim:camera-pan", this.onCameraPan, this);
     eventBridge.off("sim:camera-snap-npc", this.onCameraSnapNPC, this);
+    eventBridge.off("sim:case-activate", this.onCaseActivate, this);
+    eventBridge.off("sim:case-deactivate", this.onCaseDeactivate, this);
+    this.sectorOverlay?.destroy();
+    this.sectorOverlay = undefined;
+    for (const z of this.landmarkZones) z.destroy();
+    this.landmarkZones = [];
     this.simEventHandler?.destroy();
     this.simEventHandler = undefined;
     this.npcManager?.destroy();
