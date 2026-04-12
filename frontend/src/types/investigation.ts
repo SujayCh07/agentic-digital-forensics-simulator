@@ -485,6 +485,8 @@ export interface NipsEvidenceUpdate {
   agent_instance_id: string;
   agent_display_name: string;
   is_false_positive: boolean;
+  reward_credits?: number;
+  funds?: number;
 }
 
 // Types referenced by AgentCommandModal (kept for compatibility)

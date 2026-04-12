@@ -90,6 +90,10 @@ const FUNDS_PER_SEVERITY: Record<string, number> = {
   low:      100,
 };
 
+function getSeverityReward(severity: string): number {
+  return FUNDS_PER_SEVERITY[severity] ?? 100;
+}
+
 // ---------------------------------------------------------------------------
 // Initial metrics
 // Slots map to Dashboard's SimMetrics labels (renamed in Dashboard.tsx)
@@ -625,7 +629,7 @@ export function useInvestigation(
         });
 
         // Earn funds for finding
-        const earned = FUNDS_PER_SEVERITY[result.severity] ?? 100;
+        const earned = getSeverityReward(result.severity);
         setFunds(prev => prev + earned);
 
         // Agent personality commentary
@@ -785,8 +789,25 @@ export function useInvestigation(
       setEvents(prev => [...prev, newEvent]);
 
       // 4. Update metrics/funds based on severity
-      const reward = eu.severity === "critical" ? 800 : eu.severity === "high" ? 400 : 200;
+      const reward = eu.reward_credits ?? getSeverityReward(eu.severity);
       setFunds(f => f + reward);
+
+      setEvents(prev => [
+        ...prev,
+        {
+          id: `ev-nips-funds-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          type: "policy_response",
+          agentId: "system",
+          agentName: "SYSTEM",
+          agentCategory: "REWARD",
+          message: `+${reward}₡ earned for ${eu.severity} finding`,
+          phase: stage,
+          round: currentCycle,
+          maxRounds: (CASE_META as any).maxCycles || 10,
+          timestamp: Date.now() + 1,
+          data: { nips: true, funds: reward, severity: eu.severity, nodeId: eu.node_id },
+        },
+      ]);
     }
   };
 }
