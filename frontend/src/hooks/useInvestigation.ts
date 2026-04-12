@@ -277,6 +277,7 @@ export interface InvestigationHookReturn {
   incidentBrief: string;
   objective:    string;
   addExternalEvidence: (eu: NipsEvidenceUpdate) => void;
+  addEvent: (event: SimEvent) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -740,6 +741,7 @@ export function useInvestigation(
     caseName:     CASE_META.name,
     incidentBrief: CASE_META.brief,
     objective:    CASE_META.objective,
+    addEvent: pushEvent,
     addExternalEvidence: (eu: NipsEvidenceUpdate) => {
       // 1. Convert NIPS discovery to AgentResult
       const result: AgentResult = {

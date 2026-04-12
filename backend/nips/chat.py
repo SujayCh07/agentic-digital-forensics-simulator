@@ -82,19 +82,20 @@ def _build_openai_tools(agent: AgentInstance) -> list[dict[str, Any]]:
 
 
 def _history_to_messages(messages: list[ChatMessage]) -> list[dict[str, Any]]:
-    """Convert stored chat messages to OpenAI message objects."""
+    """Convert stored chat messages to OpenAI message objects.
+
+    Only ``user`` and ``assistant`` rows are sent. Persisted ``tool`` rows are
+    omitted: we store tool results without the matching assistant message that
+    contains ``tool_calls``, which OpenAI rejects (400: tool must follow
+    tool_calls).
+    """
     openai_msgs: list[dict[str, Any]] = []
     for msg in messages:
         if msg.role == "user":
             openai_msgs.append({"role": "user", "content": msg.content})
         elif msg.role == "assistant":
             openai_msgs.append({"role": "assistant", "content": msg.content})
-        elif msg.role == "tool" and msg.tool_name:
-            openai_msgs.append({
-                "role": "tool",
-                "tool_call_id": msg.tool_call_id or f"call_{uuid.uuid4().hex[:12]}",
-                "content": msg.content,
-            })
+        # role == "tool": skip — see docstring
     return openai_msgs
 
 
@@ -133,8 +134,15 @@ async def stream_agent_chat(
     tools = _build_openai_tools(agent)
 
     messages = [{"role": "system", "content": system_prompt}]
-    messages.extend(_history_to_messages(history or []))
-    messages.append({"role": "user", "content": user_message})
+    hist_flat = _history_to_messages(history or [])
+    messages.extend(hist_flat)
+    # Router already called append_user_message for this turn; avoid duplicate user.
+    if (
+        not hist_flat
+        or hist_flat[-1].get("role") != "user"
+        or hist_flat[-1].get("content") != user_message
+    ):
+        messages.append({"role": "user", "content": user_message})
 
     full_answer = ""
     evidence_updates: list[dict[str, Any]] = []

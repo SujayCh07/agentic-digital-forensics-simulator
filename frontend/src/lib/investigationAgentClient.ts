@@ -241,3 +241,53 @@ export async function chatWithInvestigationAgent(params: {
     sendNipsChat(params.agentId, params.message, nodeContext);
   });
 }
+
+/**
+ * Stream assistant text via NIPS (Socket.IO) and invoke onDelta for each chunk.
+ * Use for radio: start TTS before the full reply finishes.
+ */
+export async function streamInvestigationAgentChat(
+  params: {
+    agentId: string;
+    message: string;
+    selectedNode?: { id: string; name: string } | null;
+  },
+  onDelta: (delta: string, fullText: string) => void,
+): Promise<{ reply: string; interactionId: string }> {
+  return new Promise((resolve, reject) => {
+    const nodeContext = params.selectedNode
+      ? `Selected node: ${params.selectedNode.name} (${params.selectedNode.id})`
+      : "";
+
+    let fullAnswer = "";
+    let interactionId = "";
+    const prevChat = _chatCallbacks;
+
+    const tempCallbacks: NipsChatCallbacks = {
+      onThoughtChunk: (text) => prevChat?.onThoughtChunk(text),
+      onToolActivity: (activity) => prevChat?.onToolActivity(activity),
+      onAssistantChunk: (text) => {
+        fullAnswer += text;
+        onDelta(text, fullAnswer);
+        prevChat?.onAssistantChunk(text);
+      },
+      onEvidenceUpdate: (ev) => prevChat?.onEvidenceUpdate(ev),
+      onChatDone: (data) => {
+        _chatCallbacks = prevChat;
+        interactionId = data.interaction_id;
+        fullAnswer = data.full_answer || fullAnswer;
+        resolve({
+          reply: fullAnswer,
+          interactionId,
+        });
+      },
+      onError: (message) => {
+        _chatCallbacks = prevChat;
+        reject(new Error(message));
+      },
+    };
+
+    _chatCallbacks = tempCallbacks;
+    sendNipsChat(params.agentId, params.message, nodeContext);
+  });
+}

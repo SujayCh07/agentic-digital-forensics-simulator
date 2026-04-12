@@ -35,6 +35,8 @@ FEATHERLESS_API_KEY = os.environ.get("FEATHERLESS_API_KEY", "")
 XAI_API_KEY = os.environ.get("XAI_API_KEY", "")
 K2_API_KEY = os.environ.get("K2_API_KEY", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "") or os.environ.get("GOOGLE_API_KEY", "")
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
+DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY", "")
 MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4o")
 
 # NIPS agent chat model
