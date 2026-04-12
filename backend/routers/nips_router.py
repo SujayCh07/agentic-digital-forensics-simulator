@@ -320,6 +320,7 @@ def register_nips_events(sio: Any) -> None:
 
         action_type = str(data.get("action_type", "")).strip()
         target_node = str(data.get("target_node", "")).strip()
+        agent_archetype = str(data.get("agent_archetype", "")).strip()
 
         if not action_type or not target_node:
             await sio.emit("nips_error", {"message": "action_type and target_node are required."}, to=sid)
@@ -330,6 +331,7 @@ def register_nips_events(sio: Any) -> None:
             action_type=action_type,
             target_node=target_node,
             current_funds=session.funds,
+            agent_archetype=agent_archetype,
         )
 
         if result.success:

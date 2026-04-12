@@ -211,11 +211,16 @@ export function submitProposal(rootCause: string, systemsInvolved: string): void
   });
 }
 
-export function executeRemediation(actionType: string, targetNode: string): void {
+export function executeRemediation(
+  actionType: string,
+  targetNode: string,
+  agentArchetype = "",
+): void {
   const socket = getSocket();
   socket.emit("nips_execute_remediation", {
     action_type: actionType,
     target_node: targetNode,
+    agent_archetype: agentArchetype,
   });
 }
 

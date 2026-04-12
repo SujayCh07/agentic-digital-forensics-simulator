@@ -64,6 +64,16 @@ REMEDIATION_COSTS: dict[str, int] = {
 
 # ── Commentary pools  (terse, operational, no right/wrong signal) ────────────
 
+# Best agent archetype per action — gives a delta multiplier bonus
+_AGENT_BONUS: dict[str, dict[str, float]] = {
+    "LOGIS":  {"block_egress": 1.35, "isolate": 1.15, "patch": 0.90, "restore": 0.85, "remediate": 1.00},
+    "NEXUS":  {"block_egress": 1.00, "isolate": 1.30, "patch": 1.25, "restore": 0.90, "remediate": 1.05},
+    "FILER":  {"block_egress": 0.85, "isolate": 0.90, "patch": 1.10, "restore": 1.35, "remediate": 1.15},
+    "CHRONO": {"block_egress": 0.90, "isolate": 1.00, "patch": 1.05, "restore": 1.20, "remediate": 1.30},
+}
+
+# ── Commentary pools  (terse, operational, no right/wrong signal) ────────────
+
 _COMMENTARY: dict[str, list[str]] = {
     # Generic high-score actions  (score ≥ 60)
     "high": [
@@ -108,6 +118,7 @@ def score_remediation(
     case_id: str,
     action_type: str,
     target_node: str,
+    agent_archetype: str = "",
 ) -> tuple[int, float, int]:
     """Return (score 0-100, progress_delta, cost)."""
     truth_map = (
@@ -122,7 +133,14 @@ def score_remediation(
     else:
         delta = score * 0.1                # 0–4
 
-    delta = round(delta, 1)
+    # Apply agent archetype bonus/penalty
+    arch = agent_archetype.upper().strip()
+    if arch in _AGENT_BONUS:
+        multiplier = _AGENT_BONUS[arch].get(action_type, 1.0)
+        delta = round(delta * multiplier, 1)
+    else:
+        delta = round(delta, 1)
+
     cost = REMEDIATION_COSTS.get(action_type, 150)
     return score, delta, cost
 
@@ -144,8 +162,11 @@ def execute_remediation(
     action_type: str,
     target_node: str,
     current_funds: int,
+    agent_archetype: str = "",
 ) -> RemediationResult:
-    score, delta, cost = score_remediation(case_id, action_type, target_node)
+    score, delta, cost = score_remediation(
+        case_id, action_type, target_node, agent_archetype
+    )
 
     if current_funds < cost:
         return RemediationResult(
@@ -158,7 +179,7 @@ def execute_remediation(
             success=False,
         )
 
-    commentary = get_commentary(score, seed=f"{action_type}:{target_node}")
+    commentary = get_commentary(score, seed=f"{action_type}:{target_node}:{agent_archetype}")
     return RemediationResult(
         action_type=action_type,
         target_node=target_node,

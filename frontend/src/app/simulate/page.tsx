@@ -28,7 +28,10 @@ import { NPCInteractionModal } from "@/components/NPCInteractionModal";
 import { PauseOverlay } from "@/components/PauseOverlay";
 import { ProposalModal } from "@/components/ProposalModal";
 import { RadioPanel } from "@/components/RadioPanel";
-import { RecoveryProgress } from "@/components/RecoveryProgress";
+import {
+  computeRecoveryProgress,
+  RecoveryProgress,
+} from "@/components/RecoveryProgress";
 import { RemediationPanel } from "@/components/RemediationPanel";
 import { SectorStatusPanel } from "@/components/SectorStatusPanel";
 import { UserBoard } from "@/components/UserBoard/UserBoard";
@@ -432,12 +435,17 @@ function InvestigateGame({
   const [externalDelta, setExternalDelta] = useState(0);
   const [proposalSubmitted, setProposalSubmitted] = useState(false);
   const [showProposalModal, setShowProposalModal] = useState(false);
+  const [showRemediationOverlay, setShowRemediationOverlay] = useState(false);
   const [proposalEval, setProposalEval] = useState<BossEvaluation | null>(null);
+  const [remediationHistory, setRemediationHistory] = useState<
+    RemediationResult[]
+  >([]);
   const [lastRemediationResult, setLastRemediationResult] =
     useState<RemediationResult | null>(null);
   const [endgameTimer, setEndgameTimer] = useState(300); // 5 min countdown
   const [timerRunning, setTimerRunning] = useState(false);
   const [endgameOutcome, setEndgameOutcome] = useState<EndgameOutcome>(null);
+  const finalProposalActiveRef = useRef(false);
 
   const agentState = useMemo(
     () =>
@@ -449,6 +457,21 @@ function InvestigateGame({
     [nipsAgents, nipsOffers, inv.lockedAgents],
   );
   const ownedRoleKey = agentState.ownedRoleIds.join("|");
+
+  // Derived: recovery progress and discovered nodes
+  const recoveryProgress = computeRecoveryProgress(
+    inv.completedFindings,
+    externalDelta,
+    inv.pressureLevel,
+  );
+  const discoveredNodes = useMemo(
+    () => [
+      ...new Set(inv.completedFindings.map((f) => f.nodeId).filter(Boolean)),
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [inv.completedFindings.length],
+  );
+
   const slotRoleKey = ROLE_ORDER.map((roleId) => {
     const slotAgent = agentState.slotAgentsByRole[roleId];
     return `${roleId}:${slotAgent?.instance_id ?? "none"}:${slotAgent?.display_name ?? "none"}`;
@@ -520,14 +543,23 @@ function InvestigateGame({
         setProposalEval(ev);
         setNipsFunds((prev) => prev + ev.funds_awarded);
         setExternalDelta((prev) => prev + ev.progress_delta);
-        setProposalSubmitted(true);
-        setTimerRunning(true);
+        if (!proposalSubmitted) {
+          setProposalSubmitted(true);
+          setTimerRunning(true);
+        }
+        // Final proposal at 75%: win immediately if accuracy ≥ 75%
+        if (finalProposalActiveRef.current && ev.confidence_rating >= 0.75) {
+          finalProposalActiveRef.current = false;
+          setEndgameOutcome("win");
+        }
+        finalProposalActiveRef.current = false;
       },
       onRemediationResult: (result) => {
         setLastRemediationResult(result);
         if (result.success) {
           setNipsFunds(result.funds);
           setExternalDelta((prev) => prev + result.progress_delta);
+          setRemediationHistory((prev) => [...prev, result]);
         }
       },
     });
@@ -833,32 +865,12 @@ function InvestigateGame({
   useEffect(() => {
     if (!timerRunning || endgameOutcome) return;
     if (endgameTimer <= 0) {
-      const finalProgress = Math.min(
-        100,
-        Math.max(
-          0,
-          Math.round(
-            Math.max(
-              0,
-              (inv.completedFindings.length > 0 ? 40 : 0) -
-                inv.pressureLevel * 0.8,
-            ) + Math.min(externalDelta, 60),
-          ),
-        ),
-      );
-      setEndgameOutcome(finalProgress >= 75 ? "win" : "lose");
+      setEndgameOutcome(recoveryProgress >= 75 ? "win" : "lose");
       return;
     }
     const id = setInterval(() => setEndgameTimer((t) => t - 1), 1000);
     return () => clearInterval(id);
-  }, [
-    timerRunning,
-    endgameTimer,
-    endgameOutcome,
-    externalDelta,
-    inv.completedFindings.length,
-    inv.pressureLevel,
-  ]);
+  }, [timerRunning, endgameTimer, endgameOutcome, recoveryProgress]);
 
   return (
     <div
@@ -996,6 +1008,25 @@ function InvestigateGame({
               }}
             >
               Submit Report
+            </button>
+          )}
+          {proposalSubmitted && recoveryProgress >= 75 && !endgameOutcome && (
+            <button
+              type="button"
+              onClick={() => {
+                audioManager.playButtonClick();
+                finalProposalActiveRef.current = true;
+                setShowProposalModal(true);
+              }}
+              className="rpg-panel px-3.5 py-2 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-80"
+              style={{
+                color: "#34d399",
+                border: "1px solid #34d39966",
+                background: "rgba(52,211,153,0.12)",
+                boxShadow: "0 0 12px rgba(52,211,153,0.2)",
+              }}
+            >
+              ◈ Finalize Investigation
             </button>
           )}
           <button
@@ -1177,23 +1208,17 @@ function InvestigateGame({
           </div>
         </div>
 
-        {/* Right: Sector integrity panel + remediation */}
-        <div className="panel-slide-right shrink-0 h-full flex flex-col gap-2">
+        {/* Right: Sector integrity panel */}
+        <div className="panel-slide-right shrink-0 h-full">
           <SectorStatusPanel
             activeSectorId={activeSectorId}
             pressureLevel={inv.pressureLevel}
-            onSectorClick={(sectorId) => {
-              setCaseModalSector(sectorId);
-            }}
+            discoveredNodes={discoveredNodes}
+            remediations={remediationHistory}
+            proposalSubmitted={proposalSubmitted}
+            onSectorClick={(sectorId) => setCaseModalSector(sectorId)}
+            onOpenRemediation={() => setShowRemediationOverlay(true)}
           />
-          {proposalSubmitted && !endgameOutcome && (
-            <div className="rpg-panel p-3 shrink-0" style={{ width: 220 }}>
-              <RemediationPanel
-                funds={nipsFunds}
-                lastResult={lastRemediationResult}
-              />
-            </div>
-          )}
         </div>
       </div>
 
@@ -1420,6 +1445,16 @@ function InvestigateGame({
         />
       )}
 
+      {/* Remediation Overlay */}
+      {showRemediationOverlay && !endgameOutcome && (
+        <RemediationPanel
+          funds={nipsFunds}
+          agents={agentState.ownedAgents}
+          lastResult={lastRemediationResult}
+          onClose={() => setShowRemediationOverlay(false)}
+        />
+      )}
+
       {/* Proposal Modal */}
       {showProposalModal && (
         <ProposalModal
@@ -1432,19 +1467,7 @@ function InvestigateGame({
       {endgameOutcome && (
         <EndgameModal
           outcome={endgameOutcome}
-          recoveryProgress={Math.min(
-            100,
-            Math.max(
-              0,
-              Math.round(
-                Math.max(
-                  0,
-                  (inv.completedFindings.length > 0 ? 40 : 0) -
-                    inv.pressureLevel * 0.8,
-                ) + Math.min(externalDelta, 60),
-              ),
-            ),
-          )}
+          recoveryProgress={recoveryProgress}
           timerSeconds={endgameTimer}
           nipsFunds={nipsFunds}
           onRestart={() => {
@@ -1453,8 +1476,11 @@ function InvestigateGame({
             setProposalSubmitted(false);
             setProposalEval(null);
             setLastRemediationResult(null);
+            setRemediationHistory([]);
             setEndgameTimer(300);
             setTimerRunning(false);
+            setShowRemediationOverlay(false);
+            finalProposalActiveRef.current = false;
           }}
           onReturnHome={() => router.push("/")}
         />
