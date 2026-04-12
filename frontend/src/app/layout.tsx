@@ -29,7 +29,10 @@ export default function RootLayout({
       lang="en"
       className={`${geistMono.variable} ${pressStart2P.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-background text-foreground">
+      <body
+        suppressHydrationWarning
+        className="min-h-full flex flex-col bg-background text-foreground"
+      >
         {children}
       </body>
     </html>
