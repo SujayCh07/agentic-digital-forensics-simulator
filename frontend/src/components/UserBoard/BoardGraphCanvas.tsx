@@ -566,6 +566,15 @@ function drawMiniMap(
     }, [draw]);
 
     // ── Mouse interaction ─────────────────────────────────────────────────
+    // Store callbacks in refs so the mouse useEffect never needs to re-run when they change.
+    // This prevents D3 state from being torn down every time connectSrc changes in the parent.
+    const onNodeClickRef  = useRef(onNodeClick);
+    const onEdgeClickRef  = useRef(onEdgeClick);
+    const onCanvasClickRef = useRef(onCanvasClick);
+    useEffect(() => { onNodeClickRef.current  = onNodeClick;  }, [onNodeClick]);
+    useEffect(() => { onEdgeClickRef.current  = onEdgeClick;  }, [onEdgeClick]);
+    useEffect(() => { onCanvasClickRef.current = onCanvasClick; }, [onCanvasClick]);
+
     useEffect(() => {
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -672,7 +681,7 @@ function drawMiniMap(
         if (!wasDragging && candidate) {
           // Suppress the concurrent onClick from calling onCanvasClick and clearing connectSrc
           suppressNextCanvasClickRef.current = true;
-          onNodeClick?.(candidate);
+          onNodeClickRef.current?.(candidate);
         }
       };
 
@@ -687,8 +696,8 @@ function drawMiniMap(
         const [gx, gy] = screenToGraph(x, y);
         if (getNodeAt(gx, gy)) return; // node already handled in onUp
         const edge = getEdgeAt(gx, gy);
-        if (edge) { onEdgeClick?.(edge); return; }
-        onCanvasClick?.();
+        if (edge) { onEdgeClickRef.current?.(edge); return; }
+        onCanvasClickRef.current?.();
       };
 
       const onLeave = () => {
@@ -711,7 +720,7 @@ function drawMiniMap(
         canvas.removeEventListener("mouseleave", onLeave);
         document.removeEventListener("mouseup", onUp);
       };
-    }, [onNodeClick, onEdgeClick, onCanvasClick]);
+    }, []); // empty deps — callbacks accessed via refs, never need to rebuild
 
 
     // ── Imperative API for parent to add/remove nodes & edges ─────────────
