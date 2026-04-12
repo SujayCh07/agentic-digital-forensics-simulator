@@ -38,6 +38,13 @@ function roleToZone(role: string): string {
 
 const MIN_SPAWN_SPACING = 4;
 
+const INVESTIGATOR_VISOR_TINT: Partial<Record<string, number>> = {
+  logis: 0x7dd3fc,
+  nexus: 0xc4b5fd,
+  filer: 0xfbbf24,
+  chrono: 0x5eead4,
+};
+
 export class NPCManager {
   private scene: Phaser.Scene;
   private npcs: Map<string, NPC> = new Map();
@@ -94,6 +101,11 @@ export class NPCManager {
     eventBridge.on("sim:init-npcs", this.onInitNPCs, this);
     eventBridge.on("sim:npc-move", this.onNPCMove, this);
     eventBridge.on("sim:npc-mood", this.onNPCMood, this);
+    eventBridge.on(
+      "sim:npc-identity-updates",
+      this.onNPCIdentityUpdates,
+      this,
+    );
   }
 
   private ensureSpawnArea() {
@@ -440,6 +452,10 @@ export class NPCManager {
     npc.category = bn.category ?? "";
     npc.reputation = bn.reputation;
     npc.sentiment = moodToSentiment(bn.mood);
+    const investigatorTint = INVESTIGATOR_VISOR_TINT[bn.id.toLowerCase()];
+    if (bn.category === "specialist" && investigatorTint) {
+      npc.applyLunarInvestigatorStyle(investigatorTint);
+    }
     this.occupancy.occupy(bn.id, tileX, tileY);
     return npc;
   }
@@ -533,6 +549,16 @@ export class NPCManager {
     const npc = this.npcs.get(data.npcId);
     if (!npc) return;
     npc.sentiment = moodToSentiment(data.mood);
+  }
+
+  private onNPCIdentityUpdates(updates: { npcId: string; name: string }[]) {
+    for (const update of updates) {
+      const npc = this.npcs.get(update.npcId);
+      if (!npc) continue;
+      npc.setDisplayName(update.name);
+      this.upsertChatBubble(npc);
+      this.emitNPCPosition(npc);
+    }
   }
 
   getNPC(id: string): NPC | undefined {
@@ -851,6 +877,11 @@ export class NPCManager {
     eventBridge.off("sim:init-npcs", this.onInitNPCs, this);
     eventBridge.off("sim:npc-move", this.onNPCMove, this);
     eventBridge.off("sim:npc-mood", this.onNPCMood, this);
+    eventBridge.off(
+      "sim:npc-identity-updates",
+      this.onNPCIdentityUpdates,
+      this,
+    );
     for (const t of this.positionTimers.values()) t.destroy();
     this.positionTimers.clear();
     for (const bubble of this.chatBubbles.values()) bubble.destroy();

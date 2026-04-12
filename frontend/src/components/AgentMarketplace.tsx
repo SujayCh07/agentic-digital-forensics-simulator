@@ -1,16 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { NipsMarketplaceOffer } from "@/types/investigation";
+import type {
+  AgentId,
+  NipsAgentInstance,
+  NipsMarketplaceOffer,
+} from "@/types/investigation";
 import { audioManager } from "@/lib/audioManager";
 
 interface AgentMarketplaceProps {
-  offers: NipsMarketplaceOffer[];
+  offersByRole: Partial<Record<AgentId, NipsMarketplaceOffer>>;
+  ownedAgentsByRole: Partial<Record<AgentId, NipsAgentInstance>>;
   funds: number;
   nextRefresh: number;
+  lockedAgents: AgentId[];
+  ownedAgentCount: number;
   onBuy: (offerId: string) => void;
   onRefresh: () => void;
 }
+
+const ROLE_ORDER: AgentId[] = ["logis", "nexus", "filer", "chrono"];
 
 const ARCHETYPE_COLORS: Record<string, string> = {
   LOGIS: "#22d3ee",
@@ -42,20 +51,48 @@ function StatMini({ label, value, color }: { label: string; value: number; color
 }
 
 function OfferCard({
+  roleId,
   offer,
+  ownedAgent,
   funds,
+  lockedAgents,
+  ownedAgentCount,
   onBuy,
 }: {
+  roleId: AgentId;
   offer: NipsMarketplaceOffer;
+  ownedAgent?: NipsAgentInstance;
   funds: number;
+  lockedAgents: AgentId[];
+  ownedAgentCount: number;
   onBuy: (id: string) => void;
 }) {
-  const a = offer.agent;
-  const canAfford = funds >= a.cost;
+  const a = ownedAgent ?? offer.agent;
   const color = ARCHETYPE_COLORS[a.archetype] || "#888";
+  const isLockedRole = lockedAgents.includes(roleId);
+  const isOwnedRole = Boolean(ownedAgent);
+  const isRosterFull = ownedAgentCount >= 4;
+  const canAfford = funds >= a.cost;
+  const canRecruit = !isOwnedRole && !isRosterFull && canAfford && Boolean(offer.offer_id);
+  const statusLabel = isOwnedRole
+    ? "DEPLOYED"
+    : isLockedRole
+      ? "LOCKED ROLE"
+      : "RECRUITABLE";
+  const statusColor = isOwnedRole
+    ? "#34d399"
+    : isLockedRole
+      ? "#b06fff"
+      : "#6f87a1";
 
   return (
-    <div className="rpg-panel flex flex-col rounded border border-white/10 p-3">
+    <div
+      className="rpg-panel flex flex-col rounded border border-white/10 p-3"
+      style={{
+        background: isLockedRole ? "rgba(23, 14, 35, 0.82)" : undefined,
+        boxShadow: isLockedRole ? "inset 0 0 0 1px rgba(176,111,255,0.14)" : undefined,
+      }}
+    >
       <div className="mb-2 flex items-start justify-between">
         <div className="min-w-0">
           <span
@@ -72,6 +109,28 @@ function OfferCard({
         <span className="shrink-0 text-[12px] font-mono font-bold text-amber-300">
           {a.cost}¢
         </span>
+      </div>
+
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span
+          className="rounded-full px-2 py-1 text-[8px] font-mono uppercase tracking-[0.12em]"
+          style={{
+            background: "rgba(8,12,18,0.76)",
+            border: "1px solid rgba(255,255,255,0.06)",
+            color: statusColor,
+          }}
+        >
+          {statusLabel}
+        </span>
+        {isOwnedRole ? (
+          <span className="text-[8px] font-mono uppercase tracking-[0.12em]" style={{ color: "#34d399" }}>
+            Active Slot
+          </span>
+        ) : isLockedRole ? (
+          <span className="text-[8px] font-mono uppercase tracking-[0.12em]" style={{ color: "#b06fff" }}>
+            Unlock path
+          </span>
+        ) : null}
       </div>
 
       <p className="mb-2 text-[9px] font-mono leading-relaxed text-[var(--muted)]">
@@ -99,9 +158,9 @@ function OfferCard({
 
       <button
         type="button"
-        disabled={!canAfford}
+        disabled={!canRecruit}
         onClick={() => {
-          if (canAfford) {
+          if (canRecruit) {
             audioManager.playButtonClick();
             onBuy(offer.offer_id);
           } else {
@@ -109,21 +168,32 @@ function OfferCard({
           }
         }}
         className={`mt-auto rounded border px-3 py-1.5 text-[10px] font-mono uppercase ${
-          canAfford
+          canRecruit
             ? "border-[var(--accent-cyan)] text-[var(--accent-cyan)] hover:bg-[var(--accent-cyan)]/10"
             : "border-white/10 text-[var(--muted)] opacity-50"
         }`}
       >
-        {canAfford ? "Recruit" : "Insufficient ¢"}
+        {canAfford
+          ? isOwnedRole
+            ? "Deployed"
+            : isRosterFull
+              ? "Roster Full"
+              : isLockedRole
+                ? "Recruit + Unlock"
+                : "Recruit"
+          : "Insufficient ¢"}
       </button>
     </div>
   );
 }
 
 export function AgentMarketplace({
-  offers,
+  offersByRole,
+  ownedAgentsByRole,
   funds,
   nextRefresh,
+  lockedAgents,
+  ownedAgentCount,
   onBuy,
   onRefresh,
 }: AgentMarketplaceProps) {
@@ -145,7 +215,7 @@ export function AgentMarketplace({
     return () => clearInterval(id);
   }, [nextRefresh, onRefresh]);
 
-  if (offers.length === 0) {
+  if (ROLE_ORDER.every((roleId) => !offersByRole[roleId] && !ownedAgentsByRole[roleId])) {
     return (
       <div className="text-center text-[10px] font-mono text-[var(--muted)] py-4">
         No marketplace offers available. Refreshing...
@@ -169,14 +239,28 @@ export function AgentMarketplace({
         </div>
       </div>
       <div className="grid grid-cols-4 gap-2">
-        {offers.map((offer) => (
+        {ROLE_ORDER.map((roleId) => {
+          const offer = offersByRole[roleId];
+          const ownedAgent = ownedAgentsByRole[roleId];
+          if (!offer && !ownedAgent) return null;
+
+          return (
           <OfferCard
-            key={offer.offer_id}
-            offer={offer}
+            key={ownedAgent?.instance_id ?? offer?.offer_id ?? roleId}
+            roleId={roleId}
+            offer={offer ?? ({
+              offer_id: `empty-${roleId}`,
+              agent: ownedAgent!,
+              expires_at: 0,
+            })}
+            ownedAgent={ownedAgent}
             funds={funds}
+            lockedAgents={lockedAgents}
+            ownedAgentCount={ownedAgentCount}
             onBuy={onBuy}
           />
-        ))}
+          );
+        })}
       </div>
     </div>
   );

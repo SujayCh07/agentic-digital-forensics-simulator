@@ -18,7 +18,7 @@
  * Funds earned based on finding severity
  *
  * Other mechanics:
- * - Funds: start at 1500₡, unlock locked agents (NEXUS/FILER/CHRONO)
+ * - Funds: start at 1500₡, earn from findings, and support marketplace recruitment
  * - Pressure: escalation timer fires every 45s, worsens incident state
  * - Agent personality: short in-character commentary appended to findings
  */
@@ -264,7 +264,8 @@ export interface InvestigationHookReturn {
   // Funds + unlock
   funds:       number;
   lockedAgents: AgentId[];
-  unlockAgent: (agentId: AgentId) => boolean;
+  unlockAgent: (agentId: AgentId, waiveCost?: boolean) => boolean;
+  syncRoleUnlocks: (unlockedRoles: AgentId[]) => void;
 
   // Pressure / escalation
   pressureLevel: number;   // 0–10
@@ -318,20 +319,16 @@ export function useInvestigation(
   const cycleRef          = useRef(0);
   const stageRef          = useRef(1);
   const timeoutsRef       = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const lockedAgentsRef   = useRef(lockedAgents);
 
   useEffect(() => { agentsRef.current = agents; }, [agents]);
   useEffect(() => { findingsRef.current = completedFindings; }, [completedFindings]);
   useEffect(() => { systemNodesRef.current = systemNodes; }, [systemNodes]);
   useEffect(() => { stageRef.current = stage; }, [stage]);
+  useEffect(() => { lockedAgentsRef.current = lockedAgents; }, [lockedAgents]);
 
   // ── Initialize agents on Phaser map ──────────────────────────────────────
   useEffect(() => {
-    // Determine the starter agent ID (everyone except lockedAgents at start)
-    const starterId = ALL_AGENT_IDS.find(id => !lockedAgents.includes(id));
-
-    getBridge().then(({ eventBridge }) => {
-      eventBridge.emitInitNPCs(CASE_AGENTS_NPCS, starterId);
-    });
     setGraphData({
       relationships: CASE_RELATIONSHIPS,
       npcs:          CASE_AGENTS_NPCS,
@@ -411,15 +408,15 @@ export function useInvestigation(
   }, []);
 
   // ── Unlock agent ──────────────────────────────────────────────────────────
-  const unlockAgent = useCallback((agentId: AgentId): boolean => {
+  const unlockAgent = useCallback((agentId: AgentId, waiveCost = false): boolean => {
     const cost = AGENT_UNLOCK_COST[agentId];
     if (!cost) return false;
 
     let success = false;
     setFunds(prev => {
-      if (prev < cost) return prev;
+      if (!waiveCost && prev < cost) return prev;
       success = true;
-      return prev - cost;
+      return waiveCost ? prev : prev - cost;
     });
 
     if (success) {
@@ -429,7 +426,9 @@ export function useInvestigation(
         type: "policy_response",
         agentId,
         agentName: agentId.toUpperCase(),
-        message: `${agentId.toUpperCase()} has joined the investigation. (−${cost?.toLocaleString()}₡)`,
+        message: waiveCost
+          ? `${agentId.toUpperCase()} is now cleared for deployment.`
+          : `${agentId.toUpperCase()} has joined the investigation. (−${cost?.toLocaleString()}₡)`,
         phase: stageRef.current, round: cycleRef.current, maxRounds: 99,
         timestamp: Date.now(),
       });
@@ -437,6 +436,13 @@ export function useInvestigation(
 
     return success;
   }, [pushEvent]);
+
+  const syncRoleUnlocks = useCallback((unlockedRoles: AgentId[]) => {
+    if (unlockedRoles.length === 0) return;
+    setLockedAgents((prev) =>
+      prev.filter((agentId) => !unlockedRoles.includes(agentId)),
+    );
+  }, []);
 
   // ── Internal: run a FAILURE task (wrong agent or unresolvable instruction) ──
   const runFailure = useCallback((
@@ -693,6 +699,8 @@ export function useInvestigation(
     nodeId: string,
     rawInstruction: string,
   ) => {
+    if (lockedAgentsRef.current.includes(agentId)) return;
+
     const agent = agentsRef.current.find(a => a.id === agentId);
     const node  = systemNodesRef.current.find(n => n.id === nodeId);
     if (!agent || !node || agent.status !== "idle") return;
@@ -735,6 +743,7 @@ export function useInvestigation(
     funds,
     lockedAgents,
     unlockAgent,
+    syncRoleUnlocks,
     pressureLevel,
     graphData,
     stage,

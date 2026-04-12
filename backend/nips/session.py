@@ -7,11 +7,12 @@ histories, and evidence. Marketplace auto-refreshes every 3 minutes.
 from __future__ import annotations
 
 import logging
+import random
 import time
 import uuid
 from typing import Any
 
-from nips.agent_generator import generate_agent, generate_marketplace_batch
+from nips.agent_generator import generate_agent
 from nips.models import (
     AgentChatSession,
     AgentInstance,
@@ -25,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 MARKETPLACE_REFRESH_SECONDS = 180  # 3 minutes
 INITIAL_FUNDS = 1500
+CHAT_TURN_COST = 100
+ARCHETYPE_ORDER = ("LOGIS", "NEXUS", "FILER", "CHRONO")
 
 # In-memory store keyed by Socket.IO sid
 _sessions: dict[str, NipsSession] = {}
@@ -48,21 +51,30 @@ CASE_SUMMARY = (
 # ---------------------------------------------------------------------------
 
 
-def _generate_starter_agents() -> list[AgentInstance]:
-    """Generate one starter agent per archetype so the player can chat immediately."""
-    from nips.models import ArchetypeId
-    starters: list[AgentInstance] = []
-    for arch in ("LOGIS", "NEXUS", "FILER", "CHRONO"):
-        agent = generate_agent(arch)  # type: ignore[arg-type]
-        starters.append(agent)
-    return starters
+def _normalize_archetype(archetype: str | None) -> str:
+    if not archetype:
+        return "LOGIS"
+    upper = archetype.upper()
+    return upper if upper in ARCHETYPE_ORDER else "LOGIS"
 
 
-def create_session(sid: str, case_id: str = "midnight_exfil") -> NipsSession:
+def _generate_starter_agents(starter_archetype: str) -> list[AgentInstance]:
+    """Generate only the chosen starter specialist for the session."""
+    return [generate_agent(_normalize_archetype(starter_archetype))]
+
+
+def create_session(
+    sid: str,
+    case_id: str = "midnight_exfil",
+    starter_archetype: str = "LOGIS",
+) -> NipsSession:
     """Create a fresh NIPS session with starter agents and marketplace offers."""
     now = time.time()
-    offers = _generate_offers(now)
-    starters = _generate_starter_agents()
+    starters = _generate_starter_agents(starter_archetype)
+    offers = _generate_offers(
+        now,
+        excluded_archetypes={agent.archetype for agent in starters},
+    )
 
     session = NipsSession(
         sid=sid,
@@ -94,8 +106,14 @@ def destroy_session(sid: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _generate_offers(now: float) -> list[MarketplaceOffer]:
-    agents = generate_marketplace_batch(count=4)
+def _generate_offers(
+    now: float,
+    excluded_archetypes: set[str] | None = None,
+) -> list[MarketplaceOffer]:
+    excluded = excluded_archetypes or set()
+    available = [arch for arch in ARCHETYPE_ORDER if arch not in excluded]
+    random.shuffle(available)
+    agents = [generate_agent(arch) for arch in available]
     return [
         MarketplaceOffer(
             offer_id=str(uuid.uuid4()),
@@ -109,7 +127,10 @@ def _generate_offers(now: float) -> list[MarketplaceOffer]:
 def refresh_marketplace(session: NipsSession) -> list[MarketplaceOffer]:
     """Force-refresh marketplace offers. Returns the new offers."""
     now = time.time()
-    session.marketplace_offers = _generate_offers(now)
+    session.marketplace_offers = _generate_offers(
+        now,
+        excluded_archetypes={agent.archetype for agent in session.deployed_agents},
+    )
     session.marketplace_next_refresh = now + MARKETPLACE_REFRESH_SECONDS
     logger.info("Marketplace refreshed for sid=%s", session.sid)
     return session.marketplace_offers
@@ -137,6 +158,10 @@ def buy_agent(session: NipsSession, offer_id: str) -> AgentInstance | None:
         return None
     if session.funds < offer.agent.cost:
         return None
+    if any(agent.archetype == offer.agent.archetype for agent in session.deployed_agents):
+        return None
+    if len(session.deployed_agents) >= len(ARCHETYPE_ORDER):
+        return None
 
     session.funds -= offer.agent.cost
     agent = offer.agent
@@ -152,6 +177,14 @@ def buy_agent(session: NipsSession, offer_id: str) -> AgentInstance | None:
         session.sid,
     )
     return agent
+
+
+def charge_chat_turn(session: NipsSession, cost: int = CHAT_TURN_COST) -> bool:
+    """Deduct the flat consult cost before a chat turn begins."""
+    if session.funds < cost:
+        return False
+    session.funds -= cost
+    return True
 
 
 # ---------------------------------------------------------------------------

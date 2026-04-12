@@ -1,10 +1,12 @@
 "use client";
 
-import type { NipsAgentInstance } from "@/types/investigation";
+import type { AgentId, NipsAgentInstance } from "@/types/investigation";
+import { ROLE_ORDER, toAgentId } from "@/lib/agentState";
 
 interface AgentDirectoryProps {
   agents: NipsAgentInstance[];
-  lockedAgents?: string[];
+  lockedAgents?: AgentId[];
+  slotAgentsByRole?: Partial<Record<AgentId, NipsAgentInstance>>;
   onOpenChat: (agent: NipsAgentInstance) => void;
   onLockedClick?: (agent: NipsAgentInstance) => void;
   onClose: () => void;
@@ -20,10 +22,17 @@ const ARCHETYPE_COLORS: Record<string, string> = {
 export function AgentDirectory({
   agents,
   lockedAgents = [],
+  slotAgentsByRole = {},
   onOpenChat,
   onLockedClick,
   onClose,
 }: AgentDirectoryProps) {
+  const missingLockedRoles = ROLE_ORDER.filter(
+    (roleId) =>
+      lockedAgents.includes(roleId) &&
+      !agents.some((agent) => toAgentId(agent.archetype) === roleId),
+  );
+
   if (agents.length === 0) {
     return (
       <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 px-4">
@@ -60,7 +69,7 @@ export function AgentDirectory({
       <div className="rpg-panel relative flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden">
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
           <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-[var(--accent-cyan)]">
-            Deployed Agents — {agents.length} active
+            Agent Roster — {agents.length} owned
           </p>
           <button
             type="button"
@@ -73,9 +82,64 @@ export function AgentDirectory({
 
         <div className="flex-1 overflow-y-auto p-4">
           <div className="space-y-2">
+            {missingLockedRoles.map((roleId) => {
+              const previewAgent = slotAgentsByRole[roleId];
+              const role = roleId.toUpperCase();
+              const color = ARCHETYPE_COLORS[role] || "#888";
+              return (
+                <div
+                  key={`locked-${roleId}`}
+                  className="flex items-center gap-3 rounded border border-dashed px-3 py-2.5"
+                  style={{
+                    borderColor: "rgba(176,111,255,0.24)",
+                    background: "rgba(18, 11, 28, 0.6)",
+                  }}
+                >
+                  <div
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+                    style={{
+                      backgroundColor: "rgba(30, 61, 90, 0.16)",
+                      border: "1px solid rgba(176,111,255,0.3)",
+                      color: "#b06fff",
+                    }}
+                  >
+                    🔒
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-[11px] font-pixel" style={{ color }}>
+                        {previewAgent?.display_name ?? role}
+                      </span>
+                      <span className="text-[8px] font-mono uppercase" style={{ color: "#b06fff" }}>
+                        Locked
+                      </span>
+                    </div>
+                    <p className="text-[9px] font-mono text-[#6f87a1]">
+                      {previewAgent
+                        ? `${role} specialist preview. Recruit this operative to unlock the role.`
+                        : "No specialist recruited for this role yet."}
+                    </p>
+                  </div>
+
+                  <div className="text-right">
+                    <p className="text-[8px] font-mono uppercase text-[#8b5cf6]">
+                      Market
+                    </p>
+                    <p className="text-[8px] font-mono text-[#6f87a1]">
+                      Recruit to unlock
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+
             {agents.map((agent) => {
               const color = ARCHETYPE_COLORS[agent.archetype] || "#888";
-              const isLocked = lockedAgents.includes(agent.archetype.toLowerCase());
+              const isLocked = Boolean(
+                toAgentId(agent.archetype) &&
+                  lockedAgents.includes(toAgentId(agent.archetype)!),
+              );
 
               return (
                 <div
@@ -108,7 +172,7 @@ export function AgentDirectory({
                         className="text-[8px] font-mono uppercase"
                         style={{ color: isLocked ? "#1e3d5a" : color }}
                       >
-                        {agent.archetype} {isLocked ? "(LOCKED)" : ""}
+                        {agent.archetype} {isLocked ? "(LOCKED)" : "(READY)"}
                       </span>
                     </div>
                     <p className="text-[9px] font-mono text-[var(--muted)] opacity-60">
@@ -131,7 +195,7 @@ export function AgentDirectory({
                         onClick={() => onLockedClick?.(agent)}
                         className="rounded border border-[#1e3d5a] px-3 py-1.5 text-[9px] font-mono uppercase text-[#2a5070] hover:bg-white/5"
                       >
-                        Unlock
+                        Market
                       </button>
                     ) : (
                       <button

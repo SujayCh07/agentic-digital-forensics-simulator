@@ -46,17 +46,17 @@ export function AgentConsultPanel({
     <div className="flex flex-col h-full">
       {/* Header */}
       <div
-        className="flex items-center px-3 py-2 shrink-0"
+        className="flex items-center px-4 py-3 shrink-0"
         style={{ borderBottom: "1px solid #1e3d5a" }}
       >
-        <h3 className="text-[8px] font-mono uppercase tracking-widest" style={{ color: "#b06fff" }}>
+        <h3 className="text-[11px] font-mono uppercase tracking-[0.18em]" style={{ color: "#b06fff" }}>
           Agent Consultation
         </h3>
       </div>
 
       {/* Selected items summary */}
-      <div className="px-3 py-2 shrink-0" style={{ borderBottom: "1px solid #1e3d5a" }}>
-        <div className="text-[7px] font-mono uppercase tracking-widest mb-1.5" style={{ color: "#2a5070" }}>
+      <div className="px-4 py-3 shrink-0" style={{ borderBottom: "1px solid #1e3d5a" }}>
+        <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-2" style={{ color: "#2a5070" }}>
           {selectedFindings.length > 0
             ? `${selectedFindings.length} finding${selectedFindings.length !== 1 ? "s" : ""} selected`
             : "Select findings to consult"
@@ -64,11 +64,11 @@ export function AgentConsultPanel({
         </div>
 
         {selectedFindings.length > 0 && (
-          <div className="flex flex-col gap-1 max-h-24 overflow-y-auto">
+          <div className="flex flex-col gap-1.5 max-h-32 overflow-y-auto">
             {selectedFindings.map((f) => (
               <div
                 key={`${f.nodeId}:${f.taskType}`}
-                className="text-[7px] font-mono px-1.5 py-0.5 rounded truncate"
+                className="text-[10px] font-mono px-2 py-1.5 rounded truncate"
                 style={{ color: "#4a6580", background: "#1e3d5a20" }}
               >
                 {f.agentName} → {f.nodeName}
@@ -79,11 +79,11 @@ export function AgentConsultPanel({
       </div>
 
       {/* Agent buttons */}
-      <div className="px-3 py-2 shrink-0" style={{ borderBottom: "1px solid #1e3d5a" }}>
-        <div className="text-[7px] font-mono uppercase tracking-widest mb-1.5" style={{ color: "#2a5070" }}>
+      <div className="px-4 py-3 shrink-0" style={{ borderBottom: "1px solid #1e3d5a" }}>
+        <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-2" style={{ color: "#2a5070" }}>
           Ask Agent
         </div>
-        <div className="grid grid-cols-2 gap-1.5">
+        <div className="grid grid-cols-2 gap-2">
           {AGENTS.map((agent) => {
             const isLocked = lockedAgents.includes(agent.id);
             const canConsult = selectedFindings.length > 0 && !isLocked;
@@ -94,7 +94,7 @@ export function AgentConsultPanel({
                 type="button"
                 onClick={() => canConsult && onConsult(agent.id)}
                 disabled={!canConsult}
-                className="flex flex-col items-start p-1.5 rounded transition-all text-left"
+                className="flex flex-col items-start p-2.5 rounded transition-all text-left"
                 style={{
                   background: canConsult ? `${agent.color}08` : "#0d1520",
                   border: `1px solid ${canConsult ? `${agent.color}40` : "#1e3d5a"}`,
@@ -103,12 +103,12 @@ export function AgentConsultPanel({
                 }}
               >
                 <span
-                  className="text-[8px] font-mono font-bold"
+                  className="text-[11px] font-mono font-bold"
                   style={{ color: isLocked ? "#2a5070" : agent.color }}
                 >
                   {agent.name}
                 </span>
-                <span className="text-[6px] font-mono" style={{ color: "#2a5070" }}>
+                <span className="text-[9px] font-mono" style={{ color: "#2a5070" }}>
                   {isLocked ? "🔒 Locked" : agent.specialty}
                 </span>
               </button>
@@ -118,13 +118,13 @@ export function AgentConsultPanel({
       </div>
 
       {/* Consultation history */}
-      <div className="flex-1 overflow-y-auto px-3 py-2">
-        <div className="text-[7px] font-mono uppercase tracking-widest mb-1.5" style={{ color: "#2a5070" }}>
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        <div className="text-[10px] font-mono uppercase tracking-[0.18em] mb-2" style={{ color: "#2a5070" }}>
           Consultation Log
         </div>
 
         {consultations.length === 0 && (
-          <div className="text-[8px] font-mono italic" style={{ color: "#1e3d5a" }}>
+          <div className="text-[11px] font-mono italic leading-relaxed" style={{ color: "#1e3d5a" }}>
             No consultations yet. Select evidence and ask an agent.
           </div>
         )}
@@ -143,25 +143,25 @@ export function AgentConsultPanel({
                 style={{
                   background: "rgba(8,12,18,0.8)",
                   border: "1px solid #1e3d5a",
-                  padding: "6px 8px",
+                  padding: "10px 12px",
                 }}
               >
                 <div className="flex items-center gap-1.5 mb-1">
-                  <span className="text-[9px] font-mono" style={{ color: toneInfo.color }}>
+                  <span className="text-[12px] font-mono" style={{ color: toneInfo.color }}>
                     {toneInfo.icon}
                   </span>
                   <span
-                    className="text-[8px] font-mono font-bold"
+                    className="text-[11px] font-mono font-bold"
                     style={{ color: AGENTS.find(a => a.id === c.agentId)?.color ?? "#4a6580" }}
                   >
                     {c.agentName}
                   </span>
-                  <span className="text-[6px] font-mono uppercase" style={{ color: toneInfo.color }}>
+                  <span className="text-[9px] font-mono uppercase" style={{ color: toneInfo.color }}>
                     {c.tone}
                   </span>
                 </div>
                 <p
-                  className={`text-[8px] font-mono leading-relaxed ${isExpanded ? "" : "line-clamp-3"}`}
+                  className={`text-[10px] font-mono leading-relaxed ${isExpanded ? "" : "line-clamp-3"}`}
                   style={{ color: "#4a6580" }}
                 >
                   {c.message}

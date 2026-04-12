@@ -5,7 +5,7 @@
  *
  * Player selects an agent, types a natural-language instruction,
  * and the system interprets it into a task. Wrong agent = hard fail.
- * Locked agents can be unlocked here using funds.
+ * Locked agents are gated through the marketplace, not unlocked here directly.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -21,8 +21,6 @@ interface TaskAssignmentModalProps {
   funds: number;
   /** Called when player submits a valid instruction */
   onSubmitInstruction: (agentId: AgentId, rawInstruction: string) => void;
-  /** Called when player attempts to unlock an agent */
-  onUnlockAgent: (agentId: AgentId) => boolean;
   onClose: () => void;
 }
 
@@ -57,18 +55,6 @@ const AGENT_HINT: Record<AgentId, string> = {
   chrono: "Timeline · Sequence correlation · Causal chains",
 };
 
-const AGENT_BASE_COST: Record<AgentId, number> = {
-  logis:  700,
-  nexus:  800,
-  filer:  900,
-  chrono: 1100,
-};
-
-/** Returns unlock cost, or null if agent is already available */
-function getUnlockCost(agentId: AgentId, lockedAgents: AgentId[]): number | null {
-  return lockedAgents.includes(agentId) ? AGENT_BASE_COST[agentId] : null;
-}
-
 // Agent-specific instruction placeholders
 const AGENT_PLACEHOLDER: Record<AgentId, string> = {
   logis:  "e.g. Check auth logs for failed logins • Look for log tampering • Who accessed this server?",
@@ -83,12 +69,10 @@ export function TaskAssignmentModal({
   lockedAgents,
   funds,
   onSubmitInstruction,
-  onUnlockAgent,
   onClose,
 }: TaskAssignmentModalProps) {
   const [selectedAgentId, setSelectedAgentId] = useState<AgentId | null>(null);
   const [instruction, setInstruction] = useState("");
-  const [unlocking, setUnlocking] = useState<AgentId | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Auto-select first available (unlocked + idle) agent
@@ -120,15 +104,6 @@ export function TaskAssignmentModal({
     if (!canSubmit || !selectedAgentId) return;
     onSubmitInstruction(selectedAgentId, instruction.trim());
     onClose();
-  };
-
-  const handleUnlock = (agentId: AgentId) => {
-    const cost = getUnlockCost(agentId, lockedAgents);
-    if (!cost || funds < cost) return;
-    setUnlocking(agentId);
-    const success = onUnlockAgent(agentId);
-    if (success) setSelectedAgentId(agentId);
-    setUnlocking(null);
   };
 
   const statusColor = STATUS_COLOR[node.status];
@@ -223,9 +198,7 @@ export function TaskAssignmentModal({
               const isSelected = selectedAgentId === agent.id;
               const isLockedAgent = lockedAgents.includes(agent.id);
               const isBusy = agent.status !== "idle";
-              const cost = getUnlockCost(agent.id, lockedAgents);
               const agentColor = AGENT_COLOR[agent.id];
-              const canAfford = cost !== null && funds >= cost;
 
               return (
                 <button
@@ -267,27 +240,11 @@ export function TaskAssignmentModal({
                   </div>
                   <span className="text-[7px] font-mono" style={{ color: "#2a5070" }}>
                     {isLockedAgent
-                      ? `${cost?.toLocaleString()}₡ to unlock`
+                      ? "Recruit in marketplace"
                       : isBusy
                         ? agent.status.toUpperCase()
                         : agent.specialty}
                   </span>
-                  {isLockedAgent && (
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); handleUnlock(agent.id); }}
-                      disabled={!canAfford || unlocking === agent.id}
-                      className="mt-1.5 w-full text-[7px] font-mono py-0.5 rounded transition-opacity"
-                      style={{
-                        background: canAfford ? `${agentColor}20` : "#1e3d5a",
-                        border: `1px solid ${canAfford ? `${agentColor}50` : "#2a5070"}`,
-                        color: canAfford ? agentColor : "#2a5070",
-                        cursor: canAfford ? "pointer" : "not-allowed",
-                      }}
-                    >
-                      {unlocking === agent.id ? "Unlocking..." : canAfford ? "UNLOCK" : "Insufficient funds"}
-                    </button>
-                  )}
                 </button>
               );
             })}
@@ -319,7 +276,7 @@ export function TaskAssignmentModal({
                 !selectedAgentId
                   ? "Select an agent first..."
                   : isLocked
-                    ? "Agent is locked. Unlock to deploy."
+                    ? "Agent is locked. Recruit this role in the marketplace."
                     : isAgentBusy
                       ? `${selectedAgent?.name} is ${selectedAgent?.status}...`
                       : selectedAgentId

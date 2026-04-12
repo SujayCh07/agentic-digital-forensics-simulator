@@ -26,10 +26,12 @@ interface MessageEntry {
 interface AgentCommandModalProps {
   agent: NipsAgentInstance;
   nodeContext: string;
+  currentFunds: number;
   initialMessages?: MessageEntry[];
   onClose: (messages: MessageEntry[]) => void;
   onOpenRadio?: () => void;
   onEvidenceUpdate?: (ev: NipsEvidenceUpdate) => void;
+  onFundsChange?: (funds: number) => void;
 }
 
 function uid(): string {
@@ -43,10 +45,12 @@ export type { MessageEntry };
 export function AgentCommandModal({
   agent,
   nodeContext,
+  currentFunds,
   initialMessages,
   onClose,
   onOpenRadio,
   onEvidenceUpdate,
+  onFundsChange,
 }: AgentCommandModalProps) {
   const [history, setHistory] = useState<MessageEntry[]>(initialMessages ?? []);
   const [input, setInput] = useState("");
@@ -131,6 +135,7 @@ export function AgentCommandModal({
       },
       onChatDone: (data) => {
         audioManager.playAgentResponse();
+        onFundsChange?.(data.funds);
         const finalText = data.full_answer || "";
         setHistory((prev) => [
           ...prev,
@@ -171,7 +176,7 @@ export function AgentCommandModal({
         setToolActivities([]);
       },
     });
-  }, [onEvidenceUpdate]);
+  }, [onEvidenceUpdate, onFundsChange]);
 
   const thoughtTextRef = useRef("");
   thoughtTextRef.current = thoughtText;
@@ -181,6 +186,10 @@ export function AgentCommandModal({
   const send = useCallback(() => {
     const value = input.trim();
     if (!value || isStreaming) return;
+    if (currentFunds < 100) {
+      setError("Insufficient credits. Each AI consult costs 100¢.");
+      return;
+    }
 
     setHistory((prev) => [
       ...prev,
@@ -195,7 +204,7 @@ export function AgentCommandModal({
 
     audioManager.playPlayerChat();
     sendNipsChat(agent.instance_id, value, nodeContext);
-  }, [input, isStreaming, agent.instance_id, nodeContext]);
+  }, [input, isStreaming, agent.instance_id, nodeContext, currentFunds]);
 
   const toggleThought = (id: string) =>
     setShowThoughtsMap((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -407,6 +416,9 @@ export function AgentCommandModal({
                   Context: {nodeContext}
                 </p>
               )}
+              <p className="mt-1 text-[9px] font-mono text-[var(--muted)]">
+                AI consult cost: 100¢ · Balance: {currentFunds.toLocaleString()}¢
+              </p>
             </div>
             <div className="flex items-center gap-2">
               {onOpenRadio && (
@@ -579,7 +591,7 @@ export function AgentCommandModal({
               <button
                 type="button"
                 onClick={send}
-                disabled={isStreaming || !input.trim()}
+                disabled={isStreaming || !input.trim() || currentFunds < 100}
                 className="rounded border px-4 py-2 text-[10px] font-mono uppercase hover:bg-white/5 disabled:opacity-40"
                 style={{ borderColor: accentColor, color: accentColor }}
               >
@@ -587,8 +599,7 @@ export function AgentCommandModal({
               </button>
             </div>
             <div className="mt-1.5 text-[8px] font-mono uppercase tracking-[0.16em] text-[var(--muted)]">
-              Enter to send &middot; Shift+Enter for newline &middot; Esc to
-              close
+              Enter to send &middot; 100¢ per consult &middot; Shift+Enter for newline &middot; Esc to close
             </div>
           </div>
         </div>

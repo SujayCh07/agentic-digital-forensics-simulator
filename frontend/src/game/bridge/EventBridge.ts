@@ -1,6 +1,11 @@
 import type { NPCHoverInfo, NPCState, SimEvent } from "@/types";
 import type { BackendNPC } from "@/types/backend";
 
+interface NPCIdentityUpdate {
+  npcId: string;
+  name: string;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Listener = (...args: any[]) => void;
 
@@ -100,6 +105,11 @@ class EventBridge {
   // React → Phaser: update NPC mood
   emitNPCMood(npcId: string, mood: string) {
     this.emit("sim:npc-mood", { npcId, mood });
+  }
+
+  // React → Phaser: update already-spawned specialist labels/names
+  emitNPCIdentityUpdates(updates: NPCIdentityUpdate[]) {
+    this.emit("sim:npc-identity-updates", updates);
   }
 
   // React → Phaser: snap camera to an NPC by ID

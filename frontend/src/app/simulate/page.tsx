@@ -17,13 +17,15 @@ import { NPCInteractionModal } from "@/components/NPCInteractionModal";
 import { PauseOverlay } from "@/components/PauseOverlay";
 import { UserBoard } from "@/components/UserBoard/UserBoard";
 import { CYBER_CITY_SECTOR_SEEDS, DOMAIN_LABEL_BY_SECTOR } from "@/data/cyberCitySectors";
+import { CASE_AGENTS_NPCS } from "@/data/case_midnight_exfil";
 
 import { useInvestigation } from "@/hooks/useInvestigation";
 import { useBoardState } from "@/hooks/useBoardState";
 import { useSimulation } from "@/hooks/useSimulation";
 import { useRadio } from "@/hooks/useRadio";
 import { RadioPanel } from "@/components/RadioPanel";
-import type { ActiveHelpers, AgentDefinition, AgentId, CaseSystemNode, NipsAgentInstance, NipsMarketplaceOffer, SectorId } from "@/types/investigation";
+import type { ActiveHelpers, AgentDefinition, AgentId, CaseSystemNode, NipsAgentInstance, NipsMarketplaceOffer, NipsEvidenceUpdate, SectorId } from "@/types/investigation";
+import type { BackendNPC } from "@/types/backend";
 import { clearReplayData, getReplayData } from "@/lib/replayStore";
 import {
   initNipsSession,
@@ -32,6 +34,12 @@ import {
   setMarketplaceCallbacks,
   disconnectNips,
 } from "@/lib/investigationAgentClient";
+import {
+  buildAgentStateModel,
+  normalizeOwnedAgents,
+  ROLE_ORDER,
+  toAgentId,
+} from "@/lib/agentState";
 import {
   applyCaseRewards,
   computeCaseRewards,
@@ -203,36 +211,55 @@ function resolveSector(worldX: number, worldY: number) {
 }
 
 function buildAgentMarkers(
-  nipsAgents: NipsAgentInstance[],
+  slotAgentsByRole: Partial<Record<AgentId, NipsAgentInstance>>,
   positions: Record<string, NPCState>,
-  lockedAgents: AgentId[],
+  lockedRoles: AgentId[],
   agentStates: AgentDefinition[],
   systemNodes: CaseSystemNode[],
 ): AgentMarkerData[] {
-  return nipsAgents.flatMap((agent) => {
+  return ROLE_ORDER.flatMap((roleId) => {
+    const agent = slotAgentsByRole[roleId];
+    if (!agent) return [];
+
     const npcId = resolveAgentPositionId(agent, positions);
     if (!npcId) return [];
 
     const position = positions[npcId];
-    const archetype = normalizeAgentId(agent.archetype) as AgentId;
-    const agentState = agentStates.find((entry) => entry.id === archetype);
+    const archetype = roleId;
+    const agentState = agentStates.find((entry) => entry.id === roleId);
     const sector = resolveSector(position.worldX, position.worldY);
     const nodeName = agentState?.currentNodeId
       ? systemNodes.find((node) => node.id === agentState.currentNodeId)?.name
       : null;
+    const isLocked = lockedRoles.includes(roleId);
 
     return [{
       agent,
       npcId,
       position,
-      isLocked: lockedAgents.includes(archetype),
+      isLocked,
       color: AGENT_MARKER_COLORS[archetype] ?? "#22d3ee",
       roleLabel: agent.primary_specialties[0] ?? agent.team_role,
-      statusLabel: agentState?.status ?? "idle",
-      assignmentLabel: nodeName ?? "Awaiting task",
+      statusLabel: isLocked ? "locked" : agentState?.status ?? "idle",
+      assignmentLabel: isLocked
+        ? "Locked — recruit to unlock"
+        : nodeName ?? "Awaiting task",
       sectorCode: sector?.id ?? "TRANSIT",
       sectorLabel: sector ? DOMAIN_LABEL_BY_SECTOR[sector.id] : "Transit lane",
     }];
+  });
+}
+
+function buildVisibleSpecialists(
+  slotAgentsByRole: Partial<Record<AgentId, NipsAgentInstance>>,
+): BackendNPC[] {
+  return CASE_AGENTS_NPCS.map((npc) => {
+    const roleId = npc.id as AgentId;
+    const slotAgent = slotAgentsByRole[roleId];
+    return {
+      ...npc,
+      name: slotAgent?.display_name ?? npc.name,
+    };
   });
 }
 
@@ -332,6 +359,8 @@ function InvestigateGame({
 }) {
   const router = useRouter();
   const inv = useInvestigation(activeHelpers);
+  const starterRole = (((activeHelpers as unknown as { _starter?: AgentId })._starter) ??
+    "logis") as AgentId;
   const [activeOverlay, setActiveOverlay] = useState<"board" | "market" | null>(null);
   const [rewardsShown, setRewardsShown] = useState(false);
   const board = useBoardState();
@@ -353,6 +382,21 @@ function InvestigateGame({
   const [npcPositions, setNpcPositions] = useState<Record<string, NPCState>>({});
   const [caseModalSector, setCaseModalSector] = useState<SectorId | null>(null);
   const [activeSectorId, setActiveSectorId] = useState<SectorId | null>(null);
+
+  const agentState = useMemo(
+    () =>
+      buildAgentStateModel({
+        ownedAgents: nipsAgents,
+        marketplaceOffers: nipsOffers,
+        baseLockedRoles: inv.lockedAgents,
+      }),
+    [nipsAgents, nipsOffers, inv.lockedAgents],
+  );
+  const ownedRoleKey = agentState.ownedRoleIds.join("|");
+  const slotRoleKey = ROLE_ORDER.map((roleId) => {
+    const slotAgent = agentState.slotAgentsByRole[roleId];
+    return `${roleId}:${slotAgent?.instance_id ?? "none"}:${slotAgent?.display_name ?? "none"}`;
+  }).join("|");
 
   // ── Audio: stop music when leaving the game view ────────────────────────────
   useEffect(() => {
@@ -379,17 +423,23 @@ function InvestigateGame({
   useEffect(() => {
     const cleanupSession = initNipsSession({
       onSessionReady: (data) => {
-        setNipsAgents(data.agents);
+        setNipsAgents(normalizeOwnedAgents(data.agents));
         setNipsOffers(data.marketplace);
         setNipsFunds(data.funds);
         setNipsNextRefresh(data.next_refresh);
       },
       onError: (msg) => console.error("[NIPS]", msg),
-    });
+    }, inv.caseId, starterRole.toUpperCase());
 
     setMarketplaceCallbacks({
       onAgentPurchased: (data) => {
-        setNipsAgents((prev) => [...prev, data.agent]);
+        const roleId = toAgentId(data.agent.archetype);
+        setNipsAgents((prev) => normalizeOwnedAgents([...prev, data.agent]));
+        if (roleId) {
+          setNipsOffers((prev) =>
+            prev.filter((offer) => toAgentId(offer.agent.archetype) !== roleId),
+          );
+        }
         setNipsFunds(data.funds);
       },
       onMarketplaceRefreshed: (data) => {
@@ -397,7 +447,7 @@ function InvestigateGame({
         setNipsNextRefresh(data.next_refresh);
       },
       onAgentsList: (data) => {
-        setNipsAgents(data.agents);
+        setNipsAgents(normalizeOwnedAgents(data.agents));
         setNipsFunds(data.funds);
       },
       onError: (msg) => console.error("[NIPS marketplace]", msg),
@@ -407,7 +457,39 @@ function InvestigateGame({
       cleanupSession();
       disconnectNips();
     };
-  }, []);
+  }, [inv.caseId, starterRole]);
+
+  useEffect(() => {
+    inv.syncRoleUnlocks(agentState.ownedRoleIds);
+  }, [ownedRoleKey, inv.syncRoleUnlocks]);
+
+  useEffect(() => {
+    const hasVisibleSlots = ROLE_ORDER.some(
+      (roleId) => Boolean(agentState.slotAgentsByRole[roleId]),
+    );
+    if (!hasVisibleSlots) return;
+
+    const visibleSpecialists = buildVisibleSpecialists(agentState.slotAgentsByRole);
+    const specialistIds = new Set(visibleSpecialists.map((npc) => npc.id));
+
+    import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+      eventBridge.emitInitNPCs(visibleSpecialists, starterRole);
+      eventBridge.emitNPCIdentityUpdates(
+        visibleSpecialists.map((npc) => ({
+          npcId: npc.id,
+          name: npc.name,
+        })),
+      );
+      setNpcPositions((prev) =>
+        Object.fromEntries(
+          Object.entries(prev).filter(
+            ([npcId]) =>
+              !ROLE_ORDER.includes(npcId as AgentId) || specialistIds.has(npcId),
+          ),
+        ),
+      );
+    });
+  }, [slotRoleKey, starterRole, agentState.slotAgentsByRole]);
 
   // Handle sprite clicks → open agent chat
   // Sprite npcIds are lowercase archetype prefixes like "logis", "nexus", etc.
@@ -415,17 +497,25 @@ function InvestigateGame({
   useEffect(() => {
     let cleanup: (() => void) | undefined;
     import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+      const clickHandler = (data: { npcId: string }) => {
+        audioManager.playButtonClick();
+        handler(data);
+      };
       const handler = (data: { npcId: string }) => {
         const id = data.npcId.toLowerCase();
-        const agent = nipsAgents.find(
-          (a) =>
-            a.archetype.toLowerCase() === id ||
-            a.archetype.toLowerCase().startsWith(id) ||
-            a.instance_id === data.npcId ||
-            a.codename === data.npcId,
-        );
+        const slotAgent =
+          agentState.deployedAgents.find(
+            (a) =>
+              a.archetype.toLowerCase() === id ||
+              a.archetype.toLowerCase().startsWith(id) ||
+              a.instance_id === data.npcId ||
+              a.codename === data.npcId,
+          ) ??
+          agentState.slotAgentsByRole[id as AgentId];
+        const agent = slotAgent ?? null;
         if (agent) {
-          const isLocked = inv.lockedAgents.includes(agent.archetype.toLowerCase() as AgentId);
+          const roleId = toAgentId(agent.archetype) ?? (id as AgentId);
+          const isLocked = agentState.lockedRoles.includes(roleId);
           if (isLocked) {
             setLockedAgentInfo(agent);
           } else {
@@ -437,18 +527,15 @@ function InvestigateGame({
         setNpcPositions((prev) => ({ ...prev, [npc.id]: npc }));
       };
 
-      eventBridge.on("sim:npc-click", (data: { npcId: string }) => {
-        audioManager.playButtonClick();
-        handler(data);
-      });
+      eventBridge.on("sim:npc-click", clickHandler);
       eventBridge.on("sim:npc-position", posHandler);
       cleanup = () => {
-        eventBridge.off("sim:npc-click", handler);
+        eventBridge.off("sim:npc-click", clickHandler);
         eventBridge.off("sim:npc-position", posHandler);
       };
     });
     return () => cleanup?.();
-  }, [nipsAgents, inv.lockedAgents]); // Added dependencies for correct audio/popup logic
+  }, [agentState.deployedAgents, agentState.lockedRoles, agentState.slotAgentsByRole]);
 
   const handleBuyAgent = useCallback((offerId: string) => {
     buyNipsAgent(offerId);
@@ -486,13 +573,19 @@ function InvestigateGame({
   const agentMarkers = useMemo(
     () =>
       buildAgentMarkers(
-        nipsAgents,
+        agentState.slotAgentsByRole,
         npcPositions,
-        inv.lockedAgents,
+        agentState.lockedRoles,
         inv.agents,
         inv.systemNodes,
       ),
-    [nipsAgents, npcPositions, inv.lockedAgents, inv.agents, inv.systemNodes],
+    [
+      agentState.slotAgentsByRole,
+      agentState.lockedRoles,
+      npcPositions,
+      inv.agents,
+      inv.systemNodes,
+    ],
   );
   const pinnedFindingCount = useMemo(
     () =>
@@ -671,13 +764,12 @@ function InvestigateGame({
           <AgentStatusBar
             agents={inv.agents}
             activeTasks={inv.activeTasks}
-            lockedAgents={inv.lockedAgents}
+            lockedAgents={agentState.lockedRoles}
+            slotAgentsByRole={agentState.slotAgentsByRole}
             onAgentClick={(agentId) => {
-              const nipsAgent = nipsAgents.find(
-                (a) => a.archetype.toLowerCase() === agentId || a.codename.toLowerCase() === agentId,
-              );
+              const nipsAgent = agentState.slotAgentsByRole[agentId];
               if (nipsAgent) {
-                const isLocked = inv.lockedAgents.includes(nipsAgent.archetype.toLowerCase() as AgentId);
+                const isLocked = agentState.lockedRoles.includes(agentId);
                 if (isLocked) {
                   setLockedAgentInfo(nipsAgent);
                 } else {
@@ -733,7 +825,7 @@ function InvestigateGame({
             className="rpg-panel px-3 py-1.5 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-70"
             style={{ color: "#4a6580" }}
           >
-            Agents ({nipsAgents.length})
+            Agents ({agentState.ownedAgents.length}/4)
           </button>
           <button
             type="button"
@@ -840,7 +932,8 @@ function InvestigateGame({
                 scaleX={overlayMetrics.scaleX}
                 scaleY={overlayMetrics.scaleY}
                 onAgentClick={(agent) => {
-                  const isLocked = inv.lockedAgents.includes(agent.archetype.toLowerCase() as AgentId);
+                  const roleId = toAgentId(agent.archetype);
+                  const isLocked = roleId ? agentState.lockedRoles.includes(roleId) : false;
                   if (isLocked) {
                     setLockedAgentInfo(agent);
                   } else {
@@ -869,7 +962,7 @@ function InvestigateGame({
         <UserBoard
           board={board}
           completedFindings={inv.completedFindings}
-          lockedAgents={inv.lockedAgents}
+          lockedAgents={agentState.lockedRoles}
           onClose={() => setActiveOverlay(null)}
         />
       )}
@@ -879,9 +972,12 @@ function InvestigateGame({
         <div className="fixed inset-x-0 top-14 z-[80] mx-auto max-w-4xl px-4 py-3">
           <div className="rpg-panel p-4">
             <AgentMarketplace
-              offers={nipsOffers}
+              offersByRole={agentState.offersByRole}
+              ownedAgentsByRole={agentState.ownedAgentsByRole}
               funds={nipsFunds}
               nextRefresh={nipsNextRefresh}
+              lockedAgents={agentState.lockedRoles}
+              ownedAgentCount={agentState.ownedAgents.length}
               onBuy={handleBuyAgent}
               onRefresh={handleRefreshMarketplace}
             />
@@ -901,8 +997,9 @@ function InvestigateGame({
       {/* Agent directory modal */}
       {showDirectory && (
         <AgentDirectory
-          agents={nipsAgents}
-          lockedAgents={inv.lockedAgents}
+          agents={agentState.ownedAgents}
+          lockedAgents={agentState.lockedRoles}
+          slotAgentsByRole={agentState.slotAgentsByRole}
           onOpenChat={(agent) => {
             setShowDirectory(false);
             setChatAgent(agent);
@@ -929,8 +1026,8 @@ function InvestigateGame({
               </div>
             </div>
             <p className="text-[11px] font-mono leading-6" style={{ color: "#4a6580" }}>
-              This specialist has not been deployed for this case yet.
-              You can unlock them by visiting the marketplace.
+              This specialist is visible in the field, but their role is still locked.
+              Recruit them in the marketplace to unlock and use them.
             </p>
             <div className="flex gap-2 w-full">
               <button
@@ -962,7 +1059,8 @@ function InvestigateGame({
         positions={npcPositions}
         markers={agentMarkers}
         onAgentClick={(agent) => {
-          const isLocked = inv.lockedAgents.includes(agent.archetype.toLowerCase() as AgentId);
+          const roleId = toAgentId(agent.archetype);
+          const isLocked = roleId ? agentState.lockedRoles.includes(roleId) : false;
           if (isLocked) {
             setLockedAgentInfo(agent);
           } else {
@@ -973,21 +1071,16 @@ function InvestigateGame({
 
       {/* Agent chat modal */}
       {/* Radio Panel */}
-      <RadioPanel radio={radio} agents={nipsAgents} />
+      <RadioPanel radio={radio} agents={agentState.ownedAgents} />
 
       {chatAgent && (
         <AgentCommandModal
           agent={chatAgent}
           nodeContext={nodeContextStr}
+          currentFunds={nipsFunds}
           initialMessages={chatHistories[chatAgent.instance_id]}
-          onEvidenceUpdate={(ev) => {
-            inv.addExternalEvidence(ev);
-            if (typeof ev.funds === "number") {
-              setNipsFunds(ev.funds);
-            } else if (typeof ev.reward_credits === "number") {
-              setNipsFunds((prev) => prev + ev.reward_credits);
-            }
-          }}
+          onEvidenceUpdate={(ev) => inv.addExternalEvidence(ev)}
+          onFundsChange={setNipsFunds}
           onOpenRadio={() => {
             radio.setSelectedAgent(chatAgent);
             radio.setIsOpen(true);
@@ -1691,12 +1784,12 @@ function AgentOverlay({
         const anchorX = marker.position.x * scaleX;
         const anchorY = marker.position.y * scaleY;
         const estimatedWidth = Math.min(
-          168,
-          Math.max(76, marker.agent.display_name.length * 6.6 + 26),
+          148,
+          Math.max(72, marker.agent.display_name.length * 6 + 22),
         );
-        const labelHeight = 24;
-        const spriteHalfHeight = Math.max(10, 16 * scaleY);
-        const labelGap = 35;
+        const labelHeight = 20;
+        const spriteHalfHeight = Math.max(9, 14 * scaleY);
+        const labelGap = 40;
         const left = Math.max(
           6,
           Math.min(
@@ -1724,17 +1817,19 @@ function AgentOverlay({
             <button
               type="button"
               onClick={() => onAgentClick(marker.agent)}
-              className="animate-[fadeIn_0.3s_ease-out] rounded-md px-2.5 py-1 text-[9px] font-mono tracking-[0.08em] transition-opacity hover:opacity-80"
+              className="animate-[fadeIn_0.3s_ease-out] rounded-full px-2.5 py-[3px] text-[8px] font-mono tracking-[0.06em] transition-opacity hover:opacity-100"
               style={{
                 width: estimatedWidth,
-                background: "rgba(7,12,19,0.82)",
-                border: "1px solid rgba(255,255,255,0.06)",
+                background: "rgba(7,12,19,0.78)",
+                border: "1px solid rgba(255,255,255,0.08)",
                 color: marker.isLocked ? "#6f87a1" : "#d9e6f2",
                 boxShadow: marker.isLocked
-                  ? "0 8px 16px rgba(0,0,0,0.22)"
-                  : `0 0 12px ${marker.color}18, 0 8px 16px rgba(0,0,0,0.28)`,
+                  ? "0 6px 14px rgba(0,0,0,0.2)"
+                  : `0 0 10px ${marker.color}12, 0 6px 14px rgba(0,0,0,0.24)`,
                 textShadow: "0 1px 0 rgba(0,0,0,0.6)",
                 whiteSpace: "nowrap",
+                backdropFilter: "blur(2px)",
+                opacity: 0.92,
               }}
             >
               {marker.agent.display_name}

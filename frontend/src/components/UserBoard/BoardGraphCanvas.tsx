@@ -91,10 +91,10 @@ const EDGE_COLORS: Record<string, string> = {
 };
 
 function nodeRadius(n: BoardSimNode): number {
-  if (n.nodeType === "evidence")   return 65;
-  if (n.nodeType === "hypothesis") return 55;
-  if (n.nodeType === "outcome")    return 48;
-  return 42;
+  if (n.nodeType === "evidence")   return 80;
+  if (n.nodeType === "hypothesis") return 66;
+  if (n.nodeType === "outcome")    return 58;
+  return 52;
 }
 
 // ---------------------------------------------------------------------------
@@ -153,7 +153,7 @@ function drawNode(ctx: CanvasRenderingContext2D, n: BoardSimNode, hovered: boole
   const y = n.y ?? 0;
   const r = nodeRadius(n);
   const half_w = r;
-  const half_h = n.nodeType === "evidence" ? 42 : 28;
+  const half_h = n.nodeType === "evidence" ? 50 : 34;
 
   const statusColor = STATUS_COLORS[n.status] ?? "#4a6580";
   const isUnknown = n.nodeType === "unknown";
@@ -200,15 +200,15 @@ function drawNode(ctx: CanvasRenderingContext2D, n: BoardSimNode, hovered: boole
 
   // Content
   const labelColor = isHyp ? statusColor : "#c9d8e8";
-  const scaleFactor = Math.max(0.7, Math.min(1, zoom.k));
+  const scaleFactor = Math.max(0.82, Math.min(1.15, zoom.k));
 
   if (isUnknown) {
-    ctx.font = `bold ${Math.round(14 * scaleFactor)}px monospace`;
+    ctx.font = `bold ${Math.round(18 * scaleFactor)}px monospace`;
     ctx.fillStyle = "#2a5070";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("???", x, y - 4);
-    ctx.font = `${Math.round(7 * scaleFactor)}px monospace`;
+    ctx.font = `${Math.round(9 * scaleFactor)}px monospace`;
     ctx.fillStyle = "#1e3d5a";
     ctx.fillText(n.label.toUpperCase(), x, y + 12);
     return;
@@ -217,17 +217,17 @@ function drawNode(ctx: CanvasRenderingContext2D, n: BoardSimNode, hovered: boole
   if (isEv) {
     const agentColor = AGENT_COLORS[n.agentId ?? ""] ?? "#4a6580";
     // Agent name
-    ctx.font = `bold ${Math.round(8 * scaleFactor)}px monospace`;
+    ctx.font = `bold ${Math.round(10 * scaleFactor)}px monospace`;
     ctx.fillStyle = agentColor;
     ctx.textAlign = "center";
     ctx.textBaseline = "alphabetic";
     ctx.fillText(n.agentName?.toUpperCase() ?? "", x, y - 22);
     // Node name
-    ctx.font = `${Math.round(7 * scaleFactor)}px monospace`;
+    ctx.font = `${Math.round(9 * scaleFactor)}px monospace`;
     ctx.fillStyle = "#2a5070";
     ctx.fillText(n.label, x, y - 12);
     // Summary truncated
-    ctx.font = `${Math.round(7 * scaleFactor)}px monospace`;
+    ctx.font = `${Math.round(9 * scaleFactor)}px monospace`;
     ctx.fillStyle = "#4a6580";
     const words = (n.summary ?? "").split(" ");
     let line = "";
@@ -237,8 +237,8 @@ function drawNode(ctx: CanvasRenderingContext2D, n: BoardSimNode, hovered: boole
       if (ctx.measureText(test).width > half_w * 1.8) {
         ctx.fillText(line, x, lineY);
         line = w;
-        lineY += 9;
-        if (lineY > y + 20) { ctx.fillText("...", x, lineY); break; }
+        lineY += 11;
+        if (lineY > y + 22) { ctx.fillText("...", x, lineY); break; }
       } else {
         line = test;
       }
@@ -247,10 +247,10 @@ function drawNode(ctx: CanvasRenderingContext2D, n: BoardSimNode, hovered: boole
     // Confidence bar
     const sevColor = n.severity === "critical" ? "#ff3a3a" : n.severity === "high" ? "#f59e0b" : "#00d4ff";
     ctx.fillStyle = "#1e3d5a";
-    drawRoundRect(ctx, x - half_w + 8, y + 26, (half_w - 8) * 2, 3, 1);
+    drawRoundRect(ctx, x - half_w + 10, y + 30, (half_w - 10) * 2, 4, 1);
     ctx.fill();
     ctx.fillStyle = sevColor;
-    drawRoundRect(ctx, x - half_w + 8, y + 26, Math.max(2, (half_w - 8) * 2 * (n.confidence ?? 0.5)), 3, 1);
+    drawRoundRect(ctx, x - half_w + 10, y + 30, Math.max(4, (half_w - 10) * 2 * (n.confidence ?? 0.5)), 4, 1);
     ctx.fill();
     return;
   }
@@ -258,7 +258,7 @@ function drawNode(ctx: CanvasRenderingContext2D, n: BoardSimNode, hovered: boole
   // System / outcome / hypothesis
   // Status dot
   ctx.beginPath();
-  ctx.arc(x - half_w + 10, y - 8, 3, 0, Math.PI * 2);
+  ctx.arc(x - half_w + 12, y - 10, 4, 0, Math.PI * 2);
   ctx.fillStyle = statusColor;
   ctx.shadowColor = statusColor;
   ctx.shadowBlur = 4;
@@ -266,7 +266,7 @@ function drawNode(ctx: CanvasRenderingContext2D, n: BoardSimNode, hovered: boole
   ctx.shadowBlur = 0;
 
   // Label
-  ctx.font = `bold ${Math.round(9 * scaleFactor)}px monospace`;
+  ctx.font = `bold ${Math.round(12 * scaleFactor)}px monospace`;
   ctx.fillStyle = isHyp ? statusColor : (n.nodeType === "outcome" ? "#ff3a3a" : "#c9d8e8");
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
@@ -277,13 +277,13 @@ function drawNode(ctx: CanvasRenderingContext2D, n: BoardSimNode, hovered: boole
   ctx.fillText(label, x, y + 2);
 
   // Status label
-  ctx.font = `${Math.round(6.5 * scaleFactor)}px monospace`;
+  ctx.font = `${Math.round(8.5 * scaleFactor)}px monospace`;
   ctx.fillStyle = statusColor;
   ctx.fillText(n.status.toUpperCase(), x, y + 14);
 
   // Evidence counter badge
   if (n.evidenceCount > 0) {
-    ctx.font = `${Math.round(6 * scaleFactor)}px monospace`;
+    ctx.font = `${Math.round(8 * scaleFactor)}px monospace`;
     ctx.fillStyle = "#00d4ff";
     ctx.fillText(`${n.evidenceCount} ev`, x + half_w - 14, y - 14);
   }
@@ -329,7 +329,7 @@ function drawEdge(
 
   // Label at midpoint
   if (edge.label) {
-    ctx.font = "6px monospace";
+    ctx.font = "8px monospace";
     ctx.fillStyle = color;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -421,12 +421,12 @@ export const BoardGraphCanvas = forwardRef<BoardCanvasHandle, Props>(
         .force("link",
           d3.forceLink<BoardSimNode, BoardSimEdge>(edges as BoardSimEdge[])
             .id((d) => d.id)
-            .distance(140)
-            .strength(0.3)
+            .distance(164)
+            .strength(0.28)
         )
-        .force("charge",  d3.forceManyBody<BoardSimNode>().strength(-200).distanceMax(400))
+        .force("charge",  d3.forceManyBody<BoardSimNode>().strength(-240).distanceMax(460))
         .force("center",  d3.forceCenter(cx, cy).strength(0.04))
-        .force("collide", d3.forceCollide<BoardSimNode>((d) => nodeRadius(d) + 12).strength(0.85).iterations(3))
+        .force("collide", d3.forceCollide<BoardSimNode>((d) => nodeRadius(d) + 18).strength(0.88).iterations(3))
         .force("x",       d3.forceX(cx).strength(0.025))
         .force("y",       d3.forceY(cy).strength(0.025))
         .alphaDecay(0.015)
@@ -592,7 +592,7 @@ function drawMiniMap(
         for (const n of nodesRef.current) {
           const dx = (n.x ?? 0) - gx;
           const dy = (n.y ?? 0) - gy;
-          if (Math.abs(dx) < nodeRadius(n) && Math.abs(dy) < 32) return n;
+          if (Math.abs(dx) < nodeRadius(n) && Math.abs(dy) < (n.nodeType === "evidence" ? 54 : 38)) return n;
         }
         return null;
       }
@@ -779,7 +779,7 @@ function drawMiniMap(
             const zoom = zoomBehaviorRef.current;
             if (canvas && zoom) d3.select(canvas).call(zoom.transform, d3.zoomIdentity);
           }}
-          className="absolute top-2 left-2 z-10 text-[7px] font-mono uppercase tracking-widest px-2 py-1 rounded transition-opacity hover:opacity-70"
+          className="absolute top-3 left-3 z-10 text-[10px] font-mono uppercase tracking-[0.18em] px-3 py-2 rounded transition-opacity hover:opacity-70"
           style={{ background: "rgba(8,12,18,0.9)", border: "1px solid #1e3d5a", color: "#4a6580" }}
         >
           Reset Zoom
@@ -794,10 +794,10 @@ function drawMiniMap(
 // ---------------------------------------------------------------------------
 
 function drawLegend(ctx: CanvasRenderingContext2D, canvasW: number) {
-  const x = canvasW - 110;
-  let y = 8;
-  const w = 100;
-  const h = 80;
+  const x = canvasW - 146;
+  let y = 12;
+  const w = 132;
+  const h = 102;
 
   ctx.globalAlpha = 0.9;
   ctx.fillStyle = "rgba(8,12,18,0.95)";
@@ -808,12 +808,12 @@ function drawLegend(ctx: CanvasRenderingContext2D, canvasW: number) {
   ctx.stroke();
   ctx.globalAlpha = 1;
 
-  ctx.font = "bold 7px monospace";
+  ctx.font = "bold 10px monospace";
   ctx.fillStyle = "#2a5070";
   ctx.textAlign = "left";
-  y += 13;
+  y += 17;
   ctx.fillText("EDGE STATUS", x + 6, y);
-  y += 10;
+  y += 14;
 
   const types: [string, string, boolean][] = [
     ["unknown",      "#3a5f7a", true],
@@ -821,18 +821,18 @@ function drawLegend(ctx: CanvasRenderingContext2D, canvasW: number) {
     ["confirmed",    "#00d4ff", false],
     ["contradicted", "#ff3a3a", true],
   ];
-  ctx.font = "6px monospace";
+  ctx.font = "9px monospace";
   for (const [label, color, dashed] of types) {
     ctx.strokeStyle = color;
-    ctx.lineWidth = dashed ? 1 : 1.8;
-    ctx.setLineDash(dashed ? [4, 3] : []);
+    ctx.lineWidth = dashed ? 1.2 : 2.2;
+    ctx.setLineDash(dashed ? [5, 3] : []);
     ctx.beginPath();
-    ctx.moveTo(x + 6, y + 3);
-    ctx.lineTo(x + 22, y + 3);
+    ctx.moveTo(x + 8, y + 4);
+    ctx.lineTo(x + 30, y + 4);
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.fillStyle = color;
-    ctx.fillText(label, x + 26, y + 6);
-    y += 13;
+    ctx.fillText(label, x + 36, y + 8);
+    y += 18;
   }
 }
