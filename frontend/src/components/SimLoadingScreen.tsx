@@ -54,7 +54,7 @@ export function SimLoadingScreen({ isVisible }: SimLoadingScreenProps) {
                 textShadow: "0 0 12px rgba(0,212,255,0.6), 0 0 24px rgba(0,212,255,0.2)",
               }}
             >
-              ◈ NIPS — Incident Loading
+              ◈ EchoLocate — Incident Loading
             </motion.div>
 
             <motion.div

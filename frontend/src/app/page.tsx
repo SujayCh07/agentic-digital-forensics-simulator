@@ -182,14 +182,15 @@ export default function Home() {
           <div
             role="button"
             onClick={handleInvestigate}
-            className="relative px-16 py-10 text-center cursor-pointer"
+            className="relative cursor-pointer px-[4.5rem] py-12 text-center"
             style={{
               background: "rgba(8, 12, 18, 0.96)",
               border: "1px solid #1e3d5a",
               borderRadius: "4px",
               boxShadow:
                 "0 0 60px rgba(0,212,255,0.08), inset 0 0 80px rgba(0,0,0,0.8), 0 0 0 1px rgba(0,212,255,0.05)",
-              minWidth: "520px",
+              minWidth: "680px",
+              maxWidth: "92vw",
             }}
           >
             {/* Scan lines inside terminal */}
@@ -216,7 +217,7 @@ export default function Home() {
                 style={{ background: "#00ff88" }}
               />
               <span
-                className="text-[7px] font-mono uppercase tracking-widest"
+                className="text-[9px] font-mono uppercase tracking-[0.18em]"
                 style={{ color: "#4a6580" }}
               >
                 ONLINE
@@ -225,10 +226,10 @@ export default function Home() {
 
             {/* Header label */}
             <div
-              className="absolute top-3 left-4 text-[7px] font-mono uppercase tracking-widest"
+              className="absolute left-4 top-3 text-[9px] font-mono uppercase tracking-[0.18em]"
               style={{ color: "#1e3d5a" }}
             >
-              SYS://NIPS/v1.0
+              SYS://ECHOLOCATE/v1.0
             </div>
 
             {/* Title */}
@@ -239,7 +240,7 @@ export default function Home() {
               className="relative z-10 mt-2"
             >
               <FuzzyText
-                fontSize={42}
+                fontSize={36}
                 fontFamily="'Press Start 2P', monospace"
                 fontWeight={900}
                 color="#00d4ff"
@@ -253,7 +254,7 @@ export default function Home() {
                 direction="both"
                 clickEffect={false}
               >
-                NIPS
+                EchoLocate
               </FuzzyText>
             </motion.div>
 
@@ -261,10 +262,10 @@ export default function Home() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 1.1, duration: 0.8 }}
-              className="relative z-10 mt-3 text-[8px] font-mono uppercase tracking-[0.2em]"
+              className="relative z-10 mt-4 text-[11px] font-mono uppercase tracking-[0.16em]"
               style={{ color: "#4a6580" }}
             >
-              Neural Investigative Procedure Simulator
+              Cyber-Forensics Investigation Console
             </motion.p>
 
             {/* Divider */}
@@ -280,7 +281,7 @@ export default function Home() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 1.6, duration: 0.6 }}
-              className="relative z-10 text-[7px] font-mono tracking-widest"
+              className="relative z-10 text-[10px] font-mono tracking-[0.18em]"
               style={{ color: "#1e5a6a" }}
             >
               [ CLICK TO INVESTIGATE ]
@@ -293,7 +294,7 @@ export default function Home() {
           initial={{ y: 30, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ delay: 1.0, duration: 0.8 }}
-          className="relative z-[10] flex w-full max-w-[360px] justify-center gap-3 px-4 max-[500px]:max-w-[180px] max-[500px]:flex-col"
+          className="relative z-[10] flex w-full max-w-[460px] justify-center gap-4 px-4 max-[500px]:max-w-[220px] max-[500px]:flex-col"
         >
           {/* INVESTIGATE button */}
           <motion.button
@@ -304,7 +305,7 @@ export default function Home() {
             transition={{ delay: 1.2, duration: 0.5 }}
             whileHover={{ y: -2, boxShadow: "0 0 20px rgba(0,255,136,0.2)" }}
             whileTap={{ y: 1 }}
-            className="flex min-h-[34px] flex-1 basis-0 items-center justify-center px-4 py-1.5 cursor-pointer max-[500px]:w-full"
+            className="flex min-h-[44px] flex-1 basis-0 cursor-pointer items-center justify-center px-5 py-2 max-[500px]:w-full"
             style={{
               background: "rgba(0,255,136,0.06)",
               border: "1px solid #00ff88",
@@ -313,7 +314,7 @@ export default function Home() {
             }}
           >
             <FuzzyText
-              fontSize={8}
+              fontSize={10}
               fontFamily="'Press Start 2P', monospace"
               fontWeight={700}
               color="#00ff88"
@@ -340,7 +341,7 @@ export default function Home() {
             transition={{ delay: 1.35, duration: 0.5 }}
             whileHover={{ y: -2, boxShadow: "0 0 20px rgba(0,212,255,0.15)" }}
             whileTap={{ y: 1 }}
-            className="flex min-h-[34px] flex-1 basis-0 items-center justify-center px-4 py-1.5 cursor-pointer max-[500px]:w-full"
+            className="flex min-h-[44px] flex-1 basis-0 cursor-pointer items-center justify-center px-5 py-2 max-[500px]:w-full"
             style={{
               background: "rgba(8,12,18,0.9)",
               border: "1px solid #1e3d5a",
@@ -349,7 +350,7 @@ export default function Home() {
             }}
           >
             <FuzzyText
-              fontSize={11}
+              fontSize={10}
               fontFamily="'Press Start 2P', monospace"
               fontWeight={700}
               color="#4a6580"
@@ -363,7 +364,7 @@ export default function Home() {
               direction="both"
               clickEffect={false}
             >
-              LOAD
+              LOAD CASE
             </FuzzyText>
           </motion.button>
 

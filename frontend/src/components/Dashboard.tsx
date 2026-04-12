@@ -11,6 +11,7 @@ interface DashboardProps {
   phase: number;
   round: number;
   maxRounds: number;
+  embedded?: boolean;
 }
 
 /* ─── Severity helpers ─── */
@@ -83,54 +84,47 @@ export function Dashboard({
   phase,
   round,
   maxRounds,
+  embedded = false,
 }: DashboardProps) {
-  return (
-    <div
-      className="rpg-panel flex w-56 flex-col"
-      data-testid="dashboard"
-    >
-      {/* Header */}
+  const content = (
+    <>
       <div
-        className="flex items-center justify-between px-3 py-2"
+        className="flex items-center justify-between px-4 py-3"
         style={{ borderBottom: "1px solid #1e3d5a" }}
       >
         <span
-          className="text-[8px] font-mono uppercase tracking-widest"
+          className="text-[10px] font-mono uppercase tracking-[0.16em]"
           style={{ color: "#00d4ff" }}
         >
           Stage {phase || "-"}
         </span>
         <span
-          className="text-[9px] font-mono tabular-nums uppercase tracking-widest"
+          className="text-[11px] font-mono tabular-nums uppercase tracking-[0.14em]"
           style={{ color: "#4a6580" }}
         >
           Cycle {round}/{maxRounds}
         </span>
       </div>
 
-      {/* Stats — mapped from existing SimMetrics fields */}
-      <div className="flex flex-col px-1 py-1">
-        {/* eggIndex → Corruption Level */}
+      <div className="flex flex-col py-1">
         <PixelStatBar
           icon={<TextIcon ch="!" color="#ff3a3a" />}
           label="Corruption"
           value={metrics.eggIndex}
-          formatValue={(v) => `${Math.min(99, Math.round((v - 0.5) / 4.5 * 100))}%`}
+          formatValue={(v) => `${Math.min(99, Math.round(((v - 0.5) / 4.5) * 100))}%`}
           severity={highBadSeverity(normalizeEggIndex(metrics.eggIndex))}
           fillRatio={normalizeEggIndex(metrics.eggIndex)}
           trend={computeTrend(metricsHistory, (m) => m.eggIndex)}
         />
-        {/* priceIndex → Evidence Integrity */}
         <PixelStatBar
           icon={<TextIcon ch="◈" color="#00d4ff" />}
-          label="Evidence Intgr"
+          label="Evidence Integrity"
           value={metrics.priceIndex}
           formatValue={(v) => `${Math.max(0, Math.round(100 - normalizePrices(v) * 100))}%`}
           severity={highGoodSeverity(1 - normalizePrices(metrics.priceIndex))}
           fillRatio={1 - normalizePrices(metrics.priceIndex)}
           trend={computeTrend(metricsHistory, (m) => -m.priceIndex)}
         />
-        {/* unemploymentRate → Compromised Systems */}
         <PixelStatBar
           icon={<TextIcon ch="▣" color="#ff3a3a" />}
           label="Compromised"
@@ -140,17 +134,15 @@ export function Dashboard({
           fillRatio={normalizeUnemployment(metrics.unemploymentRate)}
           trend={computeTrend(metricsHistory, (m) => m.unemploymentRate)}
         />
-        {/* interestRate → Network Activity */}
         <PixelStatBar
           icon={<TextIcon ch="~" color="#00d4ff" />}
-          label="Net Activity"
+          label="Network Activity"
           value={metrics.interestRate}
           formatValue={(v) => `${v.toFixed(1)}%`}
           severity={networkSeverity(normalizeInterestRate(metrics.interestRate))}
           fillRatio={normalizeInterestRate(metrics.interestRate)}
           trend={computeTrend(metricsHistory, (m) => m.interestRate)}
         />
-        {/* socialUnrest → Threat Level */}
         <PixelStatBar
           icon={<TextIcon ch="⚠" color="#f59e0b" />}
           label="Threat Level"
@@ -160,7 +152,6 @@ export function Dashboard({
           fillRatio={metrics.socialUnrest}
           trend={computeTrend(metricsHistory, (m) => m.socialUnrest)}
         />
-        {/* businessSurvival → Systems Online */}
         <PixelStatBar
           icon={<TextIcon ch="■" color="#00ff88" />}
           label="Systems Online"
@@ -170,7 +161,6 @@ export function Dashboard({
           fillRatio={metrics.businessSurvival}
           trend={computeTrend(metricsHistory, (m) => m.businessSurvival)}
         />
-        {/* govApproval → Case Confidence */}
         <PixelStatBar
           icon={<TextIcon ch="◆" color="#b06fff" />}
           label="Confidence"
@@ -181,6 +171,19 @@ export function Dashboard({
           trend={computeTrend(metricsHistory, (m) => m.govApproval)}
         />
       </div>
+    </>
+  );
+
+  if (embedded) {
+    return <div data-testid="dashboard">{content}</div>;
+  }
+
+  return (
+    <div
+      className="rpg-panel flex w-full flex-col"
+      data-testid="dashboard"
+    >
+      {content}
     </div>
   );
 }

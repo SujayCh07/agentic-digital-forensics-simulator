@@ -281,25 +281,25 @@ export function PixelStatBar({
 
   return (
     <div
-      className="px-2 py-1.5 last:border-b-0"
+      className="px-3 py-2 last:border-b-0"
       style={{ borderBottom: "1px solid #1e3d5a" }}
     >
       {/* Label row */}
-      <div className="flex items-center gap-1.5 mb-1">
+      <div className="mb-1.5 flex items-center gap-2">
         <span className="shrink-0 flex items-center">{icon}</span>
         <span
-          className="flex-1 text-[9px] font-mono uppercase tracking-widest truncate"
+          className="flex-1 truncate text-[10px] font-mono uppercase tracking-[0.14em]"
           style={{ color: "#4a6580" }}
         >
           {label}
         </span>
         {trend && (
-          <span className="text-[7px] leading-none" style={{ color }}>
+          <span className="text-[9px] leading-none" style={{ color }}>
             {trend === "up" ? "\u25B2" : "\u25BC"}
           </span>
         )}
         <span
-          className="text-[11px] font-mono font-bold tabular-nums shrink-0"
+          className="shrink-0 text-[12px] font-mono font-bold tabular-nums"
           style={{ color }}
         >
           {formatValue(value)}
@@ -326,7 +326,7 @@ export function PixelStatBar({
               }
               style={{
                 flex: 1,
-                height: 6,
+                height: 7,
                 background: filled ? color : EMPTY_BG,
                 boxShadow: filled
                   ? "inset 0 -1px 0 rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.2)"

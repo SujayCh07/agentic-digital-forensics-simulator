@@ -22,7 +22,6 @@ const VISIBLE_MIN_ROW = 2;
 const VISIBLE_MAX_ROW = 29;
 
 const DEFAULT_ZOOM = 1.12;
-const MAX_ZOOM = 1.22;
 
 interface RoadSegment {
   x1: number;
@@ -123,7 +122,6 @@ export class WorldScene extends Phaser.Scene {
 
     eventBridge.on("sim:phase-change", this.onPhaseChange, this);
     eventBridge.on("sim:camera-pan", this.onCameraPan, this);
-    eventBridge.on("sim:camera-zoom", this.onCameraZoom, this);
     eventBridge.on("sim:camera-snap-npc", this.onCameraSnapNPC, this);
 
     this.registerNPCAnimations();
@@ -245,20 +243,6 @@ export class WorldScene extends Phaser.Scene {
     this.npcManager?.refreshActiveBubblePositions();
   }
 
-  private onCameraZoom(data: { delta: number }) {
-    const cam = this.getMainCamera();
-    if (!cam) return;
-
-    const nextZoom = Phaser.Math.Clamp(
-      cam.zoom + data.delta * 0.08,
-      DEFAULT_ZOOM,
-      MAX_ZOOM,
-    );
-    cam.setZoom(nextZoom);
-    this.clampCamera();
-    this.npcManager?.refreshActiveBubblePositions();
-  }
-
   private onCameraSnapNPC(data: { npcId: string }) {
     const npc = this.npcManager?.getNPC(data.npcId);
     if (!npc) return;
@@ -314,7 +298,6 @@ export class WorldScene extends Phaser.Scene {
     this.sceneReady = false;
     eventBridge.off("sim:phase-change", this.onPhaseChange, this);
     eventBridge.off("sim:camera-pan", this.onCameraPan, this);
-    eventBridge.off("sim:camera-zoom", this.onCameraZoom, this);
     eventBridge.off("sim:camera-snap-npc", this.onCameraSnapNPC, this);
     this.simEventHandler?.destroy();
     this.simEventHandler = undefined;

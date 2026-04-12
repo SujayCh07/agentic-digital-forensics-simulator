@@ -1,11 +1,13 @@
 "use client";
 
+import type { ReactNode } from "react";
 import type { CaseSystemNode } from "@/types/investigation";
 
 interface NodeListPanelProps {
   nodes: CaseSystemNode[];
   selectedNodeId: string | null;
   onSelectNode: (nodeId: string) => void;
+  summary?: ReactNode;
 }
 
 const STATUS_COLOR: Record<CaseSystemNode["status"], string> = {
@@ -29,25 +31,35 @@ export function NodeListPanel({
   nodes,
   selectedNodeId,
   onSelectNode,
+  summary,
 }: NodeListPanelProps) {
   return (
     <div
       className="rpg-panel flex flex-col"
-      style={{ width: 220 }}
+      style={{ width: 320 }}
       data-testid="node-list-panel"
     >
       {/* Header */}
       <div
-        className="px-3 py-2 shrink-0"
+        className="shrink-0 px-4 py-3"
         style={{ borderBottom: "1px solid #1e3d5a" }}
       >
         <span
-          className="text-[8px] font-mono uppercase tracking-widest"
+          className="text-[10px] font-mono uppercase tracking-[0.18em]"
           style={{ color: "#00d4ff" }}
         >
           ◈ System Nodes
         </span>
       </div>
+
+      {summary && (
+        <div
+          className="shrink-0"
+          style={{ borderBottom: "1px solid #1e3d5a" }}
+        >
+          {summary}
+        </div>
+      )}
 
       {/* Node list */}
       <div className="flex-1 overflow-y-auto scrollbar-thin">
@@ -63,7 +75,7 @@ export function NodeListPanel({
               key={node.id}
               type="button"
               onClick={() => onSelectNode(node.id)}
-              className="w-full text-left px-3 py-2 transition-all"
+              className="w-full px-4 py-3 text-left transition-all"
               style={{
                 borderBottom: "1px solid #0d1520",
                 background: isSelected ? `${statusColor}08` : "transparent",
@@ -73,15 +85,15 @@ export function NodeListPanel({
             >
               {/* Node name + icon */}
               <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-2">
                   <span
-                    className="text-[9px] font-mono"
+                    className="text-[11px] font-mono"
                     style={{ color: isSelected ? statusColor : "#4a6580" }}
                   >
                     {icon}
                   </span>
                   <span
-                    className="text-[9px] font-mono"
+                    className="text-[11px] font-mono"
                     style={{ color: isSelected ? "#c9d8e8" : "#4a6580" }}
                   >
                     {node.name}
@@ -89,7 +101,7 @@ export function NodeListPanel({
                 </div>
                 {hasFindings && (
                   <span
-                    className="text-[7px] font-mono px-1 rounded"
+                    className="rounded px-1.5 py-0.5 text-[9px] font-mono"
                     style={{
                       background: "#1e3d5a",
                       color: "#00d4ff",
@@ -102,11 +114,11 @@ export function NodeListPanel({
 
               {/* ID + status */}
               <div className="flex items-center justify-between">
-                <span className="text-[7px] font-mono" style={{ color: "#2a5070" }}>
+                <span className="text-[9px] font-mono" style={{ color: "#2a5070" }}>
                   {node.id}
                 </span>
                 <span
-                  className="text-[7px] font-mono"
+                  className="text-[9px] font-mono"
                   style={{ color: statusColor }}
                 >
                   {node.status.toUpperCase()}
@@ -115,7 +127,7 @@ export function NodeListPanel({
 
               {/* Threat bar */}
               {node.threatLevel > 0 && (
-                <div className="mt-1.5 h-0.5 rounded-sm overflow-hidden" style={{ background: "#1e3d5a" }}>
+                <div className="mt-2 h-1 overflow-hidden rounded-sm" style={{ background: "#1e3d5a" }}>
                   <div
                     className="h-full rounded-sm"
                     style={{
@@ -132,10 +144,10 @@ export function NodeListPanel({
 
       {/* Footer hint */}
       <div
-        className="px-3 py-1.5 shrink-0 text-[7px] font-mono"
+        className="shrink-0 px-4 py-2 text-[10px] font-mono"
         style={{ borderTop: "1px solid #1e3d5a", color: "#1e3d5a" }}
       >
-        Click a node to assign tasks
+        Select a node to inspect details and dispatch tasks.
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * NIPS — Helper Selection Panel
+ * EchoLocate — Helper Selection Panel
  *
  * Shown before each case. Player picks ONE starter agent to deploy immediately.
  * The other three are locked and can be unlocked mid-case with credits.
@@ -57,13 +57,13 @@ function StatBar({
   return (
     <div className="flex items-center gap-2">
       <span
-        className="text-[8px] font-mono w-20 shrink-0 uppercase tracking-widest"
+        className="w-24 shrink-0 text-[9px] font-mono uppercase tracking-[0.14em]"
         style={{ color: "#2a5070" }}
       >
         {label}
       </span>
       <div
-        className="flex-1 h-1.5 rounded-sm overflow-hidden"
+        className="h-2 flex-1 overflow-hidden rounded-sm"
         style={{ background: "#1e3d5a" }}
       >
         <div
@@ -72,7 +72,7 @@ function StatBar({
         />
       </div>
       <span
-        className="text-[8px] font-mono tabular-nums w-8 text-right"
+        className="w-10 text-right text-[9px] font-mono tabular-nums"
         style={{ color: "#4a6580" }}
       >
         {Math.round(value * 100)}
@@ -126,10 +126,10 @@ function StarterAgentCard({
             style={{ background: isSelected ? roleColor : "#1e3d5a" }}
           />
           <div>
-            <div className="text-[16px] font-mono font-bold" style={{ color: isSelected ? roleColor : "#c9d8e8" }}>
+            <div className="text-[18px] font-mono font-bold" style={{ color: isSelected ? roleColor : "#c9d8e8" }}>
               {displayHelper.name}
             </div>
-            <div className="text-[9px] font-mono uppercase tracking-[0.22em]" style={{ color: "#2a5070" }}>
+            <div className="text-[10px] font-mono uppercase tracking-[0.18em]" style={{ color: "#2a5070" }}>
               {ROLE_LABEL[role]}
             </div>
           </div>
@@ -145,11 +145,11 @@ function StarterAgentCard({
         )}
       </div>
 
-      <p className="text-[11px] font-mono leading-6" style={{ color: isSelected ? "#c9d8e8" : "#6e89a4" }}>
+      <p className="text-[12px] font-mono leading-7" style={{ color: isSelected ? "#c9d8e8" : "#6e89a4" }}>
         {displayHelper.description}
       </p>
 
-      <div className="text-[10px] font-mono uppercase tracking-[0.2em]" style={{ color: "#4a6580" }}>
+      <div className="text-[11px] font-mono uppercase tracking-[0.16em]" style={{ color: "#4a6580" }}>
         {ROLE_DESCRIPTION[role]}
       </div>
 
@@ -163,7 +163,7 @@ function StarterAgentCard({
       {!canUpgrade && upgradedHelper && (
         <div
           onClick={(e) => { e.stopPropagation(); onUpgrade(); }}
-          className="mt-1 w-full text-[9px] font-mono py-2 rounded transition-opacity text-center"
+          className="mt-1 w-full rounded py-2 text-center text-[10px] font-mono transition-opacity"
           style={{
             background: canAffordUpgrade ? `${roleColor}18` : "#1e3d5a",
             border: `1px solid ${canAffordUpgrade ? `${roleColor}50` : "#2a5070"}`,
@@ -178,7 +178,7 @@ function StarterAgentCard({
       )}
       {canUpgrade && (
         <div
-          className="text-[9px] font-mono text-center py-2 rounded"
+          className="rounded py-2 text-center text-[10px] font-mono"
           style={{ background: `${roleColor}10`, color: roleColor, border: `1px solid ${roleColor}30` }}
         >
           ✓ UPGRADED
@@ -232,23 +232,26 @@ export function HelperSelectionPanel({
           style={{ borderBottom: "1px solid #1e3d5a" }}
         >
           <div>
-            <div className="text-[15px] font-mono font-bold tracking-[0.14em]" style={{ color: "#00d4ff" }}>
+            <div className="text-[11px] font-mono uppercase tracking-[0.16em]" style={{ color: "#00d4ff" }}>
+              EchoLocate
+            </div>
+            <div className="text-[18px] font-mono font-bold tracking-[0.12em]" style={{ color: "#00d4ff" }}>
               CHOOSE YOUR STARTER
             </div>
-            <div className="text-[10px] font-mono uppercase tracking-[0.18em] mt-1" style={{ color: "#4a6580" }}>
+            <div className="mt-1 text-[12px] font-mono uppercase tracking-[0.14em]" style={{ color: "#4a6580" }}>
               Pick one specialist to deploy first
             </div>
           </div>
           <div className="flex items-center gap-3">
             {progress.reputation > 0 && (
               <div className="flex items-center gap-1.5">
-                <span className="text-[9px] font-mono uppercase tracking-[0.18em]" style={{ color: "#2a5070" }}>REP</span>
-                <span className="text-[12px] font-mono tabular-nums" style={{ color: "#b06fff" }}>{progress.reputation}</span>
+                <span className="text-[10px] font-mono uppercase tracking-[0.14em]" style={{ color: "#2a5070" }}>REP</span>
+                <span className="text-[13px] font-mono tabular-nums" style={{ color: "#b06fff" }}>{progress.reputation}</span>
               </div>
             )}
             <div className="flex items-center gap-1.5 rpg-panel px-3 py-1.5">
-              <span className="text-[10px] font-mono" style={{ color: "#2a5070" }}>₡</span>
-              <span className="text-[13px] font-mono tabular-nums" style={{ color: "#00ff88" }}>
+              <span className="text-[11px] font-mono" style={{ color: "#2a5070" }}>₡</span>
+              <span className="text-[14px] font-mono tabular-nums" style={{ color: "#00ff88" }}>
                 {progress.credits.toLocaleString()}
               </span>
             </div>

@@ -63,7 +63,7 @@ export function GameCanvas() {
               g.strokePath();
 
               const title = this.add
-                .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 20, "NIPS", {
+                .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 20, "EchoLocate", {
                   fontSize: "28px",
                   color: "#00d4ff",
                   fontFamily: "monospace",

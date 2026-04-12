@@ -14,9 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NIPS - Moon City Investigation",
+  title: "EchoLocate - Moon City Investigation",
   description:
-    "Investigate incidents across the moon-city grid in the NIPS cyber-forensics board.",
+    "Investigate incidents across the moon-city grid in the EchoLocate cyber-forensics board.",
 };
 
 export default function RootLayout({

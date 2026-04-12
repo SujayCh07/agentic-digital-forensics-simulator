@@ -58,7 +58,7 @@ export function AgentStatusBar({
             type="button"
             key={agent.id}
             onClick={() => onAgentClick?.(agent.id)}
-            className="rpg-panel flex flex-col justify-between px-2.5 py-1.5 min-w-[130px] text-left transition-all hover:brightness-110"
+            className="rpg-panel flex min-w-[156px] flex-col justify-between px-3 py-2 text-left transition-all hover:brightness-110"
             style={{
               borderColor: isLocked
                 ? "#1e3d5a"
@@ -75,7 +75,7 @@ export function AgentStatusBar({
             {/* Agent name + indicator */}
             <div className="flex items-center justify-between gap-1.5 mb-1">
               <span
-                className="text-[10px] font-mono font-bold tracking-wider"
+                className="text-[11px] font-mono font-bold tracking-[0.12em]"
                 style={{ color: isLocked ? "#2a5070" : agent.color }}
               >
                 {agent.name}
@@ -97,7 +97,7 @@ export function AgentStatusBar({
 
             {/* Specialty */}
             <div
-              className="text-[7px] font-mono uppercase tracking-widest mb-1.5 truncate"
+              className="mb-2 truncate text-[9px] font-mono uppercase tracking-[0.16em]"
               style={{ color: "#2a5070" }}
             >
               {isLocked ? "LOCKED" : agent.specialty}
@@ -106,14 +106,14 @@ export function AgentStatusBar({
             {/* Status + current task */}
             <div>
               <span
-                className="text-[8px] font-mono"
+                className="text-[10px] font-mono"
                 style={{ color: statusColor }}
               >
                 {isLocked ? "—" : STATUS_LABEL[agent.status]}
               </span>
               {!isLocked && task && (
                 <p
-                  className="mt-0.5 text-[7px] font-mono truncate"
+                  className="mt-1 text-[9px] font-mono truncate"
                   style={{ color: "#4a6580" }}
                   title={task.type.replace(/_/g, " ")}
                 >

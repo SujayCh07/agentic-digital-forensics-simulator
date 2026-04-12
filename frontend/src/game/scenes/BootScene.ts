@@ -24,7 +24,7 @@ export class BootScene extends Phaser.Scene {
       fill.fillRect(barX + 2, barY + 2, (barW - 4) * value, barH - 4);
     });
 
-    const text = this.add.text(width / 2, barY - 24, "Loading NIPS board...", {
+    const text = this.add.text(width / 2, barY - 24, "Loading EchoLocate board...", {
       fontSize: "14px",
       color: "#9dc6df",
     });

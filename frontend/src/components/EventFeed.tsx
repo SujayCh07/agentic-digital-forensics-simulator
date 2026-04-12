@@ -68,7 +68,7 @@ export function EventFeed({ events, onEventClick, onPinEvent, onOpenBoard }: Eve
       <div className="flex-1 overflow-y-auto px-2 py-1 scrollbar-thin">
         {events.length === 0 && (
           <div
-            className="flex h-full items-center justify-center text-[9px] font-mono uppercase tracking-widest"
+            className="flex h-full items-center justify-center px-4 text-center text-[11px] font-mono uppercase tracking-[0.18em]"
             style={{ color: "#1e3d5a" }}
           >
             Awaiting evidence...
@@ -80,7 +80,7 @@ export function EventFeed({ events, onEventClick, onPinEvent, onOpenBoard }: Eve
             return (
               <div
                 key={event.id}
-                className="my-2 py-1.5 text-center text-[8px] font-pixel"
+                className="my-3 py-2 text-center text-[10px] font-pixel"
                 style={{
                   color: "#b06fff",
                   borderTop: "1px solid #1e3d5a",
@@ -100,7 +100,7 @@ export function EventFeed({ events, onEventClick, onPinEvent, onOpenBoard }: Eve
           return (
             <div
               key={event.id}
-              className={`mb-1 px-2 py-1.5 rounded ${onEventClick ? "cursor-pointer transition-colors" : ""}`}
+              className={`mb-2 rounded px-3 py-2 ${onEventClick ? "cursor-pointer transition-colors" : ""}`}
               onMouseEnter={
                 onEventClick
                   ? (e) => {
@@ -120,32 +120,32 @@ export function EventFeed({ events, onEventClick, onPinEvent, onOpenBoard }: Eve
               onClick={onEventClick ? () => onEventClick(event) : undefined}
             >
               <div className="flex items-center gap-1.5">
-                <span className="text-[10px] font-mono" style={{ color }}>
+                <span className="text-[12px] font-mono" style={{ color }}>
                   {icon}
                 </span>
                 <span
-                  className="text-[10px] font-mono font-bold"
+                  className="text-[12px] font-mono font-bold"
                   style={{ color: "#c9d8e8" }}
                 >
                   {event.agentName}
                 </span>
                 {event.agentCategory && (
                   <span
-                    className="text-[9px] font-mono"
+                    className="text-[10px] font-mono"
                     style={{ color: "#2a5070" }}
                   >
                     {event.agentCategory}
                   </span>
                 )}
                 <span
-                  className="ml-auto text-[9px] font-mono tabular-nums"
+                  className="ml-auto text-[10px] font-mono tabular-nums"
                   style={{ color: "#2a5070" }}
                 >
                   C{event.round}
                 </span>
               </div>
               <p
-                className="mt-0.5 text-[10px] font-mono leading-relaxed"
+                className="mt-1 text-[12px] font-mono leading-6"
                 style={{ color: "#4a6580" }}
               >
                 {event.message}
@@ -155,7 +155,7 @@ export function EventFeed({ events, onEventClick, onPinEvent, onOpenBoard }: Eve
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); onPinEvent(event); }}
-                    className="text-[7px] font-mono uppercase tracking-widest transition-opacity hover:opacity-60"
+                    className="text-[9px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-60"
                     style={{ color: "#b06fff" }}
                   >
                     📌 PIN TO BOARD
@@ -165,7 +165,7 @@ export function EventFeed({ events, onEventClick, onPinEvent, onOpenBoard }: Eve
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); onOpenBoard(event); }}
-                    className="text-[7px] font-mono uppercase tracking-widest transition-opacity hover:opacity-100"
+                    className="text-[9px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-100"
                     style={{ color: "#00ff88", opacity: 0.6 }}
                   >
                     □ OPEN IN BOARD

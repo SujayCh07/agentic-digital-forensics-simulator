@@ -142,6 +142,8 @@ const DEFAULT_OVERLAY_METRICS: OverlayMetrics = {
   scaleY: SCALE_FACTOR,
 };
 
+const MAP_FRAME_MAX_WIDTH = 1120;
+
 function setWorldPaused(paused: boolean) {
   const game = (globalThis as Record<string, unknown>).__PHASER_GAME__ as
     | {
@@ -241,12 +243,11 @@ function InvestigateGame({
   const [showBoard, setShowBoard] = useState(false);
   const [rewardsShown, setRewardsShown] = useState(false);
   const board = useBoardState();
-  const [focusMode, setFocusMode] = useState(false);
   const [paused, setPaused] = useState(false);
   const [hoverInfo, setHoverInfo] = useState<NPCHoverInfo | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const [overlayMetrics, setOverlayMetrics] = useState<OverlayMetrics>(DEFAULT_OVERLAY_METRICS);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showMarketplace, setShowMarketplace] = useState(false);
 
   // --- NIPS Gemini agent system state ---
   const [nipsAgents, setNipsAgents] = useState<NipsAgentInstance[]>([]);
@@ -256,7 +257,6 @@ function InvestigateGame({
   const [chatAgent, setChatAgent] = useState<NipsAgentInstance | null>(null);
   const [chatHistories, setChatHistories] = useState<Record<string, MessageEntry[]>>({});
   const [showDirectory, setShowDirectory] = useState(false);
-  const [showMarketplace, setShowMarketplace] = useState(false);
   const [lockedAgentInfo, setLockedAgentInfo] = useState<NipsAgentInstance | null>(null);
   const [npcPositions, setNpcPositions] = useState<Record<string, NPCState>>({});
 
@@ -338,6 +338,32 @@ function InvestigateGame({
 
   const handleRefreshMarketplace = useCallback(() => {
     requestNipsMarketplaceRefresh();
+  }, []);
+
+  const toggleBoard = useCallback(() => {
+    setShowBoard((prev) => {
+      const next = !prev;
+      if (next) setShowMarketplace(false);
+      return next;
+    });
+  }, []);
+
+  const openBoard = useCallback(() => {
+    setShowMarketplace(false);
+    setShowBoard(true);
+  }, []);
+
+  const toggleMarketplace = useCallback(() => {
+    setShowMarketplace((prev) => {
+      const next = !prev;
+      if (next) setShowBoard(false);
+      return next;
+    });
+  }, []);
+
+  const openMarketplace = useCallback(() => {
+    setShowBoard(false);
+    setShowMarketplace(true);
   }, []);
 
   const nodeContextStr = inv.selectedNodeId
@@ -444,10 +470,6 @@ function InvestigateGame({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() === "q" && !e.repeat) {
-        e.preventDefault();
-        if (!paused) setFocusMode((value) => !value);
-      }
       if (e.key === "Escape" && !e.repeat) {
         e.preventDefault();
         setPaused((value) => !value);
@@ -462,37 +484,24 @@ function InvestigateGame({
     return () => setWorldPaused(false);
   }, [paused]);
 
-  useEffect(() => {
-    const handler = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener("fullscreenchange", handler);
-    return () => document.removeEventListener("fullscreenchange", handler);
-  }, []);
-
-  const toggleFullscreen = useCallback(() => {
-    const el = canvasContainerRef.current;
-    if (!el) return;
-    if (document.fullscreenElement) document.exitFullscreen();
-    else el.requestFullscreen();
-  }, []);
-
   return (
     <div
       className="relative flex h-screen flex-col overflow-clip"
       style={{ background: "#080c12" }}
       data-testid="investigate-page"
     >
-      {/* Top bar: NIPS header + agent status */}
+      {/* Top bar: EchoLocate header + agent status */}
       <div
-        className={`rpg-panel flex h-14 shrink-0 items-center gap-3 rounded-none border-x-0 border-t-0 px-4 panel-slide-top ${focusMode ? "panel-hidden-top" : ""}`}
+        className="rpg-panel flex h-16 shrink-0 items-center gap-4 rounded-none border-x-0 border-t-0 px-5 panel-slide-top"
         style={{ borderBottom: "1px solid #1e3d5a" }}
       >
         <div className="flex items-center gap-3 shrink-0 mr-3">
-          <span className="text-[10px] font-mono tracking-tight" style={{ color: "#00d4ff" }}>
-            ◈ NIPS
+          <span className="text-[12px] font-mono tracking-[0.14em]" style={{ color: "#00d4ff" }}>
+            ◈ EchoLocate
           </span>
-          <span className="text-[10px] font-mono" style={{ color: "#1e3d5a" }}>|</span>
-          <span className="text-[8px] font-mono uppercase tracking-widest" style={{ color: "#2a5070" }}>
-            moon-city investigation board
+          <span className="text-[11px] font-mono" style={{ color: "#1e3d5a" }}>|</span>
+          <span className="text-[10px] font-mono uppercase tracking-[0.14em]" style={{ color: "#2a5070" }}>
+            investigation console
           </span>
         </div>
 
@@ -518,11 +527,11 @@ function InvestigateGame({
           />
         </div>
 
-        <div className="flex items-center gap-2 shrink-0 ml-3">
+        <div className="ml-3 flex shrink-0 items-center gap-2.5">
           {/* Funds display */}
-          <div className="flex items-center gap-1.5 rpg-panel px-2 py-1">
-            <span className="text-[8px] font-mono" style={{ color: "#2a5070" }}>₡</span>
-            <span className="text-[9px] font-mono tabular-nums" style={{ color: "#00ff88" }}>
+          <div className="flex items-center gap-1.5 rpg-panel px-3 py-1.5">
+            <span className="text-[10px] font-mono" style={{ color: "#2a5070" }}>₡</span>
+            <span className="text-[11px] font-mono tabular-nums" style={{ color: "#00ff88" }}>
               {nipsFunds.toLocaleString()}
             </span>
           </div>
@@ -530,7 +539,7 @@ function InvestigateGame({
             <button
               type="button"
               onClick={() => setRewardsShown(true)}
-              className="text-[9px] font-mono transition-opacity hover:opacity-70"
+              className="text-[10px] font-mono transition-opacity hover:opacity-70"
               style={{ color: "#00ff88", textShadow: "0 0 8px rgba(0,255,136,0.5)" }}
             >
               CASE CLOSED — CLAIM REWARDS →
@@ -538,45 +547,37 @@ function InvestigateGame({
           )}
           <button
             type="button"
-            onClick={() => setShowBoard(true)}
-            className="rpg-panel px-2 py-1 text-[8px] font-mono uppercase tracking-widest transition-opacity hover:opacity-70"
+            onClick={toggleBoard}
+            className="rpg-panel px-3 py-1.5 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-70"
             style={{ color: showBoard ? "#b06fff" : "#b06fff80", border: `1px solid ${showBoard ? "#b06fff" : "#1e3d5a"}`, boxShadow: showBoard ? "0 0 8px rgba(176,111,255,0.2)" : undefined }}
           >
-            BOARD
+            Case Board
           </button>
           <button
             type="button"
-            onClick={() => setShowMarketplace((p) => !p)}
-            className="rpg-panel px-2 py-1 text-[8px] font-mono uppercase tracking-widest transition-opacity hover:opacity-70"
+            onClick={toggleMarketplace}
+            className="rpg-panel px-3 py-1.5 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-70"
             style={{ color: showMarketplace ? "#f59e0b" : "#4a6580", border: `1px solid ${showMarketplace ? "#f59e0b" : "#1e3d5a"}` }}
           >
-            MARKET
+            Market
           </button>
           <button
             type="button"
             onClick={() => setShowDirectory(true)}
-            className="rpg-panel px-2 py-1 text-[8px] font-mono uppercase tracking-widest transition-opacity hover:opacity-70"
+            className="rpg-panel px-3 py-1.5 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-70"
             style={{ color: "#4a6580" }}
           >
-            AGENTS ({nipsAgents.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFocusMode((f) => !f)}
-            className="rpg-panel px-2 py-1 text-[8px] font-mono uppercase tracking-widest transition-opacity hover:opacity-70"
-            style={{ color: focusMode ? "#00d4ff" : "#4a6580", border: `1px solid ${focusMode ? "#00d4ff" : "#1e3d5a"}` }}
-          >
-            {focusMode ? "[ Q • RESET VIEW ]" : "[ Q • ZOOM IN ]"}
+            Agents ({nipsAgents.length})
           </button>
         </div>
       </div>
 
       {/* Main layout */}
-      <div className="flex flex-1 gap-2 overflow-hidden p-2">
+      <div className="flex flex-1 gap-3 overflow-hidden p-3">
         {/* Left: Evidence feed */}
-        <div className={`rpg-panel flex h-full w-60 shrink-0 flex-col panel-slide-left ${focusMode ? "panel-hidden-left" : ""}`}>
-          <div className="flex items-center px-3 py-2 shrink-0" style={{ borderBottom: "1px solid #1e3d5a" }}>
-            <h2 className="text-[8px] font-mono uppercase tracking-widest" style={{ color: "#00d4ff" }}>
+        <div className="rpg-panel panel-slide-left flex h-full w-[300px] shrink-0 flex-col">
+          <div className="flex shrink-0 items-center px-4 py-3" style={{ borderBottom: "1px solid #1e3d5a" }}>
+            <h2 className="text-[10px] font-mono uppercase tracking-[0.16em]" style={{ color: "#00d4ff" }}>
               Evidence Feed
             </h2>
           </div>
@@ -597,7 +598,7 @@ function InvestigateGame({
                 );
                 if (finding) {
                   board.addEvidenceNode(finding);
-                  setShowBoard(true);
+                  openBoard();
                 }
               }}
             />
@@ -606,65 +607,49 @@ function InvestigateGame({
 
         {/* Center: Game canvas */}
         <div
-          className={focusMode ? "fixed inset-0 z-50 flex items-center justify-center overflow-hidden p-5" : "relative flex min-w-0 flex-1 items-center justify-center overflow-hidden"}
-          style={focusMode ? { background: "#050911" } : undefined}
+          className="relative flex min-w-0 flex-1 items-center justify-center overflow-hidden"
         >
           <div
             ref={canvasContainerRef}
             className="relative shrink-0 overflow-hidden"
             style={{
-              width: focusMode ? "min(96vw, 1480px)" : "min(100%, 1180px)",
+              width: "100%",
+              maxWidth: MAP_FRAME_MAX_WIDTH,
               border: "1px solid rgba(255,255,255,0.04)",
-              borderRadius: focusMode ? 18 : 12,
+              borderRadius: 12,
               background: "#050911",
-              boxShadow: focusMode
-                ? "0 36px 120px rgba(0,0,0,0.82)"
-                : "0 28px 72px rgba(0,0,0,0.72)",
+              boxShadow: "0 28px 72px rgba(0,0,0,0.72)",
             }}
           >
             <GameCanvas />
-            {/* View controls */}
-            <div className="absolute top-2 right-2 z-40 flex gap-1">
-              <button type="button" onClick={() => setFocusMode((value) => !value)} className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70" style={{ color: focusMode ? "#00d4ff" : "#4a6580" }}>{focusMode ? "RESET" : "ZOOM IN"}</button>
-              <button type="button" onClick={toggleFullscreen} className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70" style={{ color: "#4a6580" }}>{isFullscreen ? "EXIT" : "FULL"}</button>
-            </div>
             {/* NPC hover tooltip */}
             {hoverInfo && (
               <div className="pointer-events-none absolute z-30 overflow-hidden" style={{ left: overlayMetrics.offsetX, top: overlayMetrics.offsetY, width: overlayMetrics.width, height: overlayMetrics.height }}>
                 <NPCTooltip info={hoverInfo} scaleX={overlayMetrics.scaleX} scaleY={overlayMetrics.scaleY} />
               </div>
             )}
-
-            {!focusMode && (
-              <div className="absolute bottom-3 right-3 z-40">
-                <Dashboard
-                  metrics={inv.metrics}
-                  metricsHistory={inv.metricsHistory}
-                  phase={inv.stage}
-                  round={inv.currentCycle}
-                  maxRounds={99}
-                />
-              </div>
-            )}
           </div>
         </div>
 
         {/* Right: Node list panel */}
-        <div className={`panel-slide-right ${focusMode ? "panel-hidden-right" : ""}`}>
+        <div className="panel-slide-right shrink-0">
           <NodeListPanel
             nodes={inv.systemNodes}
             selectedNodeId={inv.selectedNodeId}
             onSelectNode={(id) => inv.setSelectedNodeId(inv.selectedNodeId === id ? null : id)}
+            summary={
+              <Dashboard
+                metrics={inv.metrics}
+                metricsHistory={inv.metricsHistory}
+                phase={inv.stage}
+                round={inv.currentCycle}
+                maxRounds={99}
+                embedded
+              />
+            }
           />
         </div>
       </div>
-
-      {/* Focus mode exit button */}
-      {focusMode && (
-        <button type="button" className="fixed top-4 right-4 z-[60] rpg-panel px-3 py-1.5 text-[9px] font-mono transition-opacity hover:opacity-70" style={{ color: "#4a6580", border: "1px solid #1e3d5a" }} onClick={() => setFocusMode(false)}>
-          [Q] reset view
-        </button>
-      )}
 
       {/* Investigation Board */}
       {showBoard && (
@@ -747,7 +732,7 @@ function InvestigateGame({
                 type="button"
                 onClick={() => {
                   setLockedAgentInfo(null);
-                  setShowMarketplace(true);
+                  openMarketplace();
                 }}
                 className="flex-1 rpg-panel py-2 text-[9px] font-mono uppercase transition-all"
                 style={{ background: "rgba(245,158,11,0.1)", border: "1px solid #f59e0b", color: "#f59e0b" }}
@@ -775,21 +760,19 @@ function InvestigateGame({
       />
 
       {/* Mini Map */}
-      {!focusMode && (
-        <GameMiniMap
-          positions={npcPositions}
-          nipsAgents={nipsAgents}
-          lockedAgents={inv.lockedAgents}
-          onAgentClick={(agent) => {
-            const isLocked = inv.lockedAgents.includes(agent.archetype.toLowerCase() as AgentId);
-            if (isLocked) {
-              setLockedAgentInfo(agent);
-            } else {
-              setChatAgent(agent);
-            }
-          }}
-        />
-      )}
+      <GameMiniMap
+        positions={npcPositions}
+        nipsAgents={nipsAgents}
+        lockedAgents={inv.lockedAgents}
+        onAgentClick={(agent) => {
+          const isLocked = inv.lockedAgents.includes(agent.archetype.toLowerCase() as AgentId);
+          if (isLocked) {
+            setLockedAgentInfo(agent);
+          } else {
+            setChatAgent(agent);
+          }
+        }}
+      />
 
       {/* Agent chat modal */}
       {chatAgent && (
@@ -810,7 +793,6 @@ function InvestigateGame({
         onResume={() => setPaused(false)}
         onRestart={() => router.replace("/simulate?mode=investigate&map=moonCity")}
         onReturnToLanding={() => router.push("/")}
-        zoomedIn={focusMode}
       />
 
       {/* Case Complete — Rewards Modal */}
@@ -932,8 +914,6 @@ function SimulateContent() {
   }, []);
 
   const selectedNpc = selectedNpcId ? sim.getNpc(selectedNpcId) : undefined;
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [focusMode, setFocusMode] = useState(false);
   const [paused, setPaused] = useState(false);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const [hoverInfo, setHoverInfo] = useState<NPCHoverInfo | null>(null);
@@ -999,22 +979,6 @@ function SimulateContent() {
       cleanup = () => eventBridge.off("sim:npc-click", handler);
     });
     return () => cleanup?.();
-  }, []);
-
-  const toggleFullscreen = useCallback(() => {
-    const el = canvasContainerRef.current;
-    if (!el) return;
-    if (document.fullscreenElement) {
-      document.exitFullscreen();
-    } else {
-      el.requestFullscreen();
-    }
-  }, []);
-
-  useEffect(() => {
-    const handler = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener("fullscreenchange", handler);
-    return () => document.removeEventListener("fullscreenchange", handler);
   }, []);
 
   useEffect(() => {
@@ -1124,10 +1088,6 @@ function SimulateContent() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() === "q" && !e.repeat) {
-        e.preventDefault();
-        if (!paused) setFocusMode((value) => !value);
-      }
       if (e.key === "Escape" && !e.repeat) {
         e.preventDefault();
         setPaused((value) => !value);
@@ -1165,29 +1125,29 @@ function SimulateContent() {
           className="flex max-w-md flex-col items-center gap-4 p-8 text-center rpg-panel"
         >
           <span
-            className="text-[10px] font-mono tracking-widest"
+            className="text-[12px] font-mono tracking-[0.16em]"
             style={{ color: "#00d4ff" }}
           >
-            ◈ NIPS — No Incident Loaded
+            ◈ EchoLocate — No Incident Loaded
           </span>
           <p
-            className="text-[10px] font-mono uppercase tracking-widest"
+            className="text-[12px] font-mono uppercase tracking-[0.14em]"
             style={{ color: "#c9d8e8" }}
           >
             No incident loaded.
           </p>
           <p
-            className="text-[10px] font-mono uppercase tracking-widest"
+            className="text-[11px] font-mono uppercase tracking-[0.14em]"
             style={{ color: "#4a6580" }}
           >
-            Load an incident from the home screen to begin your investigation.
+            Load a case from the home screen to begin your investigation.
           </p>
           <Link
             href="/"
-            className="rpg-panel mt-2 px-6 py-2 text-[10px] font-mono transition-opacity hover:opacity-80"
+            className="rpg-panel mt-2 px-6 py-2 text-[11px] font-mono transition-opacity hover:opacity-80"
             style={{ color: "#00d4ff", border: "1px solid #1e3d5a" }}
           >
-            {">> Load Incident <<"}
+            {">> Load Case <<"}
           </Link>
         </div>
       </div>
@@ -1202,18 +1162,18 @@ function SimulateContent() {
     >
       {/* Stage indicator bar */}
       <div
-        className={`rpg-panel flex h-10 shrink-0 items-center justify-between rounded-none border-x-0 border-t-0 px-4 panel-slide-top ${focusMode ? "panel-hidden-top" : ""}`}
+        className="rpg-panel flex h-14 shrink-0 items-center justify-between rounded-none border-x-0 border-t-0 px-5 panel-slide-top"
         style={{ borderBottom: "1px solid #1e3d5a" }}
         data-testid="phase-bar"
       >
         <div className="flex items-center gap-3">
           <span
-            className="text-[10px] font-mono tracking-tight"
+            className="text-[12px] font-mono tracking-[0.14em]"
             style={{ color: "#00d4ff" }}
           >
-            ◈ NIPS
+            ◈ EchoLocate
           </span>
-          <span className="text-[10px] font-mono" style={{ color: "#1e3d5a" }}>
+          <span className="text-[11px] font-mono" style={{ color: "#1e3d5a" }}>
             |
           </span>
           {/* Stage dots */}
@@ -1245,19 +1205,19 @@ function SimulateContent() {
             ))}
           </div>
           {sim.phase > 0 && (
-            <span
-              className="text-[9px] font-mono uppercase tracking-widest ml-2"
-              style={{ color: "#4a6580" }}
-            >
-              {sim.phaseLabel}
-            </span>
+          <span
+            className="ml-2 text-[10px] font-mono uppercase tracking-[0.14em]"
+            style={{ color: "#4a6580" }}
+          >
+            {sim.phaseLabel}
+          </span>
           )}
         </div>
 
         <div className="relative z-[2] flex items-center gap-3">
           {sim.isRunning && isRecording && (
             <span
-              className="text-[9px] font-mono animate-pulse"
+              className="text-[10px] font-mono animate-pulse"
               style={{ color: "#ff3a3a" }}
             >
               ● REC
@@ -1266,7 +1226,7 @@ function SimulateContent() {
           {sim.isComplete && (
             <>
               <span
-                className="text-[9px] font-mono"
+                className="text-[10px] font-mono"
                 style={{ color: "#00ff88", textShadow: "0 0 8px rgba(0,255,136,0.5)" }}
               >
                 CASE CLOSED
@@ -1274,7 +1234,7 @@ function SimulateContent() {
               <button
                 type="button"
                 onClick={() => setShowReport(true)}
-                className="text-[9px] font-mono uppercase tracking-widest transition-opacity hover:opacity-60"
+                className="text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-60"
                 style={{ color: "#4a6580" }}
               >
                 {sim.reportLoading
@@ -1296,11 +1256,11 @@ function SimulateContent() {
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement("a");
                     a.href = url;
-                    a.download = `nips-case-${Date.now()}.json`;
+                    a.download = `echolocate-case-${Date.now()}.json`;
                     a.click();
                     URL.revokeObjectURL(url);
                   }}
-                  className="text-[9px] font-mono uppercase tracking-widest transition-opacity hover:opacity-60"
+                  className="text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-60"
                   style={{ color: "#4a6580" }}
                 >
                   SAVE JSON
@@ -1310,40 +1270,25 @@ function SimulateContent() {
           )}
           {sim.isRunning && !isRecording && (
             <span
-              className="text-[9px] font-mono uppercase tracking-widest animate-pulse"
+              className="text-[10px] font-mono uppercase tracking-[0.14em] animate-pulse"
               style={{ color: "#4a6580" }}
             >
               Investigating...
             </span>
           )}
-          <button
-            type="button"
-            onClick={() => setFocusMode((f) => !f)}
-            className="rpg-panel px-3 py-1 text-[9px] font-mono font-bold tracking-widest transition-all hover:opacity-80"
-            style={{
-              color: focusMode ? "#00d4ff" : "#4a6580",
-              border: `1px solid ${focusMode ? "#00d4ff" : "#1e3d5a"}`,
-              boxShadow: focusMode ? "0 0 10px rgba(0,212,255,0.2)" : "none",
-            }}
-            title="Toggle zoomed investigation view"
-          >
-            {focusMode ? "[ Q • RESET VIEW ]" : "[ Q • ZOOM IN ]"}
-          </button>
         </div>
       </div>
 
       {/* Main layout */}
-      <div className="flex flex-1 gap-2 overflow-hidden p-2">
+      <div className="flex flex-1 gap-3 overflow-hidden p-3">
         {/* Left: Evidence feed */}
-        <div
-          className={`rpg-panel flex h-full w-64 shrink-0 flex-col panel-slide-left ${focusMode ? "panel-hidden-left" : ""}`}
-        >
+        <div className="rpg-panel panel-slide-left flex h-full w-[300px] shrink-0 flex-col">
           <div
-            className="flex items-center justify-between px-3 py-2"
+            className="flex items-center justify-between px-4 py-3"
             style={{ borderBottom: "1px solid #1e3d5a" }}
           >
             <h2
-              className="text-[8px] font-mono uppercase tracking-widest"
+              className="text-[10px] font-mono uppercase tracking-[0.16em]"
               style={{ color: "#00d4ff" }}
             >
               Evidence Feed
@@ -1356,49 +1301,21 @@ function SimulateContent() {
 
         {/* Center: Game canvas */}
         <div
-          className={
-            focusMode
-              ? "fixed inset-0 z-50 flex items-center justify-center overflow-hidden p-5"
-              : "relative flex min-w-0 flex-1 items-center justify-center overflow-hidden"
-          }
-          style={focusMode ? { background: "#050911" } : undefined}
+          className="relative flex min-w-0 flex-1 items-center justify-center overflow-hidden"
         >
           <div
             ref={canvasContainerRef}
             className="relative shrink-0 overflow-hidden"
             style={{
-              width: focusMode ? "min(96vw, 1480px)" : "min(100%, 1180px)",
+              width: "100%",
+              maxWidth: MAP_FRAME_MAX_WIDTH,
               border: "1px solid rgba(255,255,255,0.04)",
-              borderRadius: focusMode ? 18 : 12,
+              borderRadius: 12,
               background: "#050911",
-              boxShadow: focusMode
-                ? "0 36px 120px rgba(0,0,0,0.82)"
-                : "0 28px 72px rgba(0,0,0,0.72)",
+              boxShadow: "0 28px 72px rgba(0,0,0,0.72)",
             }}
           >
             <GameCanvas />
-
-            {/* View controls */}
-            <div className="absolute top-2 right-2 z-40 flex gap-1">
-              <button
-                type="button"
-                onClick={() => setFocusMode((value) => !value)}
-                className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70"
-                style={{ color: focusMode ? "#00d4ff" : "#4a6580" }}
-                title={focusMode ? "Reset view" : "Zoom in"}
-              >
-                {focusMode ? "RESET" : "ZOOM IN"}
-              </button>
-              <button
-                type="button"
-                onClick={toggleFullscreen}
-                className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70"
-                style={{ color: "#4a6580" }}
-                title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-              >
-                {isFullscreen ? "EXIT" : "FULL"}
-              </button>
-            </div>
 
             {/* NPC hover tooltip */}
             {hoverInfo && (
@@ -1418,33 +1335,31 @@ function SimulateContent() {
                 />
               </div>
             )}
-
-            {!focusMode && (
-              <div className="absolute bottom-3 right-3 z-40">
-                <Dashboard
-                  metrics={sim.metrics}
-                  metricsHistory={sim.metricsHistory}
-                  phase={sim.phase}
-                  round={sim.round}
-                  maxRounds={sim.maxRounds}
-                />
-              </div>
-            )}
           </div>
         </div>
-      </div>
 
-      {/* Focus mode exit button */}
-      {focusMode && (
-        <button
-          type="button"
-          className="fixed top-4 right-4 z-[60] rpg-panel px-3 py-1.5 text-[9px] font-mono transition-opacity hover:opacity-70"
-          style={{ color: "#4a6580", border: "1px solid #1e3d5a" }}
-          onClick={() => setFocusMode(false)}
-        >
-          [Q] reset view
-        </button>
-      )}
+        <div className="rpg-panel flex w-[320px] shrink-0 flex-col">
+          <div
+            className="px-4 py-3"
+            style={{ borderBottom: "1px solid #1e3d5a" }}
+          >
+            <span
+              className="text-[10px] font-mono uppercase tracking-[0.16em]"
+              style={{ color: "#00d4ff" }}
+            >
+              Operation Status
+            </span>
+          </div>
+          <Dashboard
+            metrics={sim.metrics}
+            metricsHistory={sim.metricsHistory}
+            phase={sim.phase}
+            round={sim.round}
+            maxRounds={sim.maxRounds}
+            embedded
+          />
+        </div>
+      </div>
 
       {/* Agent Profile Modal */}
       {selectedNpc && (
@@ -1475,7 +1390,6 @@ function SimulateContent() {
           router.push("/");
         }}
         onReturnToLanding={() => router.push("/")}
-        zoomedIn={focusMode}
       />
 
       {/* Connection error overlay */}

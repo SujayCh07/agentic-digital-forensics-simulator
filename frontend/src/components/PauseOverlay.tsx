@@ -5,7 +5,6 @@ interface PauseOverlayProps {
   onResume: () => void;
   onRestart: () => void;
   onReturnToLanding: () => void;
-  zoomedIn: boolean;
 }
 
 export function PauseOverlay({
@@ -13,7 +12,6 @@ export function PauseOverlay({
   onResume,
   onRestart,
   onReturnToLanding,
-  zoomedIn,
 }: PauseOverlayProps) {
   if (!isVisible) return null;
 
@@ -49,29 +47,29 @@ export function PauseOverlay({
 
         <div className="relative z-10 px-8 py-7">
           <div
-            className="text-[11px] font-mono uppercase tracking-[0.34em]"
+            className="text-[12px] font-mono uppercase tracking-[0.28em]"
             style={{ color: "#00d4ff" }}
           >
-            System Hold
+            EchoLocate
           </div>
           <div
-            className="mt-3 text-[36px] font-semibold uppercase tracking-[0.1em]"
+            className="mt-3 text-[38px] font-semibold uppercase tracking-[0.08em]"
             style={{ color: "#f0f7ff" }}
           >
             Paused
           </div>
           <div
-            className="mt-3 text-[13px] leading-6"
+            className="mt-3 text-[14px] leading-7"
             style={{ color: "#8aa3be" }}
           >
-            Investigation controls are suspended. Resume the moon-city board, restart this run, or return to the NIPS console.
+            Investigation controls are suspended. Resume the case, restart this run, or return to the EchoLocate console.
           </div>
 
           <div className="mt-6 grid gap-3">
             <button
               type="button"
               onClick={onResume}
-              className="rounded-md border px-4 py-3 text-left text-[12px] font-mono uppercase tracking-[0.18em] transition-opacity hover:opacity-80"
+              className="rounded-md border px-4 py-3 text-left text-[13px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-80"
               style={{
                 borderColor: "#00d4ff",
                 background: "rgba(0,212,255,0.08)",
@@ -83,7 +81,7 @@ export function PauseOverlay({
             <button
               type="button"
               onClick={onRestart}
-              className="rounded-md border px-4 py-3 text-left text-[12px] font-mono uppercase tracking-[0.18em] transition-opacity hover:opacity-80"
+              className="rounded-md border px-4 py-3 text-left text-[13px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-80"
               style={{
                 borderColor: "#315271",
                 background: "rgba(11,20,31,0.8)",
@@ -95,22 +93,22 @@ export function PauseOverlay({
             <button
               type="button"
               onClick={onReturnToLanding}
-              className="rounded-md border px-4 py-3 text-left text-[12px] font-mono uppercase tracking-[0.18em] transition-opacity hover:opacity-80"
+              className="rounded-md border px-4 py-3 text-left text-[13px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-80"
               style={{
                 borderColor: "#315271",
                 background: "rgba(11,20,31,0.8)",
                 color: "#c8d6e5",
               }}
             >
-              Return To Console
+              Return To Home
             </button>
           </div>
 
           <div
-            className="mt-6 border-t pt-4 text-[11px] font-mono uppercase tracking-[0.18em]"
+            className="mt-6 border-t pt-4 text-[12px] font-mono uppercase tracking-[0.12em]"
             style={{ borderColor: "#193149", color: "#6f87a1" }}
           >
-            `ESC` resume or pause // `Q` {zoomedIn ? "reset view" : "zoom in"}
+            `ESC` resume or pause // drag to pan
           </div>
         </div>
       </div>
