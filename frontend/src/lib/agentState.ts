@@ -36,6 +36,7 @@ export function normalizeOwnedAgents(agents: any[]): NipsAgentInstance[] {
 }
 
 export interface AgentStateModel {
+  ownedAgents: NipsAgentInstance[];
   ownedRoleIds: AgentId[];
   slotAgentsByRole: Partial<Record<AgentId, NipsAgentInstance>>;
   deployedAgents: NipsAgentInstance[];
@@ -79,6 +80,7 @@ export function buildAgentStateModel({
   ) as NipsAgentInstance[];
 
   return {
+    ownedAgents,
     ownedRoleIds,
     slotAgentsByRole,
     deployedAgents,
