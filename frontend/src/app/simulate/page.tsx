@@ -17,7 +17,6 @@ import {
 } from "@/components/AgentCommandModal";
 import { AgentDirectory } from "@/components/AgentDirectory";
 import { AgentMarketplace } from "@/components/AgentMarketplace";
-import { AgentStatusBar } from "@/components/AgentStatusBar";
 import { CaseModal } from "@/components/CaseModal";
 import { Dashboard } from "@/components/Dashboard";
 import { EconomicReportModal } from "@/components/EconomicReportModal";
@@ -31,6 +30,7 @@ import { RadioPanel } from "@/components/RadioPanel";
 import {
   computeRecoveryProgress,
   RecoveryProgress,
+  RecoveryStrip,
 } from "@/components/RecoveryProgress";
 import { RemediationPanel } from "@/components/RemediationPanel";
 import { SectorStatusPanel } from "@/components/SectorStatusPanel";
@@ -432,7 +432,8 @@ function InvestigateGame({
   const [activeSectorId, setActiveSectorId] = useState<SectorId | null>(null);
 
   // Endgame loop state
-  const [externalDelta, setExternalDelta] = useState(0);
+  const [evidenceDelta, setEvidenceDelta] = useState(0); // from agent findings
+  const [externalDelta, setExternalDelta] = useState(0); // from proposal + remediations
   const [proposalSubmitted, setProposalSubmitted] = useState(false);
   const [showProposalModal, setShowProposalModal] = useState(false);
   const [showRemediationOverlay, setShowRemediationOverlay] = useState(false);
@@ -460,7 +461,7 @@ function InvestigateGame({
 
   // Derived: recovery progress and discovered nodes
   const recoveryProgress = computeRecoveryProgress(
-    inv.completedFindings,
+    evidenceDelta,
     externalDelta,
     inv.pressureLevel,
   );
@@ -878,7 +879,14 @@ function InvestigateGame({
       style={{ background: "#080c12" }}
       data-testid="investigate-page"
     >
-      {/* Top bar: EchoLocate header + agent status */}
+      {/* Always-visible 3px recovery strip at very top */}
+      <RecoveryStrip
+        evidenceDelta={evidenceDelta}
+        externalDelta={externalDelta}
+        pressureLevel={inv.pressureLevel}
+      />
+
+      {/* Top bar: EchoLocate header */}
       <div
         className="rpg-panel flex h-16 shrink-0 items-center gap-4 rounded-none border-x-0 border-t-0 px-5 panel-slide-top"
         style={{ borderBottom: "1px solid #1e3d5a" }}
@@ -901,37 +909,16 @@ function InvestigateGame({
           </span>
         </div>
 
-        {/* Agent status bar */}
-        <div className="flex-1 h-full py-1.5 overflow-x-auto">
-          <AgentStatusBar
-            agents={inv.agents}
-            activeTasks={inv.activeTasks}
-            lockedAgents={agentState.lockedRoles}
-            slotAgentsByRole={agentState.slotAgentsByRole}
-            onAgentClick={(agentId) => {
-              const nipsAgent = agentState.slotAgentsByRole[agentId];
-              if (nipsAgent) {
-                const isLocked = agentState.lockedRoles.includes(agentId);
-                if (isLocked) {
-                  setLockedAgentInfo(nipsAgent);
-                } else {
-                  setChatAgent(nipsAgent);
-                }
-              }
-            }}
-          />
-        </div>
+        <div className="flex-1" />
 
         <div className="ml-3 flex shrink-0 items-center gap-2.5">
-          {/* Recovery progress bar */}
-          {proposalSubmitted && (
-            <RecoveryProgress
-              completedFindings={inv.completedFindings}
-              externalDelta={externalDelta}
-              pressureLevel={inv.pressureLevel}
-              proposalSubmitted={proposalSubmitted}
-            />
-          )}
+          {/* Recovery progress bar — always shown */}
+          <RecoveryProgress
+            evidenceDelta={evidenceDelta}
+            externalDelta={externalDelta}
+            pressureLevel={inv.pressureLevel}
+            proposalSubmitted={proposalSubmitted}
+          />
           {/* Timer display */}
           {timerRunning && !endgameOutcome && (
             <div
@@ -1054,17 +1041,6 @@ function InvestigateGame({
             }}
           >
             Market
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              audioManager.playPauseMenu();
-              setShowDirectory(true);
-            }}
-            className="rpg-panel px-3 py-1.5 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-70"
-            style={{ color: "#4a6580" }}
-          >
-            Agents ({agentState.ownedAgents.length}/4)
           </button>
           <button
             type="button"
@@ -1366,6 +1342,16 @@ function InvestigateGame({
                 setNipsFunds((prev) => prev + rewardCredits);
               }
             }
+            // Bump evidence progress based on severity
+            const pts =
+              ev.severity === "critical"
+                ? 6
+                : ev.severity === "high"
+                  ? 4
+                  : ev.severity === "medium"
+                    ? 2.5
+                    : 1.5;
+            setEvidenceDelta((prev) => Math.min(prev + pts, 45));
           }}
           onFundsChange={setNipsFunds}
           onOpenRadio={() => {
@@ -1472,6 +1458,7 @@ function InvestigateGame({
           nipsFunds={nipsFunds}
           onRestart={() => {
             setEndgameOutcome(null);
+            setEvidenceDelta(0);
             setExternalDelta(0);
             setProposalSubmitted(false);
             setProposalEval(null);
