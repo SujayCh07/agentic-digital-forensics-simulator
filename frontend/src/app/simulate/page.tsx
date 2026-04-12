@@ -25,6 +25,7 @@ import { useSimulation } from "@/hooks/useSimulation";
 import { useRadio } from "@/hooks/useRadio";
 import { RadioPanel } from "@/components/RadioPanel";
 import type { ActiveHelpers, AgentDefinition, AgentId, CaseSystemNode, NipsAgentInstance, NipsMarketplaceOffer, NipsEvidenceUpdate } from "@/types/investigation";
+import type { BackendNPC } from "@/types/backend";
 import { clearReplayData, getReplayData } from "@/lib/replayStore";
 import {
   initNipsSession,
@@ -207,35 +208,55 @@ function resolveSector(worldX: number, worldY: number) {
 }
 
 function buildAgentMarkers(
-  nipsAgents: NipsAgentInstance[],
+  slotAgentsByRole: Partial<Record<AgentId, NipsAgentInstance>>,
   positions: Record<string, NPCState>,
+  lockedRoles: AgentId[],
   agentStates: AgentDefinition[],
   systemNodes: CaseSystemNode[],
 ): AgentMarkerData[] {
-  return nipsAgents.flatMap((agent) => {
+  return ROLE_ORDER.flatMap((roleId) => {
+    const agent = slotAgentsByRole[roleId];
+    if (!agent) return [];
+
     const npcId = resolveAgentPositionId(agent, positions);
     if (!npcId) return [];
 
     const position = positions[npcId];
-    const archetype = normalizeAgentId(agent.archetype) as AgentId;
-    const agentState = agentStates.find((entry) => entry.id === archetype);
+    const archetype = roleId;
+    const agentState = agentStates.find((entry) => entry.id === roleId);
     const sector = resolveSector(position.worldX, position.worldY);
     const nodeName = agentState?.currentNodeId
       ? systemNodes.find((node) => node.id === agentState.currentNodeId)?.name
       : null;
+    const isLocked = lockedRoles.includes(roleId);
 
     return [{
       agent,
       npcId,
       position,
-      isLocked: false,
+      isLocked,
       color: AGENT_MARKER_COLORS[archetype] ?? "#22d3ee",
       roleLabel: agent.primary_specialties[0] ?? agent.team_role,
-      statusLabel: agentState?.status ?? "idle",
-      assignmentLabel: nodeName ?? "Awaiting task",
+      statusLabel: isLocked ? "locked" : agentState?.status ?? "idle",
+      assignmentLabel: isLocked
+        ? "Locked — recruit to unlock"
+        : nodeName ?? "Awaiting task",
       sectorCode: sector?.id ?? "TRANSIT",
       sectorLabel: sector ? DOMAIN_LABEL_BY_SECTOR[sector.id] : "Transit lane",
     }];
+  });
+}
+
+function buildVisibleSpecialists(
+  slotAgentsByRole: Partial<Record<AgentId, NipsAgentInstance>>,
+): BackendNPC[] {
+  return CASE_AGENTS_NPCS.map((npc) => {
+    const roleId = npc.id as AgentId;
+    const slotAgent = slotAgentsByRole[roleId];
+    return {
+      ...npc,
+      name: slotAgent?.display_name ?? npc.name,
+    };
   });
 }
 
@@ -366,7 +387,10 @@ function InvestigateGame({
     [nipsAgents, nipsOffers, inv.lockedAgents],
   );
   const ownedRoleKey = agentState.ownedRoleIds.join("|");
-  const deployedRoleKey = agentState.deployedRoleIds.join("|");
+  const slotRoleKey = ROLE_ORDER.map((roleId) => {
+    const slotAgent = agentState.slotAgentsByRole[roleId];
+    return `${roleId}:${slotAgent?.instance_id ?? "none"}:${slotAgent?.display_name ?? "none"}`;
+  }).join("|");
 
   // ── Audio: stop music when leaving the game view ────────────────────────────
   useEffect(() => {
@@ -434,29 +458,32 @@ function InvestigateGame({
   }, [ownedRoleKey, inv.syncRoleUnlocks]);
 
   useEffect(() => {
-    const deployedRoleIds = new Set(agentState.deployedRoleIds);
-    const activeSpecialists = CASE_AGENTS_NPCS.filter((npc) =>
-      deployedRoleIds.has(npc.id as AgentId),
+    const hasVisibleSlots = ROLE_ORDER.some(
+      (roleId) => Boolean(agentState.slotAgentsByRole[roleId]),
     );
+    if (!hasVisibleSlots) return;
 
-    setNpcPositions((prev) =>
-      Object.fromEntries(
-        Object.entries(prev).filter(
-          ([npcId]) =>
-            !ROLE_ORDER.includes(npcId as AgentId) ||
-            deployedRoleIds.has(npcId as AgentId),
-        ),
-      ),
-    );
+    const visibleSpecialists = buildVisibleSpecialists(agentState.slotAgentsByRole);
+    const specialistIds = new Set(visibleSpecialists.map((npc) => npc.id));
 
     import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
-      if (activeSpecialists.length === 0) {
-        eventBridge.emitResetNPCs();
-        return;
-      }
-      eventBridge.emitInitNPCs(activeSpecialists, starterRole);
+      eventBridge.emitInitNPCs(visibleSpecialists, starterRole);
+      eventBridge.emitNPCIdentityUpdates(
+        visibleSpecialists.map((npc) => ({
+          npcId: npc.id,
+          name: npc.name,
+        })),
+      );
+      setNpcPositions((prev) =>
+        Object.fromEntries(
+          Object.entries(prev).filter(
+            ([npcId]) =>
+              !ROLE_ORDER.includes(npcId as AgentId) || specialistIds.has(npcId),
+          ),
+        ),
+      );
     });
-  }, [deployedRoleKey, starterRole]);
+  }, [slotRoleKey, starterRole, agentState.slotAgentsByRole]);
 
   // Handle sprite clicks → open agent chat
   // Sprite npcIds are lowercase archetype prefixes like "logis", "nexus", etc.
@@ -540,12 +567,19 @@ function InvestigateGame({
   const agentMarkers = useMemo(
     () =>
       buildAgentMarkers(
-        agentState.deployedAgents,
+        agentState.slotAgentsByRole,
         npcPositions,
+        agentState.lockedRoles,
         inv.agents,
         inv.systemNodes,
       ),
-    [agentState.deployedAgents, npcPositions, inv.agents, inv.systemNodes],
+    [
+      agentState.slotAgentsByRole,
+      agentState.lockedRoles,
+      npcPositions,
+      inv.agents,
+      inv.systemNodes,
+    ],
   );
   const pinnedFindingCount = useMemo(
     () =>
@@ -965,8 +999,8 @@ function InvestigateGame({
               </div>
             </div>
             <p className="text-[11px] font-mono leading-6" style={{ color: "#4a6580" }}>
-              This specialist has not been deployed for this case yet.
-              You can unlock them by visiting the marketplace.
+              This specialist is visible in the field, but their role is still locked.
+              Recruit them in the marketplace to unlock and use them.
             </p>
             <div className="flex gap-2 w-full">
               <button
@@ -1689,7 +1723,7 @@ function AgentOverlay({
         );
         const labelHeight = 20;
         const spriteHalfHeight = Math.max(9, 14 * scaleY);
-        const labelGap = 6;
+        const labelGap = 40;
         const left = Math.max(
           6,
           Math.min(

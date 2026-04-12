@@ -24,7 +24,7 @@ function dirToNPCDir(dir: NPCState["direction"]): NPCDirection {
 
 export class NPC extends Phaser.GameObjects.Sprite {
   readonly npcId: string;
-  readonly npcName: string;
+  npcName: string;
   readonly charIndex: number;
   readonly characterType: CharacterType;
   profession = "";
@@ -200,6 +200,13 @@ export class NPC extends Phaser.GameObjects.Sprite {
   refreshHover() {
     if (!this.isHovered) return;
     this.emitHoverEvent();
+  }
+
+  setDisplayName(name: string) {
+    this.npcName = name;
+    if (this.isHovered) {
+      this.emitHoverEvent();
+    }
   }
 
   applyLunarInvestigatorStyle(visorTint: number) {

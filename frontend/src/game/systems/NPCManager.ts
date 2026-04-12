@@ -93,6 +93,11 @@ export class NPCManager {
     eventBridge.on("sim:init-npcs", this.onInitNPCs, this);
     eventBridge.on("sim:npc-move", this.onNPCMove, this);
     eventBridge.on("sim:npc-mood", this.onNPCMood, this);
+    eventBridge.on(
+      "sim:npc-identity-updates",
+      this.onNPCIdentityUpdates,
+      this,
+    );
   }
 
   private ensureSpawnArea() {
@@ -530,6 +535,16 @@ export class NPCManager {
     npc.sentiment = moodToSentiment(data.mood);
   }
 
+  private onNPCIdentityUpdates(updates: { npcId: string; name: string }[]) {
+    for (const update of updates) {
+      const npc = this.npcs.get(update.npcId);
+      if (!npc) continue;
+      npc.setDisplayName(update.name);
+      this.upsertChatBubble(npc);
+      this.emitNPCPosition(npc);
+    }
+  }
+
   getNPC(id: string): NPC | undefined {
     return this.npcs.get(id);
   }
@@ -766,6 +781,11 @@ export class NPCManager {
     eventBridge.off("sim:init-npcs", this.onInitNPCs, this);
     eventBridge.off("sim:npc-move", this.onNPCMove, this);
     eventBridge.off("sim:npc-mood", this.onNPCMood, this);
+    eventBridge.off(
+      "sim:npc-identity-updates",
+      this.onNPCIdentityUpdates,
+      this,
+    );
     for (const t of this.positionTimers.values()) t.destroy();
     this.positionTimers.clear();
     for (const bubble of this.chatBubbles.values()) bubble.destroy();
