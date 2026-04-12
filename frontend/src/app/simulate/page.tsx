@@ -21,6 +21,8 @@ import { CYBER_CITY_SECTOR_SEEDS, DOMAIN_LABEL_BY_SECTOR } from "@/data/cyberCit
 import { useInvestigation } from "@/hooks/useInvestigation";
 import { useBoardState } from "@/hooks/useBoardState";
 import { useSimulation } from "@/hooks/useSimulation";
+import { useRadio } from "@/hooks/useRadio";
+import { RadioPanel } from "@/components/RadioPanel";
 import type { ActiveHelpers, AgentDefinition, AgentId, CaseSystemNode, NipsAgentInstance, NipsMarketplaceOffer, NipsEvidenceUpdate } from "@/types/investigation";
 import { clearReplayData, getReplayData } from "@/lib/replayStore";
 import {
@@ -334,6 +336,7 @@ function InvestigateGame({
   const [hoverInfo, setHoverInfo] = useState<NPCHoverInfo | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const [overlayMetrics, setOverlayMetrics] = useState<OverlayMetrics>(DEFAULT_OVERLAY_METRICS);
+  const radio = useRadio();
 
   // --- NIPS Gemini agent system state ---
   const [nipsAgents, setNipsAgents] = useState<NipsAgentInstance[]>([]);
@@ -698,6 +701,18 @@ function InvestigateGame({
           >
             Agents ({nipsAgents.length})
           </button>
+          <button
+            type="button"
+            onClick={() => { audioManager.playPauseMenu(); radio.setIsOpen(!radio.isOpen); }}
+            className="rpg-panel px-3 py-1.5 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-70"
+            style={{
+              color: radio.isOpen ? "#00d4ff" : "#4a6580",
+              border: `1px solid ${radio.isOpen ? "#00d4ff" : "#1e3d5a"}`,
+              background: radio.isOpen ? "rgba(0,212,255,0.08)" : "transparent",
+            }}
+          >
+            Radio {radio.status !== "idle" ? "·" : ""}
+          </button>
         </div>
       </div>
 
@@ -931,12 +946,19 @@ function InvestigateGame({
       />
 
       {/* Agent chat modal */}
+      {/* Radio Panel */}
+      <RadioPanel radio={radio} agents={nipsAgents} />
+
       {chatAgent && (
         <AgentCommandModal
           agent={chatAgent}
           nodeContext={nodeContextStr}
           initialMessages={chatHistories[chatAgent.instance_id]}
           onEvidenceUpdate={(ev) => inv.addExternalEvidence(ev)}
+          onOpenRadio={() => {
+            radio.setSelectedAgent(chatAgent);
+            radio.setIsOpen(true);
+          }}
           onClose={(msgs) => {
             setChatHistories((prev) => ({ ...prev, [chatAgent.instance_id]: msgs }));
             setChatAgent(null);

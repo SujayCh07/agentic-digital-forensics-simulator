@@ -28,6 +28,7 @@ interface AgentCommandModalProps {
   nodeContext: string;
   initialMessages?: MessageEntry[];
   onClose: (messages: MessageEntry[]) => void;
+  onOpenRadio?: () => void;
   onEvidenceUpdate?: (ev: NipsEvidenceUpdate) => void;
 }
 
@@ -44,6 +45,7 @@ export function AgentCommandModal({
   nodeContext,
   initialMessages,
   onClose,
+  onOpenRadio,
   onEvidenceUpdate,
 }: AgentCommandModalProps) {
   const [history, setHistory] = useState<MessageEntry[]>(initialMessages ?? []);
@@ -406,13 +408,24 @@ export function AgentCommandModal({
                 </p>
               )}
             </div>
-            <button
-              type="button"
-              onClick={() => onClose(historyRef.current)}
-              className="rounded border border-white/15 px-3 py-1.5 text-[10px] font-mono uppercase hover:bg-white/5"
-            >
-              Close
-            </button>
+            <div className="flex items-center gap-2">
+              {onOpenRadio && (
+                <button
+                  type="button"
+                  onClick={onOpenRadio}
+                  className="rounded border border-[#00d4ff66] bg-[#00d4ff14] px-3 py-1.5 text-[10px] font-mono uppercase text-[#00d4ff] hover:bg-[#00d4ff24]"
+                >
+                  [TALK]
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => onClose(historyRef.current)}
+                className="rounded border border-white/15 px-3 py-1.5 text-[10px] font-mono uppercase hover:bg-white/5"
+              >
+                Close
+              </button>
+            </div>
           </div>
 
           {/* Starter prompts */}

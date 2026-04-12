@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import LLM_BASE_URL, LLM_MODEL
 from routers.extract import router as extract_router
 from routers.nips_router import register_nips_events
+from routers.radio import router as radio_router
 from routers.simulate import router, sio
 
 # ── Logging ──────────────────────────────────────────────────────────
@@ -34,6 +35,7 @@ app.add_middleware(
 
 app.include_router(router)
 app.include_router(extract_router)
+app.include_router(radio_router)
 
 # Register NIPS Socket.IO event handlers on the shared sio instance
 register_nips_events(sio)
