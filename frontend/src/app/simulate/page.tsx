@@ -249,25 +249,16 @@ function InvestigateGame({
   const [showDirectory, setShowDirectory] = useState(false);
   const [showMarketplace, setShowMarketplace] = useState(false);
 
-  // ── Audio: unlock on first interaction, start gameplay music ────────────────
+  // ── Audio: stop music when leaving the game view ────────────────────────────
   useEffect(() => {
-    const unlock = () => audioManager.unlock();
-    window.addEventListener("pointerdown", unlock, { once: true });
-    window.addEventListener("keydown", unlock, { once: true });
-    audioManager.startGameplayMusic();
-    return () => {
-      audioManager.stopMusic();
-      window.removeEventListener("pointerdown", unlock);
-      window.removeEventListener("keydown", unlock);
-    };
+    return () => { audioManager.stopMusic(); };
   }, []);
 
-  // ── Audio: switch music based on pressure level ──────────────────────────────
+  // ── Audio: switch to Caves when pressure reaches critical levels ─────────────
+  // (AudioManager priority prevents downgrading from a higher-urgency track)
   useEffect(() => {
     if (inv.pressureLevel >= 7) {
       audioManager.switchToCorruptMusic();
-    } else {
-      audioManager.startGameplayMusic();
     }
   }, [inv.pressureLevel]);
 

@@ -62,6 +62,12 @@ export function EventFeed({ events, onEventClick, onPinEvent }: EventFeedProps) 
 
   useEffect(() => {
     if (events.length > prevLenRef.current) {
+      // Check if any of the new events are incident/escalation warnings
+      const newEvents = events.slice(prevLenRef.current);
+      const hasIncident = newEvents.some((e) => e.type === "phase_change");
+      if (hasIncident) {
+        audioManager.switchToIncidentMusic();
+      }
       audioManager.playEvidenceAdded();
     }
     prevLenRef.current = events.length;

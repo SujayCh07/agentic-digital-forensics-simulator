@@ -9,9 +9,11 @@
  *   playButtonClick()    → PM_SD_UI_MAGIC_CONFIRM_15 (any interactable button click)
  *   playLockedClick()    → PM_SD_UI_MAGIC_CONFIRM_2  (locked / non-interactable click)
  *
- * Music:
- *   startGameplayMusic()  → "Lost and Faltering" looping
- *   switchToCorruptMusic()→ "Caves" looping (when pressure is high)
+ * Music (ordered by escalating urgency — tracks never revert to a lower level):
+ *   startSelectionMusic()  → b423b42.mp3           (landing / agent selection screen)
+ *   startGameplayMusic()   → Lost and Faltering.mp3 (regular gameplay, starts on Deploy)
+ *   switchToIncidentMusic()→ the_last_parsec_mix2.mp3 (incident/compromise warning)
+ *   switchToCorruptMusic() → Caves.mp3              (high pressure / severe corruption)
  *   stopMusic()
  *
  * Call audioManager.unlock() once on the first user gesture to unblock
@@ -21,7 +23,16 @@
 const SFX_VOLUME = 0.55;
 const MUSIC_VOLUME = 0.3;
 
-type MusicTrack = "gameplay" | "corrupt" | "none";
+// Priority order: higher index = higher urgency, never downgrade
+const TRACK_PRIORITY = {
+  none:      0,
+  selection: 1,
+  gameplay:  2,
+  incident:  3,
+  corrupt:   4,
+} as const;
+
+type MusicTrack = keyof typeof TRACK_PRIORITY;
 
 class AudioManager {
   private static _instance: AudioManager;
@@ -44,7 +55,6 @@ class AudioManager {
   unlock() {
     if (this.unlocked) return;
     this.unlocked = true;
-    // Resume any suspended AudioContext and kick off music if queued
     if (this.musicEl && this.musicEl.paused) {
       this.musicEl.play().catch(() => {});
     }
@@ -54,7 +64,6 @@ class AudioManager {
 
   private playSfx(file: string) {
     if (typeof window === "undefined") return;
-    // Reuse a cached element but clone for overlapping plays
     let src = this.sfxCache.get(file);
     if (!src) {
       src = new Audio(`/audio/${file}`);
@@ -76,9 +85,14 @@ class AudioManager {
 
   // ── Music ───────────────────────────────────────────────────────────────────
 
+  /**
+   * Attempt to switch to a track. Silently ignored if the requested track has
+   * lower priority than whatever is currently playing (tracks never revert).
+   */
   private startMusic(file: string, track: MusicTrack) {
     if (typeof window === "undefined") return;
-    if (this.currentTrack === track) return; // already playing this track
+    if (this.currentTrack === track) return;
+    if (TRACK_PRIORITY[track] < TRACK_PRIORITY[this.currentTrack]) return; // no downgrade
 
     const prev = this.musicEl;
     if (prev) {
@@ -95,11 +109,13 @@ class AudioManager {
     if (this.unlocked) {
       el.play().catch(() => {});
     }
-    // else: play() will be called when unlock() is called
+    // else: play() fires when unlock() is called after the first gesture
   }
 
-  startGameplayMusic()  { this.startMusic("Lost and Faltering.mp3", "gameplay"); }
-  switchToCorruptMusic(){ this.startMusic("Caves.mp3", "corrupt"); }
+  startSelectionMusic()  { this.startMusic("b423b42.mp3", "selection"); }
+  startGameplayMusic()   { this.startMusic("Lost and Faltering.mp3", "gameplay"); }
+  switchToIncidentMusic(){ this.startMusic("the_last_parsec_mix2.mp3", "incident"); }
+  switchToCorruptMusic() { this.startMusic("Caves.mp3", "corrupt"); }
 
   stopMusic() {
     if (this.musicEl) {
