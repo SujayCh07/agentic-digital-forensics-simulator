@@ -486,6 +486,13 @@ function InvestigateGame({
       ),
     [nipsAgents, npcPositions, inv.lockedAgents, inv.agents, inv.systemNodes],
   );
+  const pinnedFindingCount = useMemo(
+    () =>
+      inv.completedFindings.filter((finding) =>
+        board.isPinned(`${finding.nodeId}:${finding.taskType}`),
+      ).length,
+    [board, inv.completedFindings],
+  );
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -665,10 +672,15 @@ function InvestigateGame({
           <button
             type="button"
             onClick={toggleBoard}
-            className="rpg-panel px-3 py-1.5 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-70"
-            style={{ color: showBoard ? "#b06fff" : "#b06fff80", border: `1px solid ${showBoard ? "#b06fff" : "#1e3d5a"}`, boxShadow: showBoard ? "0 0 8px rgba(176,111,255,0.2)" : undefined }}
+            className="rpg-panel px-3.5 py-2 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-80"
+            style={{
+              color: showBoard ? "#f5d0fe" : "#d8b4fe",
+              border: `1px solid ${showBoard ? "#d946ef" : "rgba(176,111,255,0.38)"}`,
+              background: showBoard ? "rgba(176,111,255,0.18)" : "rgba(176,111,255,0.08)",
+              boxShadow: "0 0 16px rgba(176,111,255,0.12)",
+            }}
           >
-            Case Board
+            Case Board {pinnedFindingCount > 0 ? `(${pinnedFindingCount})` : ""}
           </button>
           <button
             type="button"
@@ -690,13 +702,31 @@ function InvestigateGame({
       </div>
 
       {/* Main layout */}
-      <div className="flex flex-1 gap-3 overflow-hidden p-3">
+      <div className="flex flex-1 gap-2 overflow-hidden p-3">
         {/* Left: Evidence feed */}
-        <div className="rpg-panel panel-slide-left flex h-full w-[300px] shrink-0 flex-col">
-          <div className="flex shrink-0 items-center px-4 py-3" style={{ borderBottom: "1px solid #1e3d5a" }}>
-            <h2 className="text-[10px] font-mono uppercase tracking-[0.16em]" style={{ color: "#00d4ff" }}>
-              Evidence Feed
-            </h2>
+        <div className="rpg-panel panel-slide-left flex h-full w-[248px] shrink-0 flex-col">
+          <div className="shrink-0 px-4 py-3" style={{ borderBottom: "1px solid #1e3d5a" }}>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-[10px] font-mono uppercase tracking-[0.16em]" style={{ color: "#00d4ff" }}>
+                Evidence Feed
+              </h2>
+              <button
+                type="button"
+                onClick={openBoard}
+                className="rounded-md px-3 py-2 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-80"
+                style={{
+                  background: "rgba(176,111,255,0.14)",
+                  border: "1px solid rgba(176,111,255,0.48)",
+                  color: "#d8b4fe",
+                  boxShadow: "0 0 16px rgba(176,111,255,0.14)",
+                }}
+              >
+                Open Board
+              </button>
+            </div>
+            <p className="mt-2 text-[9px] font-mono leading-5" style={{ color: "#6f87a1" }}>
+              Analyze logs, pin evidence, and connect the strongest findings.
+            </p>
           </div>
           <div className="flex-1 overflow-hidden">
             <EventFeed
@@ -724,7 +754,7 @@ function InvestigateGame({
 
         {/* Center: Game canvas */}
         <div
-          className="relative flex min-w-0 flex-1 items-center justify-center overflow-hidden"
+          className="relative flex min-w-0 flex-1 items-start justify-center overflow-hidden pt-0.5"
         >
           <div
             ref={canvasContainerRef}
@@ -745,6 +775,31 @@ function InvestigateGame({
                 <NPCTooltip info={hoverInfo} scaleX={overlayMetrics.scaleX} scaleY={overlayMetrics.scaleY} />
               </div>
             )}
+            <div
+              className="pointer-events-none absolute z-20 overflow-hidden"
+              style={{
+                left: overlayMetrics.offsetX,
+                top: overlayMetrics.offsetY,
+                width: overlayMetrics.width,
+                height: overlayMetrics.height,
+              }}
+            >
+              <AgentOverlay
+                markers={agentMarkers}
+                boundsWidth={overlayMetrics.width}
+                boundsHeight={overlayMetrics.height}
+                scaleX={overlayMetrics.scaleX}
+                scaleY={overlayMetrics.scaleY}
+                onAgentClick={(agent) => {
+                  const isLocked = inv.lockedAgents.includes(agent.archetype.toLowerCase() as AgentId);
+                  if (isLocked) {
+                    setLockedAgentInfo(agent);
+                  } else {
+                    setChatAgent(agent);
+                  }
+                }}
+              />
+            </div>
           </div>
         </div>
 
@@ -860,19 +915,6 @@ function InvestigateGame({
           </div>
         </div>
       )}
-
-      {/* Agent Overlay (floating labels) */}
-      <AgentOverlay
-        markers={agentMarkers}
-        onAgentClick={(agent) => {
-          const isLocked = inv.lockedAgents.includes(agent.archetype.toLowerCase() as AgentId);
-          if (isLocked) {
-            setLockedAgentInfo(agent);
-          } else {
-            setChatAgent(agent);
-          }
-        }}
-      />
 
       {/* Mini Map */}
       <GameMiniMap
@@ -1536,22 +1578,53 @@ function SimulateContent() {
 
 function AgentOverlay({
   markers,
+  boundsWidth,
+  boundsHeight,
+  scaleX,
+  scaleY,
   onAgentClick,
 }: {
   markers: AgentMarkerData[];
+  boundsWidth: number;
+  boundsHeight: number;
+  scaleX: number;
+  scaleY: number;
   onAgentClick: (agent: NipsAgentInstance) => void;
 }) {
   return (
     <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden">
       {markers.map((marker) => {
+        const anchorX = marker.position.x * scaleX;
+        const anchorY = marker.position.y * scaleY;
+        const estimatedWidth = Math.min(
+          168,
+          Math.max(76, marker.agent.display_name.length * 6.6 + 26),
+        );
+        const labelHeight = 24;
+        const spriteHalfHeight = Math.max(10, 16 * scaleY);
+        const labelGap = 35;
+        const left = Math.max(
+          6,
+          Math.min(
+            anchorX - estimatedWidth / 2,
+            Math.max(6, boundsWidth - estimatedWidth - 6),
+          ),
+        );
+        const top = Math.max(
+          6,
+          Math.min(
+            anchorY - spriteHalfHeight - labelHeight - labelGap,
+            Math.max(6, boundsHeight - labelHeight - 6),
+          ),
+        );
+
         return (
           <div
             key={marker.agent.instance_id}
             className="absolute pointer-events-auto"
             style={{
-              left: marker.position.x,
-              top: marker.position.y - 18,
-              transform: "translateX(-50%)",
+              left,
+              top,
             }}
           >
             <button
@@ -1559,6 +1632,7 @@ function AgentOverlay({
               onClick={() => onAgentClick(marker.agent)}
               className="animate-[fadeIn_0.3s_ease-out] rounded-md px-2.5 py-1 text-[9px] font-mono tracking-[0.08em] transition-opacity hover:opacity-80"
               style={{
+                width: estimatedWidth,
                 background: "rgba(7,12,19,0.82)",
                 border: "1px solid rgba(255,255,255,0.06)",
                 color: marker.isLocked ? "#6f87a1" : "#d9e6f2",
