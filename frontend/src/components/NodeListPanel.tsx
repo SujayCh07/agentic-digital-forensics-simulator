@@ -36,7 +36,7 @@ export function NodeListPanel({
   return (
     <div
       className="rpg-panel flex flex-col"
-      style={{ width: 320 }}
+      style={{ width: 300 }}
       data-testid="node-list-panel"
     >
       {/* Header */}

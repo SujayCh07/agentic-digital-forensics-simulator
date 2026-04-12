@@ -154,19 +154,50 @@ export function UserBoard({ board, completedFindings, lockedAgents, onClose }: U
 
   const pinnedFindings = completedFindings.filter((f) => board.isPinned(`${f.nodeId}:${f.taskType}`));
   const evidenceList   = evidenceTab === "pinned" ? pinnedFindings : completedFindings;
+  const hypothesisCount = board.boardNodes.filter((node) => node.type === "hypothesis").length;
+  const evidenceNodeCount = board.boardNodes.filter((node) => node.type === "evidence").length;
 
   const AGENT_COLOR: Record<string, string> = { logis: "#c9d8e8", nexus: "#00d4ff", filer: "#f59e0b", chrono: "#b06fff" };
   const SEV_COLOR:   Record<string, string> = { critical: "#ff3a3a", high: "#f59e0b", medium: "#00d4ff", low: "#4a6580" };
 
   return (
-    <div className="fixed inset-0 z-[55] flex flex-col" style={{ background: "#080c12" }}>
+    <div
+      className="fixed inset-0 z-[55] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm"
+    >
+      <div
+        className="flex h-full max-h-[94vh] w-full max-w-[1680px] flex-col overflow-hidden rounded-xl border"
+        style={{
+          background: "#080c12",
+          borderColor: "rgba(30,61,90,0.9)",
+          boxShadow: "0 22px 80px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.03)",
+        }}
+      >
 
       {/* Top bar */}
-      <div className="flex items-center justify-between px-4 h-10 shrink-0"
+      <div className="flex h-12 shrink-0 items-center justify-between px-5"
         style={{ background: "rgba(15,25,39,0.98)", borderBottom: "1px solid #1e3d5a" }}>
         <div className="flex items-center gap-3">
-          <span className="text-[10px] font-mono" style={{ color: "#00d4ff" }}>◈ INVESTIGATION BOARD</span>
-          <span className="text-[7px] font-mono uppercase tracking-widest" style={{ color: "#2a5070" }}>Midnight Exfiltration</span>
+          <span className="text-[11px] font-mono uppercase tracking-[0.14em]" style={{ color: "#d8b4fe" }}>◈ CASE BOARD</span>
+          <span className="text-[8px] font-mono uppercase tracking-[0.14em]" style={{ color: "#2a5070" }}>Midnight Exfiltration</span>
+          <div className="ml-2 flex items-center gap-2">
+            {[
+              { label: "Pinned", value: pinnedFindings.length, color: "#00d4ff" },
+              { label: "Linked", value: evidenceNodeCount, color: "#00ff88" },
+              { label: "Hyp", value: hypothesisCount, color: "#f59e0b" },
+            ].map((item) => (
+              <span
+                key={item.label}
+                className="rounded px-2 py-1 text-[8px] font-mono uppercase tracking-[0.1em]"
+                style={{
+                  background: "rgba(8,12,18,0.88)",
+                  border: "1px solid rgba(255,255,255,0.05)",
+                  color: item.color,
+                }}
+              >
+                {item.label} {item.value}
+              </span>
+            ))}
+          </div>
         </div>
         <div className="flex items-center gap-4">
           {showConnectHint && (
@@ -180,8 +211,9 @@ export function UserBoard({ board, completedFindings, lockedAgents, onClose }: U
             </span>
           )}
           <button type="button" onClick={onClose}
-            className="text-[9px] font-mono transition-opacity hover:opacity-60" style={{ color: "#4a6580" }}>
-            [ESC] CLOSE
+            className="rounded-md border px-3 py-1.5 text-[10px] font-mono uppercase tracking-[0.12em] transition-opacity hover:opacity-70"
+            style={{ color: "#c9d8e8", borderColor: "#315271", background: "rgba(8,12,18,0.7)" }}>
+            Close
           </button>
         </div>
       </div>
@@ -312,6 +344,7 @@ export function UserBoard({ board, completedFindings, lockedAgents, onClose }: U
             lockedAgents={lockedAgents}
           />
         </div>
+      </div>
       </div>
     </div>
   );
