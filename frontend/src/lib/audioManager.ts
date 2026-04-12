@@ -88,8 +88,11 @@ class AudioManager {
   /**
    * Attempt to switch to a track. Silently ignored if the requested track has
    * lower priority than whatever is currently playing (tracks never revert).
+   *
+   * @param autoplay - Use the muted-then-unmute trick to bypass browser
+   *   autoplay restrictions (safe for title/selection screens).
    */
-  private startMusic(file: string, track: MusicTrack) {
+  private startMusic(file: string, track: MusicTrack, autoplay = false) {
     if (typeof window === "undefined") return;
     if (this.currentTrack === track) return;
     if (TRACK_PRIORITY[track] < TRACK_PRIORITY[this.currentTrack]) return; // no downgrade
@@ -102,17 +105,26 @@ class AudioManager {
 
     const el = new Audio(`/audio/${encodeURIComponent(file)}`);
     el.loop = true;
-    el.volume = MUSIC_VOLUME;
     this.musicEl = el;
     this.currentTrack = track;
 
-    if (this.unlocked) {
-      el.play().catch(() => {});
+    if (autoplay) {
+      // Muted autoplay is permitted by browsers; unmute immediately after
+      // the play promise resolves to produce audible sound with no gesture.
+      el.muted = true;
+      el.volume = MUSIC_VOLUME;
+      el.play().then(() => { el.muted = false; }).catch(() => {});
+    } else {
+      el.volume = MUSIC_VOLUME;
+      if (this.unlocked) {
+        el.play().catch(() => {});
+      }
+      // else: play() fires when unlock() is called after the first gesture
     }
-    // else: play() fires when unlock() is called after the first gesture
   }
 
-  startSelectionMusic()  { this.startMusic("b423b42.mp3", "selection"); }
+  /** Starts immediately without requiring a prior user gesture. */
+  startSelectionMusic()  { this.startMusic("b423b42.mp3", "selection", true); }
   startGameplayMusic()   { this.startMusic("Lost and Faltering.mp3", "gameplay"); }
   switchToIncidentMusic(){ this.startMusic("the_last_parsec_mix2.mp3", "incident"); }
   switchToCorruptMusic() { this.startMusic("Caves.mp3", "corrupt"); }
