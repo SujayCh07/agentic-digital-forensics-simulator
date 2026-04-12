@@ -28,11 +28,11 @@ def test_create_session():
     session = create_session("test-sid-1")
     assert session.sid == "test-sid-1"
     assert session.funds == 1500
-    assert len(session.marketplace_offers) == 4
-    # 4 starter agents (one per archetype) are auto-deployed
-    assert len(session.deployed_agents) == 4
-    archetypes = {a.archetype for a in session.deployed_agents}
-    assert archetypes == {"LOGIS", "NEXUS", "FILER", "CHRONO"}
+    assert len(session.marketplace_offers) == 3
+    assert len(session.deployed_agents) == 1
+    assert session.deployed_agents[0].archetype == "LOGIS"
+    market_archetypes = {o.agent.archetype for o in session.marketplace_offers}
+    assert market_archetypes == {"NEXUS", "FILER", "CHRONO"}
     destroy_session("test-sid-1")
 
 
@@ -83,7 +83,7 @@ def test_refresh_marketplace():
     old_ids = {o.offer_id for o in session.marketplace_offers}
     refresh_marketplace(session)
     new_ids = {o.offer_id for o in session.marketplace_offers}
-    assert len(session.marketplace_offers) == 4
+    assert len(session.marketplace_offers) == 3
     assert old_ids != new_ids
     destroy_session("test-sid-refresh")
 

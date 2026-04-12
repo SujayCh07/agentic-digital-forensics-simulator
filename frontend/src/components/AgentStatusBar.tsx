@@ -1,23 +1,21 @@
 "use client";
 
-import type { AgentDefinition, AgentId, Task } from "@/types/investigation";
+import type {
+  AgentDefinition,
+  AgentId,
+  NipsAgentInstance,
+  Task,
+} from "@/types/investigation";
 
 interface AgentStatusBarProps {
   agents: AgentDefinition[];
   activeTasks: Task[];
   /** IDs of agents that haven't been unlocked yet */
   lockedAgents?: AgentId[];
+  slotAgentsByRole?: Partial<Record<AgentId, NipsAgentInstance>>;
   /** Called when an agent card is clicked (for opening chat) */
   onAgentClick?: (agentId: AgentId) => void;
 }
-
-const STATUS_LABEL: Record<AgentDefinition["status"], string> = {
-  idle: "IDLE",
-  moving: "MOVING",
-  executing: "EXECUTING",
-  reporting: "REPORTING",
-  standby: "STANDBY",
-};
 
 const STATUS_COLOR: Record<AgentDefinition["status"], string> = {
   idle: "#2a5070",
@@ -39,12 +37,14 @@ export function AgentStatusBar({
   agents,
   activeTasks,
   lockedAgents = [],
+  slotAgentsByRole = {},
   onAgentClick,
 }: AgentStatusBarProps) {
   return (
     <div className="flex gap-2 h-full items-stretch">
       {agents.map((agent) => {
         const isLocked = lockedAgents.includes(agent.id);
+        const slotAgent = slotAgentsByRole[agent.id];
         const task = activeTasks.find(
           (t) => t.agentId === agent.id && t.status !== "complete",
         );
@@ -69,16 +69,17 @@ export function AgentStatusBar({
               boxShadow: isActive
                 ? `0 0 8px ${agent.color}20, inset 0 1px 0 ${agent.color}10`
                 : undefined,
-              cursor: isLocked ? "default" : "pointer",
+              cursor: onAgentClick && slotAgent ? "pointer" : "default",
             }}
           >
             {/* Agent name + indicator */}
             <div className="flex items-center justify-between gap-1.5 mb-1">
               <span
-                className="text-[11px] font-mono font-bold tracking-[0.12em]"
+                className="text-[11px] font-mono font-bold tracking-[0.08em] truncate"
                 style={{ color: isLocked ? "#2a5070" : agent.color }}
+                title={slotAgent?.display_name ?? agent.name}
               >
-                {agent.name}
+                {slotAgent?.display_name ?? agent.name}
               </span>
               {isLocked ? (
                 <span className="text-[8px]" style={{ color: "#2a5070" }}>
@@ -100,20 +101,16 @@ export function AgentStatusBar({
               className="mb-2 truncate text-[9px] font-mono uppercase tracking-[0.16em]"
               style={{ color: "#2a5070" }}
             >
-              {isLocked ? "LOCKED" : agent.specialty}
+              {slotAgent
+                ? `${slotAgent.archetype} • ${isLocked ? "LOCKED" : slotAgent.role_level}`
+                : "LOCKED • MARKET"}
             </div>
 
-            {/* Status + current task */}
-            <div>
-              <span
-                className="text-[10px] font-mono"
-                style={{ color: statusColor }}
-              >
-                {isLocked ? "—" : STATUS_LABEL[agent.status]}
-              </span>
+            {/* Task only when active */}
+            <div className="min-h-[18px]">
               {!isLocked && task && (
                 <p
-                  className="mt-1 text-[9px] font-mono truncate"
+                  className="text-[9px] font-mono truncate"
                   style={{ color: "#4a6580" }}
                   title={task.type.replace(/_/g, " ")}
                 >

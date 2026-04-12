@@ -48,7 +48,7 @@ export function NodeListPanel({
           className="text-[10px] font-mono uppercase tracking-[0.18em]"
           style={{ color: "#00d4ff" }}
         >
-          ◈ System Nodes
+          ◈ Building Locations
         </span>
       </div>
 
@@ -147,7 +147,7 @@ export function NodeListPanel({
         className="shrink-0 px-4 py-2 text-[10px] font-mono"
         style={{ borderTop: "1px solid #1e3d5a", color: "#1e3d5a" }}
       >
-        Select a node to inspect details and dispatch tasks.
+        Select a building to inspect details and dispatch tasks.
       </div>
     </div>
   );

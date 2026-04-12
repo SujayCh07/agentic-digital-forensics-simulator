@@ -44,10 +44,6 @@ function normalizeInterestRate(v: number): number {
   return Math.max(0, Math.min(1, (v - 3) / 5));
 }
 
-function normalizeEggIndex(v: number): number {
-  return Math.max(0, Math.min(1, (v - 0.5) / 4.5));
-}
-
 function normalizePrices(v: number): number {
   return Math.min(1, Math.abs(v) / 10);
 }
@@ -89,33 +85,18 @@ export function Dashboard({
   const content = (
     <>
       <div
-        className="flex items-center justify-between px-4 py-3"
+        className="flex items-center px-4 py-3"
         style={{ borderBottom: "1px solid #1e3d5a" }}
       >
         <span
           className="text-[10px] font-mono uppercase tracking-[0.16em]"
           style={{ color: "#00d4ff" }}
         >
-          Stage {phase || "-"}
-        </span>
-        <span
-          className="text-[11px] font-mono tabular-nums uppercase tracking-[0.14em]"
-          style={{ color: "#4a6580" }}
-        >
-          Cycle {round}/{maxRounds}
+          Systems Status
         </span>
       </div>
 
       <div className="flex flex-col py-1">
-        <PixelStatBar
-          icon={<TextIcon ch="!" color="#ff3a3a" />}
-          label="Corruption"
-          value={metrics.eggIndex}
-          formatValue={(v) => `${Math.min(99, Math.round(((v - 0.5) / 4.5) * 100))}%`}
-          severity={highBadSeverity(normalizeEggIndex(metrics.eggIndex))}
-          fillRatio={normalizeEggIndex(metrics.eggIndex)}
-          trend={computeTrend(metricsHistory, (m) => m.eggIndex)}
-        />
         <PixelStatBar
           icon={<TextIcon ch="◈" color="#00d4ff" />}
           label="Evidence Integrity"

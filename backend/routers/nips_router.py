@@ -21,6 +21,7 @@ from nips.session import (
     append_tool_message,
     append_user_message,
     buy_agent,
+    charge_chat_turn,
     create_session,
     destroy_session,
     get_agent_instance,
@@ -44,7 +45,8 @@ def register_nips_events(sio: Any) -> None:
     async def on_init_session(sid: str, data: dict[str, Any] | None = None) -> None:
         data = data or {}
         case_id = data.get("case_id", "midnight_exfil")
-        session = create_session(sid, case_id)
+        starter_archetype = data.get("starter_archetype", "LOGIS")
+        session = create_session(sid, case_id, starter_archetype)
 
         await sio.emit(
             "nips_session_ready",
@@ -86,6 +88,14 @@ def register_nips_events(sio: Any) -> None:
         agent = get_agent_instance(session, agent_id)
         if not agent:
             await sio.emit("nips_error", {"message": f"Agent {agent_id} not found in roster."}, to=sid)
+            return
+
+        if not charge_chat_turn(session):
+            await sio.emit(
+                "nips_error",
+                {"message": "Insufficient credits. Each AI consult costs 100¢."},
+                to=sid,
+            )
             return
 
         chat = get_or_create_chat(session, agent_id)
@@ -145,6 +155,7 @@ def register_nips_events(sio: Any) -> None:
                         "interaction_id": event.get("interaction_id", ""),
                         "full_answer": full_answer,
                         "evidence_updates": event.get("evidence_updates", []),
+                        "funds": session.funds,
                     }, to=sid)
 
                 elif event_type == "error":

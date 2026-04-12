@@ -32,6 +32,13 @@ function roleToZone(role: string): string {
 
 const MIN_SPAWN_SPACING = 4;
 
+const INVESTIGATOR_VISOR_TINT: Partial<Record<string, number>> = {
+  logis: 0x7dd3fc,
+  nexus: 0xc4b5fd,
+  filer: 0xfbbf24,
+  chrono: 0x5eead4,
+};
+
 export class NPCManager {
   private scene: Phaser.Scene;
   private npcs: Map<string, NPC> = new Map();
@@ -424,6 +431,10 @@ export class NPCManager {
     npc.category = bn.category ?? "";
     npc.reputation = bn.reputation;
     npc.sentiment = moodToSentiment(bn.mood);
+    const investigatorTint = INVESTIGATOR_VISOR_TINT[bn.id.toLowerCase()];
+    if (bn.category === "specialist" && investigatorTint) {
+      npc.applyLunarInvestigatorStyle(investigatorTint);
+    }
     this.occupancy.occupy(bn.id, tileX, tileY);
     return npc;
   }

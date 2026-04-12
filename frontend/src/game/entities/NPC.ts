@@ -202,6 +202,12 @@ export class NPC extends Phaser.GameObjects.Sprite {
     this.emitHoverEvent();
   }
 
+  applyLunarInvestigatorStyle(visorTint: number) {
+    this.setTint(visorTint, visorTint, 0xe8eef7, 0xd9e1ec);
+    this.setAlpha(0.98);
+    this.setDepth(12);
+  }
+
   /** Snapshot for EventBridge → React chat bubbles (camera-relative screen coords) */
   toState(): NPCState | null {
     const cam = this.getMainCamera();

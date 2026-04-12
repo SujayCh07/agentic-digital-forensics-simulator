@@ -37,6 +37,7 @@ export interface NipsChatCallbacks {
     interaction_id: string;
     full_answer: string;
     evidence_updates: NipsEvidenceUpdate[];
+    funds: number;
   }) => void;
   onError: (message: string) => void;
 }
@@ -120,12 +121,16 @@ function getSocket(): Socket {
 export function initNipsSession(
   callbacks: NipsSessionCallbacks,
   caseId = "midnight_exfil",
+  starterArchetype = "LOGIS",
 ): () => void {
   _sessionCallbacks = callbacks;
   const socket = getSocket();
 
   const onConnect = () => {
-    socket.emit("nips_init_session", { case_id: caseId });
+    socket.emit("nips_init_session", {
+      case_id: caseId,
+      starter_archetype: starterArchetype,
+    });
   };
 
   if (socket.connected) {
