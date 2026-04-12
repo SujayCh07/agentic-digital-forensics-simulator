@@ -35,6 +35,7 @@ import {
 } from "@/components/RecoveryProgress";
 import { RemediationPanel } from "@/components/RemediationPanel";
 import { SectorStatusPanel } from "@/components/SectorStatusPanel";
+import { TutorialOverlay } from "@/components/TutorialOverlay";
 import { UserBoard } from "@/components/UserBoard/UserBoard";
 import { CASE_AGENTS_NPCS } from "@/data/case_midnight_exfil";
 import {
@@ -45,6 +46,7 @@ import { useBoardState } from "@/hooks/useBoardState";
 import { useInvestigation } from "@/hooks/useInvestigation";
 import { useRadio } from "@/hooks/useRadio";
 import { useSimulation } from "@/hooks/useSimulation";
+import { useTutorial } from "@/hooks/useTutorial";
 import {
   buildAgentStateModel,
   normalizeOwnedAgents,
@@ -398,6 +400,8 @@ function InvestigateGame({
   onProgressChange: (p: PlayerProgress) => void;
 }) {
   const router = useRouter();
+  const searchParamsInner = useSearchParams();
+  const isTutorial = searchParamsInner.get("tutorial") === "1";
   const inv = useInvestigation(activeHelpers);
   const starterRole = ((activeHelpers as unknown as { _starter?: AgentId })
     ._starter ?? "logis") as AgentId;
@@ -470,6 +474,32 @@ function InvestigateGame({
     externalDelta,
     inv.pressureLevel,
   );
+
+  // ── Tutorial mode ───────────────────────────────────────────────────────────
+  const tutorial = useTutorial(
+    isTutorial
+      ? {
+          sectorActive: activeSectorId !== null,
+          agentOpen: chatAgent !== null,
+          hasEvidence: evidenceDelta > 0,
+          reportSubmitted: proposalSubmitted,
+          hasRemediation: remediationHistory.length > 0,
+          at75: recoveryProgress >= 75,
+          finalizing: showFinalClaimModal,
+          won: endgameOutcome === "win",
+        }
+      : {
+          sectorActive: false,
+          agentOpen: false,
+          hasEvidence: false,
+          reportSubmitted: false,
+          hasRemediation: false,
+          at75: false,
+          finalizing: false,
+          won: false,
+        },
+  );
+
   const discoveredNodes = useMemo(
     () => [
       ...new Set(inv.completedFindings.map((f) => f.nodeId).filter(Boolean)),
@@ -924,12 +954,14 @@ function InvestigateGame({
 
         <div className="ml-3 flex shrink-0 items-center gap-2.5">
           {/* Recovery progress bar — always shown */}
-          <RecoveryProgress
-            evidenceDelta={evidenceDelta}
-            externalDelta={externalDelta}
-            pressureLevel={inv.pressureLevel}
-            proposalSubmitted={proposalSubmitted}
-          />
+          <div data-tutorial-id="recovery-progress">
+            <RecoveryProgress
+              evidenceDelta={evidenceDelta}
+              externalDelta={externalDelta}
+              pressureLevel={inv.pressureLevel}
+              proposalSubmitted={proposalSubmitted}
+            />
+          </div>
           {/* Timer display */}
           {timerRunning && !endgameOutcome && (
             <div
@@ -993,6 +1025,7 @@ function InvestigateGame({
           )}
           {activeSectorId && !endgameOutcome && !showFinalClaimModal && (
             <button
+              data-tutorial-id="submit-report-btn"
               type="button"
               onClick={() => {
                 audioManager.playButtonClick();
@@ -1014,6 +1047,7 @@ function InvestigateGame({
             !endgameOutcome &&
             !showFinalClaimModal && (
               <button
+                data-tutorial-id="finalize-btn"
                 type="button"
                 onClick={() => {
                   audioManager.playButtonClick();
@@ -1079,7 +1113,10 @@ function InvestigateGame({
       {/* Main layout */}
       <div className="flex flex-1 gap-2 overflow-hidden p-3">
         {/* Left: Evidence feed */}
-        <div className="rpg-panel panel-slide-left flex h-full w-[248px] shrink-0 flex-col">
+        <div
+          data-tutorial-id="event-feed-panel"
+          className="rpg-panel panel-slide-left flex h-full w-[248px] shrink-0 flex-col"
+        >
           <div
             className="shrink-0 px-4 py-3"
             style={{ borderBottom: "1px solid #1e3d5a" }}
@@ -1137,7 +1174,10 @@ function InvestigateGame({
         </div>
 
         {/* Center: Game canvas */}
-        <div className="relative flex min-w-0 flex-1 items-start justify-center overflow-hidden pt-0.5">
+        <div
+          data-tutorial-id="game-canvas-area"
+          className="relative flex min-w-0 flex-1 items-start justify-center overflow-hidden pt-0.5"
+        >
           <div
             ref={canvasContainerRef}
             className="relative shrink-0 overflow-hidden"
@@ -1201,7 +1241,10 @@ function InvestigateGame({
         </div>
 
         {/* Right: Sector integrity panel */}
-        <div className="panel-slide-right shrink-0 h-full">
+        <div
+          data-tutorial-id="sector-panel"
+          className="panel-slide-right shrink-0 h-full"
+        >
           <SectorStatusPanel
             activeSectorId={activeSectorId}
             pressureLevel={inv.pressureLevel}
@@ -1500,6 +1543,17 @@ function InvestigateGame({
             finalProposalActiveRef.current = false;
           }}
           onReturnHome={() => router.push("/")}
+        />
+      )}
+
+      {/* Tutorial overlay — rendered last so it sits above all other UI */}
+      {isTutorial && tutorial.step && !tutorial.dismissed && (
+        <TutorialOverlay
+          step={tutorial.step}
+          stepIndex={tutorial.stepIndex}
+          isWaiting={tutorial.isWaiting}
+          onNext={tutorial.advance}
+          onSkip={tutorial.skip}
         />
       )}
     </div>

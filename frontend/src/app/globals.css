@@ -284,3 +284,28 @@ body {
               border 0.3s ease,
               box-shadow 0.3s ease;
 }
+
+/* Tutorial highlight ring animations */
+@keyframes tutorial-ring-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 2px #00d4ff, 0 0 16px rgba(0, 212, 255, 0.5);
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 0 4px #00d4ff, 0 0 32px rgba(0, 212, 255, 0.8);
+    opacity: 0.85;
+  }
+}
+
+@keyframes tutorial-callout-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.tutorial-ring-pulse {
+  animation: tutorial-ring-pulse 1.8s ease-in-out infinite;
+}
+
+.tutorial-callout-in {
+  animation: tutorial-callout-in 0.25s ease-out forwards;
+}
