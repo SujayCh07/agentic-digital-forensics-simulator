@@ -356,6 +356,10 @@ export const BoardGraphCanvas = forwardRef<BoardCanvasHandle, Props>(
     const zoomBehaviorRef = useRef<d3.ZoomBehavior<HTMLCanvasElement, unknown> | null>(null);
     // True while the pointer is held down over a node (used to suppress D3 panning)
     const nodeDownRef  = useRef(false);
+    // Survives effect teardown when onNodeClick changes (avoids losing pending drag mid-press)
+    const pendingDragRef = useRef<{ node: BoardSimNode | null; sx: number; sy: number }>({ node: null, sx: 0, sy: 0 });
+    // Set in onUp when a node click fires; blocks the concurrent onClick from calling onCanvasClick
+    const suppressNextCanvasClickRef = useRef(false);
     const [dims, setDims] = useState({ w: 880, h: 560 });
 
     // Measure container
@@ -601,18 +605,19 @@ function drawMiniMap(
         return null;
       }
 
-      // Pending drag: records mousedown position so we can distinguish click vs drag
-      const pending = { node: null as BoardSimNode | null, sx: 0, sy: 0 };
+      // Note: pendingDrag lives in pendingDragRef (component-level ref) so it survives
+      // effect teardown caused by onNodeClick changing when connectSrc changes.
       const DRAG_THRESHOLD = 4; // px before drag activates
 
       const onMove = (e: MouseEvent) => {
         const { x, y } = getMousePos(e);
 
         // Promote pending to active drag once threshold exceeded
-        if (pending.node && !dragRef.current) {
-          if (Math.hypot(x - pending.sx, y - pending.sy) > DRAG_THRESHOLD) {
+        const pd = pendingDragRef.current;
+        if (pd.node && !dragRef.current) {
+          if (Math.hypot(x - pd.sx, y - pd.sy) > DRAG_THRESHOLD) {
             const [gx, gy] = screenToGraph(x, y);
-            dragRef.current = pending.node;
+            dragRef.current = pd.node;
             dragRef.current.fx = gx;
             dragRef.current.fy = gy;
             canvas.style.cursor = "grabbing";
@@ -644,9 +649,7 @@ function drawMiniMap(
         const node = getNodeAt(gx, gy);
         if (node) {
           nodeDownRef.current = true;   // suppress D3 pan
-          pending.node = node;
-          pending.sx = x;
-          pending.sy = y;
+          pendingDragRef.current = { node, sx: x, sy: y };
           e.stopPropagation();
         }
       };
@@ -664,18 +667,25 @@ function drawMiniMap(
         }
 
         // If button released without dragging → plain click → fire connection logic
-        const candidate = pending.node;
-        pending.node = null;
+        const candidate = pendingDragRef.current.node;
+        pendingDragRef.current = { node: null, sx: 0, sy: 0 };
         if (!wasDragging && candidate) {
+          // Suppress the concurrent onClick from calling onCanvasClick and clearing connectSrc
+          suppressNextCanvasClickRef.current = true;
           onNodeClick?.(candidate);
         }
       };
 
       const onClick = (e: MouseEvent) => {
+        // If a node click was handled in onUp, swallow this event to prevent onCanvasClick
+        // from clearing the connection source that was just set.
+        if (suppressNextCanvasClickRef.current) {
+          suppressNextCanvasClickRef.current = false;
+          return;
+        }
         const { x, y } = getMousePos(e);
         const [gx, gy] = screenToGraph(x, y);
-        // Node clicks handled in onUp — only dispatch edges/canvas from here
-        if (getNodeAt(gx, gy)) return;
+        if (getNodeAt(gx, gy)) return; // node already handled in onUp
         const edge = getEdgeAt(gx, gy);
         if (edge) { onEdgeClick?.(edge); return; }
         onCanvasClick?.();
@@ -684,8 +694,8 @@ function drawMiniMap(
       const onLeave = () => {
         hoveredNodeRef.current = null;
         hoveredEdgeRef.current = null;
-        // Don't cancel active drag; clear only pending candidate
-        if (!dragRef.current) pending.node = null;
+        // Don't cancel active drag; clear only pending
+        if (!dragRef.current) pendingDragRef.current = { node: null, sx: 0, sy: 0 };
       };
 
       canvas.addEventListener("mousemove", onMove);
