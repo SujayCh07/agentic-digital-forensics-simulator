@@ -1,60 +1,26 @@
 "use client";
 
 /**
- * NIPS — User Board
+ * NIPS — User Board (v5, D3 canvas + React sidebar)
  *
- * Full-screen overlay investigation board. Three-column layout:
- * Left: Evidence panel (pinned + available findings)
- * Center: React Flow canvas (problem graph + hypotheses)
- * Right: Agent consultation panel
+ * The graph canvas uses pure D3 (BoardGraphCanvas, same as SocialGraph).
+ * React handles only the sidebar panels and connector drawing overlay.
  *
- * Uses @xyflow/react for the interactive graph canvas.
+ * Connection drawing: click a node to start a connection, click another to finish.
+ * Evidence drag: drag a card from the left panel onto the canvas.
  */
 
-import { useCallback, useMemo, useState } from "react";
-import {
-  ReactFlow,
-  Background,
-  Controls,
-  type Node,
-  type Edge,
-  type OnNodesChange,
-  type OnEdgesChange,
-  BackgroundVariant,
-  Panel,
-} from "@xyflow/react";
-import "@xyflow/react/dist/style.css";
-
-import {
-  SystemBoardNode,
-  UnknownBoardNode,
-  OutcomeBoardNode,
-  HypothesisBoardNode,
-} from "./BoardNodes";
-import { BoardEdge } from "./BoardEdges";
-import { EvidenceCard } from "./EvidenceCard";
+import { useCallback, useRef, useState, useEffect } from "react";
+import { BoardGraphCanvas } from "./BoardGraphCanvas";
+import type { BoardCanvasHandle, BoardSimNode, BoardSimEdge } from "./BoardGraphCanvas";
 import { AgentConsultPanel } from "./AgentConsultPanel";
 
 import type { AgentId, AgentResult } from "@/types/investigation";
 import type { BoardHookReturn } from "@/hooks/useBoardState";
 
-// ---------------------------------------------------------------------------
-// Node/edge type registrations
-// ---------------------------------------------------------------------------
+const DRAG_TYPE = "application/nips-evidence";
+let _uid = 0;
 
-const nodeTypes = {
-  systemNode: SystemBoardNode,
-  unknownNode: UnknownBoardNode,
-  outcomeNode: OutcomeBoardNode,
-  hypothesisNode: HypothesisBoardNode,
-};
-
-const edgeTypes = {
-  boardEdge: BoardEdge,
-};
-
-// ---------------------------------------------------------------------------
-// Props
 // ---------------------------------------------------------------------------
 
 interface UserBoardProps {
@@ -64,496 +30,278 @@ interface UserBoardProps {
   onClose: () => void;
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+export function UserBoard({ board, completedFindings, lockedAgents, onClose }: UserBoardProps) {
+  const canvasHandleRef = useRef<BoardCanvasHandle>(null);
+  const canvasWrapperRef = useRef<HTMLDivElement>(null);
 
-export function UserBoard({
-  board,
-  completedFindings,
-  lockedAgents,
-  onClose,
-}: UserBoardProps) {
-  const [evidenceTab, setEvidenceTab] = useState<"pinned" | "available">("pinned");
-  const [hypothesisInput, setHypothesisInput] = useState("");
-  const [showHypothesisForm, setShowHypothesisForm] = useState(false);
+  const [evidenceTab, setEvidenceTab] = useState<"available" | "pinned">("available");
+  const [showHypForm, setShowHypForm]  = useState(false);
+  const [hypInput, setHypInput]        = useState("");
 
-  // ── Build React Flow nodes from board state ───────────────────────────
+  // Connection mode: first click selects source, second click creates edge
+  const [connectSrc, setConnectSrc]    = useState<BoardSimNode | null>(null);
+  const [showConnectHint, setShowConnectHint] = useState(false);
 
-  const flowNodes: Node[] = useMemo(() => {
-    const nodes: Node[] = [];
+  // Track which evidence IDs are on the canvas as nodes
+  const [canvasEvidenceIds, setCanvasEvidenceIds] = useState<Set<string>>(new Set());
 
-    // Graph nodes (only revealed ones)
-    for (const gn of board.boardNodes) {
-      if (!gn.revealed) continue;
+  // Sync board enrichment effects (status changes, revealed nodes/edges)
+  useEffect(() => {
+    const canvas = canvasHandleRef.current;
+    if (!canvas) return;
+    board.boardNodes.forEach((bn) => {
+      canvas.updateNodeStatus(bn.id, bn.status as BoardSimNode["status"], bn.linkedEvidenceIds.length);
+    });
+  }, [board.boardNodes]);
 
-      const nodeTypeMap: Record<string, string> = {
-        system: "systemNode",
-        unknown: "unknownNode",
-        outcome: "outcomeNode",
-        hypothesis: "hypothesisNode",
-      };
-
-      nodes.push({
-        id: gn.id,
-        type: nodeTypeMap[gn.type] ?? "systemNode",
-        position: gn.position,
-        data: {
-          label: gn.label,
-          status: gn.status,
-          evidenceCount: gn.linkedEvidenceIds.length,
-          systemNodeId: gn.systemNodeId,
-          description: (gn.metadata as Record<string, string> | undefined)?.description,
-          selected: board.selectedItemIds.includes(gn.id),
-          onSelect: () => board.toggleSelectItem(gn.id),
-        },
-      });
-    }
-
-    // Hypothesis nodes
-    for (const h of board.hypotheses) {
-      nodes.push({
-        id: h.id,
-        type: "hypothesisNode",
-        position: h.position,
-        data: {
-          text: h.text,
-          status: h.status,
-          selected: board.selectedItemIds.includes(h.id),
-          onSelect: () => board.toggleSelectItem(h.id),
-          onEdit: (text: string) => board.editHypothesis(h.id, text),
-          onRemove: () => board.removeHypothesis(h.id),
-        },
-      });
-    }
-
-    return nodes;
-  }, [board.boardNodes, board.hypotheses, board.selectedItemIds, board]);
-
-  // ── Build React Flow edges from board state ───────────────────────────
-
-  const flowEdges: Edge[] = useMemo(() => {
-    const edges: Edge[] = [];
-
-    // Graph edges (only revealed ones)
-    for (const ge of board.boardEdges) {
-      if (!ge.revealed) continue;
-
-      // Only show if both source and target are revealed
-      const sourceRevealed = board.boardNodes.find(n => n.id === ge.source)?.revealed;
-      const targetRevealed = board.boardNodes.find(n => n.id === ge.target)?.revealed;
-      if (!sourceRevealed || !targetRevealed) continue;
-
-      edges.push({
-        id: ge.id,
-        source: ge.source,
-        target: ge.target,
-        type: "boardEdge",
-        data: {
-          status: ge.status,
-          label: ge.label,
-        },
-      });
-    }
-
-    // Board connections (evidence ↔ hypothesis links etc.)
-    for (const conn of board.connections) {
-      edges.push({
-        id: conn.id,
-        source: conn.sourceId,
-        target: conn.targetId,
-        type: "boardEdge",
-        data: {
-          status: conn.relation === "contradicts" ? "contradicted" : "suspected",
-          label: conn.relation,
-        },
-        animated: true,
-      });
-    }
-
-    return edges;
-  }, [board.boardEdges, board.boardNodes, board.connections]);
-
-  // ── React Flow change handlers ──────────────────────────────────────
-
-  const onNodesChange: OnNodesChange = useCallback(
-    (changes) => {
-      // Apply position changes to our board state
-      for (const change of changes) {
-        if (change.type === "position" && change.position && !change.dragging) {
-          const isHypothesis = change.id.startsWith("hyp-");
-          if (isHypothesis) {
-            board.updateHypothesisPosition(change.id, change.position);
-          } else {
-            board.updateNodePosition(change.id, change.position);
-          }
-        }
+  // ── Node click: connection mode ────────────────────────────────────────
+  const onNodeClick = useCallback((node: BoardSimNode) => {
+    if (!connectSrc) {
+      setConnectSrc(node);
+      setShowConnectHint(true);
+    } else {
+      if (connectSrc.id !== node.id) {
+        _uid += 1;
+        canvasHandleRef.current?.addEdge({
+          id: `edge-user-${Date.now()}-${_uid}`,
+          sourceId: connectSrc.id,
+          targetId: node.id,
+          status: "suspected",
+        });
       }
-    },
-    [board]
-  );
+      setConnectSrc(null);
+      setShowConnectHint(false);
+    }
+  }, [connectSrc]);
 
-  const onEdgesChange: OnEdgesChange = useCallback(() => {
-    // Edge changes are managed by our board state, not React Flow
+  const onEdgeClick = useCallback((edge: BoardSimEdge) => {
+    // Click edge to remove it
+    canvasHandleRef.current?.removeEdge(edge.id);
   }, []);
 
-  // ── Evidence helpers ─────────────────────────────────────────────────
+  const onCanvasClick = useCallback(() => {
+    setConnectSrc(null);
+    setShowConnectHint(false);
+  }, []);
 
-  const pinnedFindings = useMemo(
-    () => completedFindings.filter(f => board.isPinned(`${f.nodeId}:${f.taskType}`)),
-    [completedFindings, board]
-  );
-
-  const availableFindings = useMemo(
-    () => completedFindings.filter(f => !board.isPinned(`${f.nodeId}:${f.taskType}`)),
-    [completedFindings, board]
-  );
-
-  const selectedFindings = useMemo(() => {
-    const selectedKeys = new Set(board.selectedItemIds);
-    return completedFindings.filter(f => {
-      const key = `${f.nodeId}:${f.taskType}`;
-      return selectedKeys.has(key);
-    });
-  }, [completedFindings, board.selectedItemIds]);
-
-  // ── Hypothesis creation ──────────────────────────────────────────────
-
+  // ── Hypothesis ──────────────────────────────────────────────────────────
   const handleAddHypothesis = useCallback(() => {
-    if (!hypothesisInput.trim()) return;
-    board.addHypothesis(hypothesisInput.trim());
-    setHypothesisInput("");
-    setShowHypothesisForm(false);
-  }, [hypothesisInput, board]);
+    const text = hypInput.trim();
+    if (!text) return;
+    _uid += 1;
+    canvasHandleRef.current?.addNode({
+      id: `hyp-${Date.now()}-${_uid}`,
+      label: text,
+      nodeType: "hypothesis",
+      status: "normal",
+      evidenceCount: 0,
+    });
+    setHypInput("");
+    setShowHypForm(false);
+  }, [hypInput]);
 
-  // ── Agent consultation ────────────────────────────────────────────────
+  // ── Evidence drag-to-canvas ─────────────────────────────────────────────
+  const onDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }, []);
+
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    const raw = e.dataTransfer.getData(DRAG_TYPE);
+    if (!raw) return;
+    let f: AgentResult;
+    try { f = JSON.parse(raw); } catch { return; }
+
+    const id = `ev-node-${f.nodeId}-${f.taskType}`;
+    if (canvasEvidenceIds.has(id)) return;
+
+    board.pinEvidence(`${f.nodeId}:${f.taskType}`);
+    canvasHandleRef.current?.addNode({
+      id,
+      label: f.nodeName,
+      nodeType: "evidence",
+      status: "normal",
+      evidenceCount: 0,
+      agentId: f.agentId,
+      agentName: f.agentName,
+      severity: f.severity,
+      confidence: f.confidence,
+      summary: f.summary,
+    });
+    setCanvasEvidenceIds((prev) => new Set([...prev, id]));
+  }, [board, canvasEvidenceIds]);
+
+  const handleDragStart = (e: React.DragEvent, f: AgentResult) => {
+    e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(f));
+    e.dataTransfer.effectAllowed = "copy";
+  };
 
   const handleConsult = useCallback((agentId: AgentId) => {
-    // Get findings that match selected evidence
-    const allFindings = selectedFindings.length > 0 ? selectedFindings : pinnedFindings;
-    board.consultAgent(agentId, allFindings);
-  }, [selectedFindings, pinnedFindings, board]);
+    const pinned = completedFindings.filter((f) => board.isPinned(`${f.nodeId}:${f.taskType}`));
+    board.consultAgent(agentId, pinned.length > 0 ? pinned : completedFindings);
+  }, [board, completedFindings]);
 
-  // ── Drop handler for evidence → node attachment ──────────────────────
+  const pinnedFindings = completedFindings.filter((f) => board.isPinned(`${f.nodeId}:${f.taskType}`));
+  const evidenceList   = evidenceTab === "pinned" ? pinnedFindings : completedFindings;
 
-  const handleEvidenceDrop = useCallback(
-    (evidenceKey: string, targetNodeId: string) => {
-      board.attachEvidenceToNode(evidenceKey, targetNodeId);
-    },
-    [board]
-  );
+  const AGENT_COLOR: Record<string, string> = { logis: "#c9d8e8", nexus: "#00d4ff", filer: "#f59e0b", chrono: "#b06fff" };
+  const SEV_COLOR:   Record<string, string> = { critical: "#ff3a3a", high: "#f59e0b", medium: "#00d4ff", low: "#4a6580" };
 
   return (
-    <div
-      className="fixed inset-0 z-[55] flex flex-col"
-      style={{ background: "#080c12" }}
-    >
-      {/* ── Top bar ──────────────────────────────────────────────── */}
-      <div
-        className="flex items-center justify-between px-4 h-10 shrink-0"
-        style={{
-          background: "rgba(15,25,39,0.98)",
-          borderBottom: "1px solid #1e3d5a",
-        }}
-      >
+    <div className="fixed inset-0 z-[55] flex flex-col" style={{ background: "#080c12" }}>
+
+      {/* Top bar */}
+      <div className="flex items-center justify-between px-4 h-10 shrink-0"
+        style={{ background: "rgba(15,25,39,0.98)", borderBottom: "1px solid #1e3d5a" }}>
         <div className="flex items-center gap-3">
-          <span className="text-[10px] font-mono" style={{ color: "#00d4ff" }}>
-            ◈ INVESTIGATION BOARD
-          </span>
-          <span className="text-[7px] font-mono uppercase tracking-widest" style={{ color: "#2a5070" }}>
-            The Midnight Exfiltration
-          </span>
+          <span className="text-[10px] font-mono" style={{ color: "#00d4ff" }}>◈ INVESTIGATION BOARD</span>
+          <span className="text-[7px] font-mono uppercase tracking-widest" style={{ color: "#2a5070" }}>Midnight Exfiltration</span>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-[7px] font-mono" style={{ color: "#2a5070" }}>
-            {board.pinnedEvidenceIds.length} pinned · {board.hypotheses.length} hypotheses
-          </span>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-[9px] font-mono transition-opacity hover:opacity-60"
-            style={{ color: "#4a6580" }}
-          >
+        <div className="flex items-center gap-4">
+          {showConnectHint && (
+            <span className="text-[7px] font-mono animate-pulse" style={{ color: "#f59e0b" }}>
+              → Click another node to connect · Click canvas to cancel
+            </span>
+          )}
+          {!showConnectHint && (
+            <span className="text-[7px] font-mono" style={{ color: "#1e3d5a" }}>
+              Click node→node to connect · Click edge to delete · Drag findings onto canvas
+            </span>
+          )}
+          <button type="button" onClick={onClose}
+            className="text-[9px] font-mono transition-opacity hover:opacity-60" style={{ color: "#4a6580" }}>
             [ESC] CLOSE
           </button>
         </div>
       </div>
 
-      {/* ── Three-column layout ──────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
-        {/* ── Left: Evidence Panel ─────────────────────────────────── */}
-        <div
-          className="w-60 shrink-0 flex flex-col h-full"
-          style={{
-            background: "rgba(8,12,18,0.95)",
-            borderRight: "1px solid #1e3d5a",
-          }}
-        >
-          {/* Evidence tab switcher */}
+
+        {/* Left: Evidence panel */}
+        <div className="w-56 shrink-0 flex flex-col"
+          style={{ background: "rgba(8,12,18,0.95)", borderRight: "1px solid #1e3d5a" }}>
+
+          {/* Tabs */}
           <div className="flex shrink-0" style={{ borderBottom: "1px solid #1e3d5a" }}>
-            {(["pinned", "available"] as const).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setEvidenceTab(tab)}
-                className="flex-1 py-2 text-[7px] font-mono uppercase tracking-widest transition-colors"
+            {(["available", "pinned"] as const).map((tab) => (
+              <button key={tab} type="button" onClick={() => setEvidenceTab(tab)}
+                className="flex-1 py-2 text-[7px] font-mono uppercase tracking-widest"
                 style={{
                   color: evidenceTab === tab ? "#00d4ff" : "#2a5070",
                   background: evidenceTab === tab ? "rgba(0,212,255,0.05)" : "transparent",
                   borderBottom: evidenceTab === tab ? "2px solid #00d4ff" : "2px solid transparent",
-                }}
-              >
-                {tab} ({tab === "pinned" ? pinnedFindings.length : availableFindings.length})
+                }}>
+                {tab} ({(tab === "pinned" ? pinnedFindings : completedFindings).length})
               </button>
             ))}
           </div>
 
-          {/* Evidence list */}
-          <div className="flex-1 overflow-y-auto px-2 py-2 flex flex-col gap-1.5">
-            {evidenceTab === "pinned" ? (
-              pinnedFindings.length === 0 ? (
-                <div className="text-[8px] font-mono italic text-center py-4" style={{ color: "#1e3d5a" }}>
-                  No evidence pinned yet. Pin findings from the Available tab or the evidence feed.
-                </div>
-              ) : (
-                pinnedFindings.map((f) => {
-                  const key = `${f.nodeId}:${f.taskType}`;
-                  return (
-                    <div key={key}>
-                      <EvidenceCard
-                        finding={f}
-                        isPinned
-                        isSelected={board.selectedItemIds.includes(key)}
-                        onUnpin={() => board.unpinEvidence(key)}
-                        onSelect={() => board.toggleSelectItem(key)}
-                        compact
-                      />
-                      {/* Attach to node buttons */}
-                      <div className="flex gap-1 mt-0.5 px-1">
-                        {board.boardNodes
-                          .filter(n => n.revealed && n.type === "system")
-                          .map((n) => (
-                            <button
-                              key={n.id}
-                              type="button"
-                              onClick={() => handleEvidenceDrop(key, n.id)}
-                              className="text-[6px] font-mono px-1 py-0.5 rounded transition-opacity hover:opacity-70"
-                              style={{
-                                color: n.linkedEvidenceIds.includes(key) ? "#00ff88" : "#2a5070",
-                                background: n.linkedEvidenceIds.includes(key) ? "#00ff8810" : "#1e3d5a20",
-                                border: `1px solid ${n.linkedEvidenceIds.includes(key) ? "#00ff8830" : "#1e3d5a40"}`,
-                              }}
-                              title={`Attach to ${n.label}`}
-                            >
-                              {n.linkedEvidenceIds.includes(key) ? "✓" : "→"} {(n.systemNodeId ?? n.label).substring(0, 7)}
-                            </button>
-                          ))}
-                      </div>
-                    </div>
-                  );
-                })
-              )
-            ) : (
-              availableFindings.length === 0 ? (
-                <div className="text-[8px] font-mono italic text-center py-4" style={{ color: "#1e3d5a" }}>
-                  {completedFindings.length === 0
-                    ? "No evidence found yet. Deploy agents to investigate systems."
-                    : "All evidence is pinned to the board."}
-                </div>
-              ) : (
-                availableFindings.map((f) => {
-                  const key = `${f.nodeId}:${f.taskType}`;
-                  return (
-                    <EvidenceCard
-                      key={key}
-                      finding={f}
-                      isPinned={false}
-                      onPin={() => board.pinEvidence(key)}
-                      compact
-                    />
-                  );
-                })
-              )
-            )}
+          <div className="px-2 py-1.5 shrink-0" style={{ borderBottom: "1px solid #1e3d5a" }}>
+            <p className="text-[6px] font-mono" style={{ color: "#2a5070" }}>⠿ Drag findings onto the canvas</p>
           </div>
 
-          {/* Hypothesis creation */}
-          <div className="shrink-0 px-2 py-2" style={{ borderTop: "1px solid #1e3d5a" }}>
-            {showHypothesisForm ? (
-              <div className="flex flex-col gap-1.5">
-                <input
-                  type="text"
-                  autoFocus
-                  value={hypothesisInput}
-                  onChange={(e) => setHypothesisInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleAddHypothesis();
-                    if (e.key === "Escape") setShowHypothesisForm(false);
-                  }}
-                  placeholder='e.g. "MAIL-01 is the pivot point"'
-                  className="w-full text-[8px] font-mono outline-none px-2 py-1.5 rounded"
+          <div className="flex-1 overflow-y-auto px-2 py-2 flex flex-col gap-1.5">
+            {evidenceList.length === 0 ? (
+              <p className="text-[8px] font-mono italic text-center py-6" style={{ color: "#1e3d5a" }}>
+                {completedFindings.length === 0 ? "Deploy agents to gather evidence." : "No pinned evidence yet."}
+              </p>
+            ) : evidenceList.map((f) => {
+              const id = `ev-node-${f.nodeId}-${f.taskType}`;
+              const onCanvas = canvasEvidenceIds.has(id);
+              return (
+                <div
+                  key={`${f.nodeId}:${f.taskType}`}
+                  draggable={!onCanvas}
+                  onDragStart={(e) => handleDragStart(e, f)}
+                  className="rounded"
                   style={{
-                    background: "#080c12",
-                    border: "1px solid #b06fff40",
-                    color: "#c9d8e8",
-                    caretColor: "#b06fff",
-                  }}
-                />
+                    padding: "6px 8px",
+                    background: onCanvas ? "rgba(0,212,255,0.04)" : "rgba(8,12,18,0.8)",
+                    border: `1px solid ${onCanvas ? "#00d4ff30" : "#1e3d5a"}`,
+                    cursor: onCanvas ? "default" : "grab",
+                    opacity: onCanvas ? 0.55 : 1,
+                  }}>
+                  <div className="flex items-center justify-between gap-1 mb-0.5">
+                    <span className="text-[8px] font-mono font-bold" style={{ color: AGENT_COLOR[f.agentId] ?? "#4a6580" }}>
+                      {f.agentName}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      {onCanvas && <span className="text-[6px] font-mono" style={{ color: "#00d4ff" }}>✓</span>}
+                      <span className="text-[6px] font-mono px-1 rounded uppercase"
+                        style={{ color: SEV_COLOR[f.severity] ?? "#4a6580", background: `${SEV_COLOR[f.severity] ?? "#4a6580"}15`, border: `1px solid ${SEV_COLOR[f.severity] ?? "#4a6580"}30` }}>
+                        {f.severity}
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-[7px] font-mono line-clamp-2" style={{ color: "#4a6580" }}>{f.summary}</p>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Hypothesis form */}
+          <div className="shrink-0 px-2 py-2" style={{ borderTop: "1px solid #1e3d5a" }}>
+            {showHypForm ? (
+              <div className="flex flex-col gap-1.5">
+                <input type="text" autoFocus value={hypInput}
+                  onChange={(e) => setHypInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleAddHypothesis(); if (e.key === "Escape") setShowHypForm(false); }}
+                  placeholder='e.g. "MAIL-01 is the pivot"'
+                  className="w-full text-[8px] font-mono outline-none px-2 py-1.5 rounded"
+                  style={{ background: "#080c12", border: "1px solid #b06fff40", color: "#c9d8e8", caretColor: "#b06fff" }} />
                 <div className="flex gap-1">
-                  <button
-                    type="button"
-                    onClick={handleAddHypothesis}
-                    disabled={!hypothesisInput.trim()}
-                    className="flex-1 text-[7px] font-mono py-1 rounded transition-all"
-                    style={{
-                      background: hypothesisInput.trim() ? "rgba(176,111,255,0.12)" : "#0d1520",
-                      border: `1px solid ${hypothesisInput.trim() ? "#b06fff" : "#1e3d5a"}`,
-                      color: hypothesisInput.trim() ? "#b06fff" : "#2a5070",
-                    }}
-                  >
+                  <button type="button" onClick={handleAddHypothesis} disabled={!hypInput.trim()}
+                    className="flex-1 text-[7px] font-mono py-1 rounded"
+                    style={{ background: hypInput.trim() ? "rgba(176,111,255,0.12)" : "#0d1520", border: `1px solid ${hypInput.trim() ? "#b06fff" : "#1e3d5a"}`, color: hypInput.trim() ? "#b06fff" : "#2a5070" }}>
                     ADD
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowHypothesisForm(false)}
-                    className="text-[7px] font-mono px-2 py-1 rounded"
-                    style={{ color: "#4a6580", border: "1px solid #1e3d5a" }}
-                  >
+                  <button type="button" onClick={() => setShowHypForm(false)}
+                    className="text-[7px] font-mono px-2 py-1 rounded" style={{ color: "#4a6580", border: "1px solid #1e3d5a" }}>
                     ✕
                   </button>
                 </div>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={() => setShowHypothesisForm(true)}
-                className="w-full text-[8px] font-mono py-1.5 rounded transition-all hover:opacity-80"
-                style={{
-                  background: "rgba(176,111,255,0.08)",
-                  border: "1px solid #b06fff40",
-                  color: "#b06fff",
-                }}
-              >
+              <button type="button" onClick={() => setShowHypForm(true)}
+                className="w-full text-[8px] font-mono py-1.5 rounded hover:opacity-80"
+                style={{ background: "rgba(176,111,255,0.08)", border: "1px solid #b06fff40", color: "#b06fff" }}>
                 + NEW HYPOTHESIS
               </button>
             )}
           </div>
         </div>
 
-        {/* ── Center: React Flow Canvas ────────────────────────────── */}
-        <div className="flex-1 relative">
-          <ReactFlow
-            nodes={flowNodes}
-            edges={flowEdges}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            fitView
-            fitViewOptions={{ padding: 0.3 }}
-            minZoom={0.3}
-            maxZoom={2}
-            proOptions={{ hideAttribution: true }}
-            style={{ background: "#080c12" }}
-          >
-            <Background
-              variant={BackgroundVariant.Dots}
-              gap={24}
-              size={1}
-              color="#1e3d5a30"
-            />
-            <Controls
-              showInteractive={false}
-              style={{
-                background: "rgba(8,12,18,0.9)",
-                border: "1px solid #1e3d5a",
-                borderRadius: 4,
-              }}
-            />
-
-            {/* Graph legend */}
-            <Panel position="bottom-left">
-              <div
-                className="rounded px-3 py-2"
-                style={{
-                  background: "rgba(8,12,18,0.9)",
-                  border: "1px solid #1e3d5a",
-                }}
-              >
-                <div className="text-[6px] font-mono uppercase tracking-widest mb-1.5" style={{ color: "#2a5070" }}>
-                  Edge Legend
-                </div>
-                <div className="flex flex-col gap-1">
-                  {[
-                    { status: "unknown", color: "#2a5070", dash: true },
-                    { status: "suspected", color: "#f59e0b", dash: true },
-                    { status: "confirmed", color: "#00d4ff", dash: false },
-                    { status: "contradicted", color: "#ff3a3a", dash: true },
-                  ].map(({ status, color, dash }) => (
-                    <div key={status} className="flex items-center gap-2">
-                      <svg width={24} height={4}>
-                        <line
-                          x1={0} y1={2} x2={24} y2={2}
-                          stroke={color}
-                          strokeWidth={dash ? 1 : 2}
-                          strokeDasharray={dash ? "4 3" : ""}
-                        />
-                      </svg>
-                      <span className="text-[6px] font-mono" style={{ color }}>
-                        {status}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </Panel>
-          </ReactFlow>
+        {/* Center: D3 canvas */}
+        <div ref={canvasWrapperRef} className="flex-1 relative" onDragOver={onDragOver} onDrop={onDrop}>
+          <BoardGraphCanvas
+            ref={canvasHandleRef}
+            onNodeClick={onNodeClick}
+            onEdgeClick={onEdgeClick}
+            onCanvasClick={onCanvasClick}
+          />
+          {/* Connection source indicator overlay */}
+          {connectSrc && (
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 pointer-events-none"
+              style={{ background: "rgba(8,12,18,0.9)", border: "1px solid #f59e0b40", borderRadius: 4, padding: "4px 10px" }}>
+              <span className="text-[7px] font-mono" style={{ color: "#f59e0b" }}>
+                Connecting from: <strong>{connectSrc.label}</strong>
+              </span>
+            </div>
+          )}
         </div>
 
-        {/* ── Right: Agent Consultation Panel ──────────────────────── */}
-        <div
-          className="w-64 shrink-0 h-full"
-          style={{
-            background: "rgba(8,12,18,0.95)",
-            borderLeft: "1px solid #1e3d5a",
-          }}
-        >
+        {/* Right: Agent consultation */}
+        <div className="w-64 shrink-0 h-full"
+          style={{ background: "rgba(8,12,18,0.95)", borderLeft: "1px solid #1e3d5a" }}>
           <AgentConsultPanel
-            selectedFindings={selectedFindings.length > 0 ? selectedFindings : pinnedFindings}
+            selectedFindings={pinnedFindings.length > 0 ? pinnedFindings : completedFindings}
             consultations={board.consultations}
             onConsult={handleConsult}
             lockedAgents={lockedAgents}
           />
         </div>
       </div>
-
-      {/* ── Board-specific CSS ───────────────────────────────────── */}
-      <style>{`
-        @keyframes unknownPulse {
-          0%, 100% { opacity: 0.6; box-shadow: 0 0 8px rgba(42,80,112,0.2); }
-          50% { opacity: 1; box-shadow: 0 0 16px rgba(42,80,112,0.4); }
-        }
-        .react-flow__controls button {
-          background: rgba(8,12,18,0.9) !important;
-          border: 1px solid #1e3d5a !important;
-          border-bottom: none !important;
-          color: #4a6580 !important;
-          width: 24px !important;
-          height: 24px !important;
-        }
-        .react-flow__controls button:last-child {
-          border-bottom: 1px solid #1e3d5a !important;
-        }
-        .react-flow__controls button:hover {
-          background: rgba(0,212,255,0.08) !important;
-        }
-        .react-flow__controls button svg {
-          fill: #4a6580 !important;
-        }
-        .react-flow__edge-interaction {
-          stroke: transparent;
-        }
-      `}</style>
     </div>
   );
 }
