@@ -33,7 +33,7 @@
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
     "jsdom": "^29.0.1",
-    "lightningcss-darwin-arm64": "^1.32.0",
+    "lightningcss": "^1.32.0",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.2"
