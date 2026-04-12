@@ -3,59 +3,87 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AgentCommandModal, type MessageEntry } from "@/components/AgentCommandModal";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  AgentCommandModal,
+  type MessageEntry,
+} from "@/components/AgentCommandModal";
 import { AgentDirectory } from "@/components/AgentDirectory";
 import { AgentMarketplace } from "@/components/AgentMarketplace";
-import { AgentStatusBar } from "@/components/AgentStatusBar";
+import { CaseModal } from "@/components/CaseModal";
 import { Dashboard } from "@/components/Dashboard";
 import { EconomicReportModal } from "@/components/EconomicReportModal";
+import { EndgameModal } from "@/components/EndgameModal";
 import { EventFeed } from "@/components/EventFeed";
+import { FinalClaimModal } from "@/components/FinalClaimModal";
 import { HelperSelectionPanel } from "@/components/HelperSelectionPanel";
-import { SectorStatusPanel } from "@/components/SectorStatusPanel";
 import { NPCInteractionModal } from "@/components/NPCInteractionModal";
 import { PauseOverlay } from "@/components/PauseOverlay";
+import { ProposalModal } from "@/components/ProposalModal";
+import { RadioPanel } from "@/components/RadioPanel";
+import {
+  computeRecoveryProgress,
+  RecoveryProgress,
+  RecoveryStrip,
+} from "@/components/RecoveryProgress";
+import { RemediationPanel } from "@/components/RemediationPanel";
+import { SectorStatusPanel } from "@/components/SectorStatusPanel";
 import { UserBoard } from "@/components/UserBoard/UserBoard";
+import { CASE_AGENTS_NPCS } from "@/data/case_midnight_exfil";
 import {
   CYBER_CITY_SECTOR_SEEDS,
   DOMAIN_LABEL_BY_SECTOR,
-  computeSectorThreatStatuses,
 } from "@/data/cyberCitySectors";
-import { CASE_AGENTS_NPCS } from "@/data/case_midnight_exfil";
-
-import { useInvestigation } from "@/hooks/useInvestigation";
 import { useBoardState } from "@/hooks/useBoardState";
-import { useSimulation } from "@/hooks/useSimulation";
+import { useInvestigation } from "@/hooks/useInvestigation";
 import { useRadio } from "@/hooks/useRadio";
-import { RadioPanel } from "@/components/RadioPanel";
-import type { ActiveHelpers, AgentDefinition, AgentId, CaseSystemNode, NipsAgentInstance, NipsMarketplaceOffer, NipsEvidenceUpdate, SectorId } from "@/types/investigation";
-import type { BackendNPC } from "@/types/backend";
-import { clearReplayData, getReplayData } from "@/lib/replayStore";
-import {
-  initNipsSession,
-  buyNipsAgent,
-  requestNipsMarketplaceRefresh,
-  setMarketplaceCallbacks,
-  disconnectNips,
-} from "@/lib/investigationAgentClient";
+import { useSimulation } from "@/hooks/useSimulation";
 import {
   buildAgentStateModel,
   normalizeOwnedAgents,
   ROLE_ORDER,
   toAgentId,
 } from "@/lib/agentState";
+import { audioManager } from "@/lib/audioManager";
+import {
+  buyNipsAgent,
+  disconnectNips,
+  initNipsSession,
+  requestNipsMarketplaceRefresh,
+  setEndgameCallbacks,
+  setMarketplaceCallbacks,
+} from "@/lib/investigationAgentClient";
 import {
   applyCaseRewards,
   computeCaseRewards,
   loadProgress,
-  saveProgress,
   type PlayerProgress,
+  saveProgress,
 } from "@/lib/playerProgress";
-import { audioManager } from "@/lib/audioManager";
-import { CaseModal } from "@/components/CaseModal";
+import { clearReplayData, getReplayData } from "@/lib/replayStore";
+import type { NPCHoverInfo, NPCState, SimEvent } from "@/types";
+import type { BackendNPC } from "@/types/backend";
+import type {
+  ActiveHelpers,
+  AgentDefinition,
+  AgentId,
+  BossEvaluation,
+  CaseSystemNode,
+  EndgameOutcome,
+  NipsAgentInstance,
+  NipsMarketplaceOffer,
+  RemediationResult,
+  SectorId,
+} from "@/types/investigation";
 import type { SectorCase } from "@/types/sectors";
 import { SECTOR_COLORS, SECTOR_NAMES } from "@/types/sectors";
-import type { NPCHoverInfo, NPCState, SimEvent } from "@/types";
 
 // Mirror game/constants values here to avoid importing Phaser during SSR.
 const GAME_WIDTH = 1280;
@@ -93,10 +121,10 @@ const SENTIMENT_LABEL: Record<
   NPCHoverInfo["sentiment"],
   { symbol: string; color: string }
 > = {
-  happy:   { symbol: "+", color: "#00ff88" },
+  happy: { symbol: "+", color: "#00ff88" },
   neutral: { symbol: "~", color: "#4a6580" },
   worried: { symbol: "?", color: "#f59e0b" },
-  angry:   { symbol: "!", color: "#ff3a3a" },
+  angry: { symbol: "!", color: "#ff3a3a" },
 };
 
 interface OverlayMetrics {
@@ -237,20 +265,24 @@ function buildAgentMarkers(
       : null;
     const isLocked = lockedRoles.includes(roleId);
 
-    return [{
-      agent,
-      npcId,
-      position,
-      isLocked,
-      color: AGENT_MARKER_COLORS[archetype] ?? "#22d3ee",
-      roleLabel: agent.primary_specialties[0] ?? agent.team_role,
-      statusLabel: isLocked ? "locked" : agentState?.status ?? "idle",
-      assignmentLabel: isLocked
-        ? "Locked — recruit to unlock"
-        : nodeName ?? "Awaiting task",
-      sectorCode: sector?.id ?? "TRANSIT",
-      sectorLabel: sector ? DOMAIN_LABEL_BY_SECTOR[sector.id] : "Transit lane",
-    }];
+    return [
+      {
+        agent,
+        npcId,
+        position,
+        isLocked,
+        color: AGENT_MARKER_COLORS[archetype] ?? "#22d3ee",
+        roleLabel: agent.primary_specialties[0] ?? agent.team_role,
+        statusLabel: isLocked ? "locked" : (agentState?.status ?? "idle"),
+        assignmentLabel: isLocked
+          ? "Locked — recruit to unlock"
+          : (nodeName ?? "Awaiting task"),
+        sectorCode: sector?.id ?? "TRANSIT",
+        sectorLabel: sector
+          ? DOMAIN_LABEL_BY_SECTOR[sector.id]
+          : "Transit lane",
+      },
+    ];
   });
 }
 
@@ -316,8 +348,12 @@ function SimulateRouter() {
 
 function InvestigateContent() {
   const [phase, setPhase] = useState<"selecting" | "playing">("selecting");
-  const [activeHelpers, setActiveHelpers] = useState<ActiveHelpers | null>(null);
-  const [progress, setProgress] = useState<PlayerProgress>(() => loadProgress());
+  const [activeHelpers, setActiveHelpers] = useState<ActiveHelpers | null>(
+    null,
+  );
+  const [progress, setProgress] = useState<PlayerProgress>(() =>
+    loadProgress(),
+  );
 
   const handleProgressChange = useCallback((p: PlayerProgress) => {
     setProgress(p);
@@ -363,30 +399,59 @@ function InvestigateGame({
 }) {
   const router = useRouter();
   const inv = useInvestigation(activeHelpers);
-  const starterRole = (((activeHelpers as unknown as { _starter?: AgentId })._starter) ??
-    "logis") as AgentId;
-  const [activeOverlay, setActiveOverlay] = useState<"board" | "market" | null>(null);
+  const starterRole = ((activeHelpers as unknown as { _starter?: AgentId })
+    ._starter ?? "logis") as AgentId;
+  const [activeOverlay, setActiveOverlay] = useState<"board" | "market" | null>(
+    null,
+  );
   const [rewardsShown, setRewardsShown] = useState(false);
   const board = useBoardState();
   const [paused, setPaused] = useState(false);
   const [hoverInfo, setHoverInfo] = useState<NPCHoverInfo | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
-  const [overlayMetrics, setOverlayMetrics] = useState<OverlayMetrics>(DEFAULT_OVERLAY_METRICS);
+  const [overlayMetrics, setOverlayMetrics] = useState<OverlayMetrics>(
+    DEFAULT_OVERLAY_METRICS,
+  );
   const radio = useRadio();
 
-  // --- EchoLocate investigator agent state ---
+  // --- NIPS Gemini agent system state ---
   const [nipsAgents, setNipsAgents] = useState<NipsAgentInstance[]>([]);
   const [nipsOffers, setNipsOffers] = useState<NipsMarketplaceOffer[]>([]);
   const [nipsFunds, setNipsFunds] = useState(1500);
   const [nipsNextRefresh, setNipsNextRefresh] = useState(0);
   const [chatAgent, setChatAgent] = useState<NipsAgentInstance | null>(null);
-  const [chatHistories, setChatHistories] = useState<Record<string, MessageEntry[]>>({});
+  const [chatHistories, setChatHistories] = useState<
+    Record<string, MessageEntry[]>
+  >({});
   const [showDirectory, setShowDirectory] = useState(false);
-  const [lockedAgentInfo, setLockedAgentInfo] = useState<NipsAgentInstance | null>(null);
-  const [npcPositions, setNpcPositions] = useState<Record<string, NPCState>>({});
+  const [lockedAgentInfo, setLockedAgentInfo] =
+    useState<NipsAgentInstance | null>(null);
+  const [npcPositions, setNpcPositions] = useState<Record<string, NPCState>>(
+    {},
+  );
   const [caseModalSector, setCaseModalSector] = useState<SectorId | null>(null);
   const [activeSectorId, setActiveSectorId] = useState<SectorId | null>(null);
-  const sectorSelectionCooldownUntilRef = useRef(0);
+
+  // Endgame loop state
+  const [evidenceDelta, setEvidenceDelta] = useState(0); // from agent findings
+  const [externalDelta, setExternalDelta] = useState(0); // from proposal + remediations
+  const [proposalSubmitted, setProposalSubmitted] = useState(false);
+  const [showProposalModal, setShowProposalModal] = useState(false);
+  const [showRemediationOverlay, setShowRemediationOverlay] = useState(false);
+  const [proposalEval, setProposalEval] = useState<BossEvaluation | null>(null);
+  const [showFinalClaimModal, setShowFinalClaimModal] = useState(false);
+  const [finalClaimEval, setFinalClaimEval] = useState<BossEvaluation | null>(
+    null,
+  );
+  const [remediationHistory, setRemediationHistory] = useState<
+    RemediationResult[]
+  >([]);
+  const [lastRemediationResult, setLastRemediationResult] =
+    useState<RemediationResult | null>(null);
+  const [endgameTimer, setEndgameTimer] = useState(300); // 5 min countdown
+  const [timerRunning, setTimerRunning] = useState(false);
+  const [endgameOutcome, setEndgameOutcome] = useState<EndgameOutcome>(null);
+  const finalProposalActiveRef = useRef(false);
 
   const agentState = useMemo(
     () =>
@@ -398,6 +463,21 @@ function InvestigateGame({
     [nipsAgents, nipsOffers, inv.lockedAgents],
   );
   const ownedRoleKey = agentState.ownedRoleIds.join("|");
+
+  // Derived: recovery progress and discovered nodes
+  const recoveryProgress = computeRecoveryProgress(
+    evidenceDelta,
+    externalDelta,
+    inv.pressureLevel,
+  );
+  const discoveredNodes = useMemo(
+    () => [
+      ...new Set(inv.completedFindings.map((f) => f.nodeId).filter(Boolean)),
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [inv.completedFindings.length],
+  );
+
   const slotRoleKey = ROLE_ORDER.map((roleId) => {
     const slotAgent = agentState.slotAgentsByRole[roleId];
     return `${roleId}:${slotAgent?.instance_id ?? "none"}:${slotAgent?.display_name ?? "none"}`;
@@ -405,7 +485,9 @@ function InvestigateGame({
 
   // ── Audio: stop music when leaving the game view ────────────────────────────
   useEffect(() => {
-    return () => { audioManager.stopMusic(); };
+    return () => {
+      audioManager.stopMusic();
+    };
   }, []);
 
   // ── Audio: switch music tracks based on investigation pressure ──────────────
@@ -424,17 +506,21 @@ function InvestigateGame({
     }
   }, [inv.events.length]);
 
-  // Init backend investigator session
+  // Init NIPS backend session
   useEffect(() => {
-    const cleanupSession = initNipsSession({
-      onSessionReady: (data) => {
-        setNipsAgents(normalizeOwnedAgents(data.agents));
-        setNipsOffers(data.marketplace);
-        setNipsFunds(data.funds);
-        setNipsNextRefresh(data.next_refresh);
+    const cleanupSession = initNipsSession(
+      {
+        onSessionReady: (data) => {
+          setNipsAgents(normalizeOwnedAgents(data.agents));
+          setNipsOffers(data.marketplace);
+          setNipsFunds(data.funds);
+          setNipsNextRefresh(data.next_refresh);
+        },
+        onError: (msg) => console.error("[NIPS]", msg),
       },
-      onError: (msg) => console.error("[EchoLocate agents]", msg),
-    }, inv.caseId, starterRole.toUpperCase());
+      inv.caseId,
+      starterRole.toUpperCase(),
+    );
 
     setMarketplaceCallbacks({
       onAgentPurchased: (data) => {
@@ -455,7 +541,39 @@ function InvestigateGame({
         setNipsAgents(normalizeOwnedAgents(data.agents));
         setNipsFunds(data.funds);
       },
-      onError: (msg) => console.error("[EchoLocate recruiting]", msg),
+      onError: (msg) => console.error("[NIPS marketplace]", msg),
+    });
+
+    setEndgameCallbacks({
+      onProposalEvaluated: (ev) => {
+        setNipsFunds((prev) => prev + ev.funds_awarded);
+        if (finalProposalActiveRef.current) {
+          // This is the final claim submission
+          finalProposalActiveRef.current = false;
+          setFinalClaimEval(ev);
+          setExternalDelta((prev) => prev + ev.progress_delta);
+          if (ev.confidence_rating >= 0.75) {
+            setEndgameOutcome("win");
+          }
+          // If < 75%: leave FinalClaimModal open so player sees the result
+        } else {
+          // Normal initial proposal
+          setProposalEval(ev);
+          setExternalDelta((prev) => prev + ev.progress_delta);
+          if (!proposalSubmitted) {
+            setProposalSubmitted(true);
+            setTimerRunning(true);
+          }
+        }
+      },
+      onRemediationResult: (result) => {
+        setLastRemediationResult(result);
+        if (result.success) {
+          setNipsFunds(result.funds);
+          setExternalDelta((prev) => prev + result.progress_delta);
+          setRemediationHistory((prev) => [...prev, result]);
+        }
+      },
     });
 
     return () => {
@@ -469,12 +587,14 @@ function InvestigateGame({
   }, [ownedRoleKey, inv.syncRoleUnlocks]);
 
   useEffect(() => {
-    const hasVisibleSlots = ROLE_ORDER.some(
-      (roleId) => Boolean(agentState.slotAgentsByRole[roleId]),
+    const hasVisibleSlots = ROLE_ORDER.some((roleId) =>
+      Boolean(agentState.slotAgentsByRole[roleId]),
     );
     if (!hasVisibleSlots) return;
 
-    const visibleSpecialists = buildVisibleSpecialists(agentState.slotAgentsByRole);
+    const visibleSpecialists = buildVisibleSpecialists(
+      agentState.slotAgentsByRole,
+    );
     const specialistIds = new Set(visibleSpecialists.map((npc) => npc.id));
 
     import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
@@ -489,7 +609,8 @@ function InvestigateGame({
         Object.fromEntries(
           Object.entries(prev).filter(
             ([npcId]) =>
-              !ROLE_ORDER.includes(npcId as AgentId) || specialistIds.has(npcId),
+              !ROLE_ORDER.includes(npcId as AgentId) ||
+              specialistIds.has(npcId),
           ),
         ),
       );
@@ -515,8 +636,7 @@ function InvestigateGame({
               a.archetype.toLowerCase().startsWith(id) ||
               a.instance_id === data.npcId ||
               a.codename === data.npcId,
-          ) ??
-          agentState.slotAgentsByRole[id as AgentId];
+          ) ?? agentState.slotAgentsByRole[id as AgentId];
         const agent = slotAgent ?? null;
         if (agent) {
           const roleId = toAgentId(agent.archetype) ?? (id as AgentId);
@@ -540,7 +660,11 @@ function InvestigateGame({
       };
     });
     return () => cleanup?.();
-  }, [agentState.deployedAgents, agentState.lockedRoles, agentState.slotAgentsByRole]);
+  }, [
+    agentState.deployedAgents,
+    agentState.lockedRoles,
+    agentState.slotAgentsByRole,
+  ]);
 
   const handleBuyAgent = useCallback((offerId: string) => {
     buyNipsAgent(offerId);
@@ -549,31 +673,6 @@ function InvestigateGame({
   const handleRefreshMarketplace = useCallback(() => {
     requestNipsMarketplaceRefresh();
   }, []);
-
-  const currentTimestamp = useCallback(
-    () => globalThis.performance?.now?.() ?? Date.now(),
-    [],
-  );
-
-  const suppressSectorSelection = useCallback((durationMs = 220) => {
-    sectorSelectionCooldownUntilRef.current = currentTimestamp() + durationMs;
-  }, [currentTimestamp]);
-
-  const canOpenSectorSelection = useCallback(
-    () => currentTimestamp() >= sectorSelectionCooldownUntilRef.current,
-    [currentTimestamp],
-  );
-
-  const openSectorSelection = useCallback((sectorId: SectorId) => {
-    if (!canOpenSectorSelection()) return;
-    audioManager.playButtonClick();
-    setCaseModalSector(sectorId);
-  }, [canOpenSectorSelection]);
-
-  const closeSectorSelection = useCallback(() => {
-    suppressSectorSelection();
-    setCaseModalSector(null);
-  }, [suppressSectorSelection]);
 
   const showBoard = activeOverlay === "board";
   const showMarketplace = activeOverlay === "market";
@@ -645,47 +744,38 @@ function InvestigateGame({
     let cleanup: (() => void) | undefined;
     import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
       const handler = (data: { sectorId: string }) => {
-        openSectorSelection(data.sectorId as SectorId);
+        audioManager.playButtonClick();
+        setCaseModalSector(data.sectorId as SectorId);
       };
       eventBridge.on("sim:landmark-click", handler);
       cleanup = () => eventBridge.off("sim:landmark-click", handler);
     });
     return () => cleanup?.();
-  }, [openSectorSelection]);
+  }, []);
 
   const handleStartInvestigation = useCallback((sectorCase: SectorCase) => {
     setActiveSectorId(sectorCase.sectorId);
-    suppressSectorSelection(120);
     setCaseModalSector(null);
-  }, [suppressSectorSelection]);
+    import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+      eventBridge.emitCaseActivate(sectorCase.sectorId);
+    });
+  }, []);
 
   const handleDeactivateCase = useCallback(() => {
     setActiveSectorId(null);
-  }, []);
-
-  useEffect(() => {
-    const previewSectorId = caseModalSector ?? activeSectorId;
-    const threatStatuses = computeSectorThreatStatuses(activeSectorId, inv.pressureLevel);
-    const tone =
-      (previewSectorId
-        ? threatStatuses.find((entry) => entry.sectorId === previewSectorId)?.tone
-        : undefined) ?? "healthy";
-
     import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
-      if (previewSectorId) {
-        eventBridge.emitCaseActivate(previewSectorId, tone);
-      } else {
-        eventBridge.emitCaseDeactivate();
-      }
+      eventBridge.emitCaseDeactivate();
     });
-  }, [caseModalSector, activeSectorId, inv.pressureLevel]);
+  }, []);
 
   useEffect(() => {
     const container = canvasContainerRef.current;
     if (!container) return;
     let observedTarget: Element | null = null;
     const updateMetrics = () => {
-      const canvas = container.querySelector("canvas") ?? container.querySelector("[data-testid='game-canvas']");
+      const canvas =
+        container.querySelector("canvas") ??
+        container.querySelector("[data-testid='game-canvas']");
       const target = canvas instanceof HTMLElement ? canvas : null;
       if (!target) return;
       if (observedTarget !== target) {
@@ -704,7 +794,11 @@ function InvestigateGame({
         scaleY: targetRect.height / GAME_HEIGHT,
       };
       setOverlayMetrics((prev) => {
-        const changed = Math.abs(prev.offsetX - next.offsetX) > 0.5 || Math.abs(prev.offsetY - next.offsetY) > 0.5 || Math.abs(prev.width - next.width) > 0.5 || Math.abs(prev.height - next.height) > 0.5;
+        const changed =
+          Math.abs(prev.offsetX - next.offsetX) > 0.5 ||
+          Math.abs(prev.offsetY - next.offsetY) > 0.5 ||
+          Math.abs(prev.width - next.width) > 0.5 ||
+          Math.abs(prev.height - next.height) > 0.5;
         return changed ? next : prev;
       });
     };
@@ -779,66 +873,165 @@ function InvestigateGame({
     return () => setWorldPaused(false);
   }, [paused]);
 
+  // Endgame countdown timer
+  useEffect(() => {
+    if (!timerRunning || endgameOutcome) return;
+    if (endgameTimer <= 0) {
+      setEndgameOutcome(recoveryProgress >= 75 ? "win" : "lose");
+      return;
+    }
+    const id = setInterval(() => setEndgameTimer((t) => t - 1), 1000);
+    return () => clearInterval(id);
+  }, [timerRunning, endgameTimer, endgameOutcome, recoveryProgress]);
+
   return (
     <div
       className="relative flex h-screen flex-col overflow-clip"
       style={{ background: "#080c12" }}
       data-testid="investigate-page"
     >
-      {/* Top bar: EchoLocate header + agent status */}
+      {/* Always-visible 3px recovery strip at very top */}
+      <RecoveryStrip
+        evidenceDelta={evidenceDelta}
+        externalDelta={externalDelta}
+        pressureLevel={inv.pressureLevel}
+      />
+
+      {/* Top bar: EchoLocate header */}
       <div
         className="rpg-panel flex h-16 shrink-0 items-center gap-4 rounded-none border-x-0 border-t-0 px-5 panel-slide-top"
         style={{ borderBottom: "1px solid #1e3d5a" }}
       >
         <div className="flex items-center gap-3 shrink-0 mr-3">
-          <span className="text-[12px] font-mono tracking-[0.14em]" style={{ color: "#00d4ff" }}>
+          <span
+            className="text-[12px] font-mono tracking-[0.14em]"
+            style={{ color: "#00d4ff" }}
+          >
             ◈ EchoLocate
           </span>
-          <span className="text-[11px] font-mono" style={{ color: "#1e3d5a" }}>|</span>
-          <span className="text-[10px] font-mono uppercase tracking-[0.14em]" style={{ color: "#2a5070" }}>
+          <span className="text-[11px] font-mono" style={{ color: "#1e3d5a" }}>
+            |
+          </span>
+          <span
+            className="text-[10px] font-mono uppercase tracking-[0.14em]"
+            style={{ color: "#2a5070" }}
+          >
             investigation console
           </span>
         </div>
 
-        {/* Agent status bar */}
-        <div className="flex-1 h-full py-1.5 overflow-x-auto">
-          <AgentStatusBar
-            agents={inv.agents}
-            activeTasks={inv.activeTasks}
-            lockedAgents={agentState.lockedRoles}
-            slotAgentsByRole={agentState.slotAgentsByRole}
-            onAgentClick={(agentId) => {
-              const nipsAgent = agentState.slotAgentsByRole[agentId];
-              if (nipsAgent) {
-                const isLocked = agentState.lockedRoles.includes(agentId);
-                if (isLocked) {
-                  setLockedAgentInfo(nipsAgent);
-                } else {
-                  setChatAgent(nipsAgent);
-                }
-              }
-            }}
-          />
-        </div>
+        <div className="flex-1" />
 
         <div className="ml-3 flex shrink-0 items-center gap-2.5">
+          {/* Recovery progress bar — always shown */}
+          <RecoveryProgress
+            evidenceDelta={evidenceDelta}
+            externalDelta={externalDelta}
+            pressureLevel={inv.pressureLevel}
+            proposalSubmitted={proposalSubmitted}
+          />
+          {/* Timer display */}
+          {timerRunning && !endgameOutcome && (
+            <div
+              className="flex items-center gap-1.5 rpg-panel px-3 py-1.5"
+              style={{
+                border: `1px solid ${endgameTimer < 60 ? "#ef444455" : "#1e3d5a"}`,
+              }}
+            >
+              <span
+                className="text-[8px] font-mono uppercase tracking-widest"
+                style={{ color: "#2a5070" }}
+              >
+                T-
+              </span>
+              <span
+                className="text-[11px] font-mono tabular-nums"
+                style={{
+                  color:
+                    endgameTimer < 60
+                      ? "#ef4444"
+                      : endgameTimer < 120
+                        ? "#f59e0b"
+                        : "#4a6580",
+                }}
+              >
+                {Math.floor(endgameTimer / 60)}:
+                {(endgameTimer % 60).toString().padStart(2, "0")}
+              </span>
+            </div>
+          )}
           {/* Funds display */}
           <div className="flex items-center gap-1.5 rpg-panel px-3 py-1.5">
-            <span className="text-[10px] font-mono" style={{ color: "#2a5070" }}>₡</span>
-            <span className="text-[11px] font-mono tabular-nums" style={{ color: "#00ff88" }}>
+            <span
+              className="text-[10px] font-mono"
+              style={{ color: "#2a5070" }}
+            >
+              ₡
+            </span>
+            <span
+              className="text-[11px] font-mono tabular-nums"
+              style={{ color: "#00ff88" }}
+            >
               {nipsFunds.toLocaleString()}
             </span>
           </div>
           {inv.isComplete && (
             <button
               type="button"
-              onClick={() => { audioManager.playButtonClick(); setRewardsShown(true); }}
+              onClick={() => {
+                audioManager.playButtonClick();
+                setRewardsShown(true);
+              }}
               className="text-[10px] font-mono transition-opacity hover:opacity-70"
-              style={{ color: "#00ff88", textShadow: "0 0 8px rgba(0,255,136,0.5)" }}
+              style={{
+                color: "#00ff88",
+                textShadow: "0 0 8px rgba(0,255,136,0.5)",
+              }}
             >
               CASE CLOSED — CLAIM REWARDS →
             </button>
           )}
+          {activeSectorId && !endgameOutcome && !showFinalClaimModal && (
+            <button
+              type="button"
+              onClick={() => {
+                audioManager.playButtonClick();
+                setProposalEval(null);
+                setShowProposalModal(true);
+              }}
+              className="rpg-panel px-3.5 py-2 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-80 animate-pulse"
+              style={{
+                color: "#00d4ff",
+                border: "1px solid #00d4ff55",
+                background: "rgba(0,212,255,0.08)",
+              }}
+            >
+              Submit Report
+            </button>
+          )}
+          {proposalSubmitted &&
+            recoveryProgress >= 75 &&
+            !endgameOutcome &&
+            !showFinalClaimModal && (
+              <button
+                type="button"
+                onClick={() => {
+                  audioManager.playButtonClick();
+                  finalProposalActiveRef.current = true;
+                  setFinalClaimEval(null);
+                  setShowFinalClaimModal(true);
+                }}
+                className="rpg-panel px-3.5 py-2 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-80"
+                style={{
+                  color: "#34d399",
+                  border: "1px solid #34d39966",
+                  background: "rgba(52,211,153,0.12)",
+                  boxShadow: "0 0 12px rgba(52,211,153,0.2)",
+                }}
+              >
+                ◈ Finalize Investigation
+              </button>
+            )}
           <button
             type="button"
             onClick={toggleBoard}
@@ -846,7 +1039,9 @@ function InvestigateGame({
             style={{
               color: showBoard ? "#f5d0fe" : "#d8b4fe",
               border: `1px solid ${showBoard ? "#d946ef" : "rgba(176,111,255,0.38)"}`,
-              background: showBoard ? "rgba(176,111,255,0.18)" : "rgba(176,111,255,0.08)",
+              background: showBoard
+                ? "rgba(176,111,255,0.18)"
+                : "rgba(176,111,255,0.08)",
               boxShadow: "0 0 16px rgba(176,111,255,0.12)",
             }}
           >
@@ -856,21 +1051,19 @@ function InvestigateGame({
             type="button"
             onClick={toggleMarketplace}
             className="rpg-panel px-3 py-1.5 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-70"
-            style={{ color: showMarketplace ? "#f59e0b" : "#4a6580", border: `1px solid ${showMarketplace ? "#f59e0b" : "#1e3d5a"}` }}
+            style={{
+              color: showMarketplace ? "#f59e0b" : "#4a6580",
+              border: `1px solid ${showMarketplace ? "#f59e0b" : "#1e3d5a"}`,
+            }}
           >
             Market
           </button>
           <button
             type="button"
-            onClick={() => { audioManager.playPauseMenu(); setShowDirectory(true); }}
-            className="rpg-panel px-3 py-1.5 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-70"
-            style={{ color: "#4a6580" }}
-          >
-            Agents ({agentState.ownedAgents.length}/4)
-          </button>
-          <button
-            type="button"
-            onClick={() => { audioManager.playPauseMenu(); radio.setIsOpen(!radio.isOpen); }}
+            onClick={() => {
+              audioManager.playPauseMenu();
+              radio.setIsOpen(!radio.isOpen);
+            }}
             className="rpg-panel px-3 py-1.5 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-70"
             style={{
               color: radio.isOpen ? "#00d4ff" : "#4a6580",
@@ -887,9 +1080,15 @@ function InvestigateGame({
       <div className="flex flex-1 gap-2 overflow-hidden p-3">
         {/* Left: Evidence feed */}
         <div className="rpg-panel panel-slide-left flex h-full w-[248px] shrink-0 flex-col">
-          <div className="shrink-0 px-4 py-3" style={{ borderBottom: "1px solid #1e3d5a" }}>
+          <div
+            className="shrink-0 px-4 py-3"
+            style={{ borderBottom: "1px solid #1e3d5a" }}
+          >
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-[10px] font-mono uppercase tracking-[0.16em]" style={{ color: "#00d4ff" }}>
+              <h2
+                className="text-[10px] font-mono uppercase tracking-[0.16em]"
+                style={{ color: "#00d4ff" }}
+              >
                 Evidence Feed
               </h2>
               <button
@@ -906,7 +1105,10 @@ function InvestigateGame({
                 Open Board
               </button>
             </div>
-            <p className="mt-2 text-[9px] font-mono leading-5" style={{ color: "#6f87a1" }}>
+            <p
+              className="mt-2 text-[9px] font-mono leading-5"
+              style={{ color: "#6f87a1" }}
+            >
               Analyze logs, pin evidence, and connect the strongest findings.
             </p>
           </div>
@@ -914,16 +1116,16 @@ function InvestigateGame({
             <EventFeed
               events={inv.events}
               onPinEvent={(event: SimEvent) => {
-                const finding = inv.completedFindings.find(f =>
-                  event.message.includes(f.summary.substring(0, 30))
+                const finding = inv.completedFindings.find((f) =>
+                  event.message.includes(f.summary.substring(0, 30)),
                 );
                 if (finding) {
                   board.pinEvidence(`${finding.nodeId}:${finding.taskType}`);
                 }
               }}
               onOpenBoard={(event: SimEvent) => {
-                const finding = inv.completedFindings.find(f =>
-                  event.message.includes(f.summary.substring(0, 30))
+                const finding = inv.completedFindings.find((f) =>
+                  event.message.includes(f.summary.substring(0, 30)),
                 );
                 if (finding) {
                   board.addEvidenceNode(finding);
@@ -935,9 +1137,7 @@ function InvestigateGame({
         </div>
 
         {/* Center: Game canvas */}
-        <div
-          className="relative flex min-w-0 flex-1 items-start justify-center overflow-hidden pt-0.5"
-        >
+        <div className="relative flex min-w-0 flex-1 items-start justify-center overflow-hidden pt-0.5">
           <div
             ref={canvasContainerRef}
             className="relative shrink-0 overflow-hidden"
@@ -953,8 +1153,20 @@ function InvestigateGame({
             <GameCanvas />
             {/* NPC hover tooltip */}
             {hoverInfo && (
-              <div className="pointer-events-none absolute z-30 overflow-hidden" style={{ left: overlayMetrics.offsetX, top: overlayMetrics.offsetY, width: overlayMetrics.width, height: overlayMetrics.height }}>
-                <NPCTooltip info={hoverInfo} scaleX={overlayMetrics.scaleX} scaleY={overlayMetrics.scaleY} />
+              <div
+                className="pointer-events-none absolute z-30 overflow-hidden"
+                style={{
+                  left: overlayMetrics.offsetX,
+                  top: overlayMetrics.offsetY,
+                  width: overlayMetrics.width,
+                  height: overlayMetrics.height,
+                }}
+              >
+                <NPCTooltip
+                  info={hoverInfo}
+                  scaleX={overlayMetrics.scaleX}
+                  scaleY={overlayMetrics.scaleY}
+                />
               </div>
             )}
             <div
@@ -974,7 +1186,9 @@ function InvestigateGame({
                 scaleY={overlayMetrics.scaleY}
                 onAgentClick={(agent) => {
                   const roleId = toAgentId(agent.archetype);
-                  const isLocked = roleId ? agentState.lockedRoles.includes(roleId) : false;
+                  const isLocked = roleId
+                    ? agentState.lockedRoles.includes(roleId)
+                    : false;
                   if (isLocked) {
                     setLockedAgentInfo(agent);
                   } else {
@@ -989,11 +1203,13 @@ function InvestigateGame({
         {/* Right: Sector integrity panel */}
         <div className="panel-slide-right shrink-0 h-full">
           <SectorStatusPanel
-            activeSectorId={caseModalSector ?? activeSectorId}
+            activeSectorId={activeSectorId}
             pressureLevel={inv.pressureLevel}
-            onSectorClick={(sectorId) => {
-              openSectorSelection(sectorId);
-            }}
+            discoveredNodes={discoveredNodes}
+            remediations={remediationHistory}
+            proposalSubmitted={proposalSubmitted}
+            onSectorClick={(sectorId) => setCaseModalSector(sectorId)}
+            onOpenRemediation={() => setShowRemediationOverlay(true)}
           />
         </div>
       </div>
@@ -1059,16 +1275,22 @@ function InvestigateGame({
           <div className="rpg-panel p-6 w-full max-w-sm flex flex-col items-center gap-4 text-center animate-[modalIn_200ms_ease-out]">
             <div className="text-[24px]">🔒</div>
             <div>
-              <div className="text-[11px] font-mono font-bold" style={{ color: "#00d4ff" }}>
+              <div
+                className="text-[11px] font-mono font-bold"
+                style={{ color: "#00d4ff" }}
+              >
                 {lockedAgentInfo.display_name.toUpperCase()} IS LOCKED
               </div>
               <div className="mt-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted)]">
                 {lockedAgentInfo.archetype} Specialist
               </div>
             </div>
-            <p className="text-[11px] font-mono leading-6" style={{ color: "#4a6580" }}>
-              This specialist is visible in the field, but their role is still locked.
-              Recruit them in the marketplace to unlock and use them.
+            <p
+              className="text-[11px] font-mono leading-6"
+              style={{ color: "#4a6580" }}
+            >
+              This specialist is visible in the field, but their role is still
+              locked. Recruit them in the marketplace to unlock and use them.
             </p>
             <div className="flex gap-2 w-full">
               <button
@@ -1086,7 +1308,11 @@ function InvestigateGame({
                   openMarketplace();
                 }}
                 className="flex-1 rpg-panel py-2 text-[10px] font-mono uppercase tracking-[0.12em] transition-all"
-                style={{ background: "rgba(245,158,11,0.1)", border: "1px solid #f59e0b", color: "#f59e0b" }}
+                style={{
+                  background: "rgba(245,158,11,0.1)",
+                  border: "1px solid #f59e0b",
+                  color: "#f59e0b",
+                }}
               >
                 Go to Market
               </button>
@@ -1101,7 +1327,9 @@ function InvestigateGame({
         markers={agentMarkers}
         onAgentClick={(agent) => {
           const roleId = toAgentId(agent.archetype);
-          const isLocked = roleId ? agentState.lockedRoles.includes(roleId) : false;
+          const isLocked = roleId
+            ? agentState.lockedRoles.includes(roleId)
+            : false;
           if (isLocked) {
             setLockedAgentInfo(agent);
           } else {
@@ -1130,6 +1358,16 @@ function InvestigateGame({
                 setNipsFunds((prev) => prev + rewardCredits);
               }
             }
+            // Bump evidence progress based on severity
+            const pts =
+              ev.severity === "critical"
+                ? 6
+                : ev.severity === "high"
+                  ? 4
+                  : ev.severity === "medium"
+                    ? 2.5
+                    : 1.5;
+            setEvidenceDelta((prev) => Math.min(prev + pts, 45));
           }}
           onFundsChange={setNipsFunds}
           onOpenRadio={() => {
@@ -1137,7 +1375,10 @@ function InvestigateGame({
             radio.setIsOpen(true);
           }}
           onClose={(msgs) => {
-            setChatHistories((prev) => ({ ...prev, [chatAgent.instance_id]: msgs }));
+            setChatHistories((prev) => ({
+              ...prev,
+              [chatAgent.instance_id]: msgs,
+            }));
             setChatAgent(null);
           }}
         />
@@ -1146,7 +1387,9 @@ function InvestigateGame({
       <PauseOverlay
         isVisible={paused}
         onResume={() => setPaused(false)}
-        onRestart={() => router.replace("/simulate?mode=investigate&map=moonCity")}
+        onRestart={() =>
+          router.replace("/simulate?mode=investigate&map=moonCity")
+        }
         onReturnToLanding={() => router.push("/")}
       />
 
@@ -1176,7 +1419,10 @@ function InvestigateGame({
             className="w-2 h-2 rounded-full animate-pulse"
             style={{ background: SECTOR_COLORS[activeSectorId] ?? "#00d4ff" }}
           />
-          <span className="text-[10px] font-mono tracking-widest" style={{ color: SECTOR_COLORS[activeSectorId] ?? "#00d4ff" }}>
+          <span
+            className="text-[10px] font-mono tracking-widest"
+            style={{ color: SECTOR_COLORS[activeSectorId] ?? "#00d4ff" }}
+          >
             ACTIVE INVESTIGATION
           </span>
           <span className="text-[10px] font-mono text-slate-400">
@@ -1197,7 +1443,63 @@ function InvestigateGame({
         <CaseModal
           sectorId={caseModalSector}
           onStartInvestigation={handleStartInvestigation}
-          onClose={closeSectorSelection}
+          onClose={() => setCaseModalSector(null)}
+        />
+      )}
+
+      {/* Remediation Overlay */}
+      {showRemediationOverlay && !endgameOutcome && (
+        <RemediationPanel
+          funds={nipsFunds}
+          agents={agentState.ownedAgents}
+          lastResult={lastRemediationResult}
+          onClose={() => setShowRemediationOverlay(false)}
+        />
+      )}
+
+      {/* Proposal Modal (initial report) */}
+      {showProposalModal && (
+        <ProposalModal
+          evaluation={proposalEval}
+          onClose={() => setShowProposalModal(false)}
+        />
+      )}
+
+      {/* Final Claim Modal (at 75%+) */}
+      {showFinalClaimModal && !endgameOutcome && (
+        <FinalClaimModal
+          evaluation={finalClaimEval}
+          timerSeconds={endgameTimer}
+          onClose={() => {
+            setShowFinalClaimModal(false);
+            finalProposalActiveRef.current = false;
+          }}
+        />
+      )}
+
+      {/* Endgame Modal */}
+      {endgameOutcome && (
+        <EndgameModal
+          outcome={endgameOutcome}
+          recoveryProgress={recoveryProgress}
+          timerSeconds={endgameTimer}
+          nipsFunds={nipsFunds}
+          onRestart={() => {
+            setEndgameOutcome(null);
+            setEvidenceDelta(0);
+            setExternalDelta(0);
+            setProposalSubmitted(false);
+            setProposalEval(null);
+            setFinalClaimEval(null);
+            setShowFinalClaimModal(false);
+            setLastRemediationResult(null);
+            setRemediationHistory([]);
+            setEndgameTimer(300);
+            setTimerRunning(false);
+            setShowRemediationOverlay(false);
+            finalProposalActiveRef.current = false;
+          }}
+          onReturnHome={() => router.push("/")}
         />
       )}
     </div>
@@ -1217,9 +1519,15 @@ function CaseRewardsModal({
   progress: PlayerProgress;
   onClose: (updated: PlayerProgress) => void;
 }) {
-  const criticalCount = findings.filter((f) => f.severity === "critical").length;
-  const highCount     = findings.filter((f) => f.severity === "high").length;
-  const { credits, reputation } = computeCaseRewards(findings.length, criticalCount, highCount);
+  const criticalCount = findings.filter(
+    (f) => f.severity === "critical",
+  ).length;
+  const highCount = findings.filter((f) => f.severity === "high").length;
+  const { credits, reputation } = computeCaseRewards(
+    findings.length,
+    criticalCount,
+    highCount,
+  );
   const updated = applyCaseRewards(progress, credits, reputation);
 
   return (
@@ -1229,11 +1537,23 @@ function CaseRewardsModal({
     >
       <div className="rpg-panel flex flex-col" style={{ width: 420 }}>
         {/* Header */}
-        <div className="px-5 py-4" style={{ borderBottom: "1px solid #1e3d5a" }}>
-          <div className="text-[11px] font-mono font-bold" style={{ color: "#00ff88", textShadow: "0 0 10px rgba(0,255,136,0.4)" }}>
+        <div
+          className="px-5 py-4"
+          style={{ borderBottom: "1px solid #1e3d5a" }}
+        >
+          <div
+            className="text-[11px] font-mono font-bold"
+            style={{
+              color: "#00ff88",
+              textShadow: "0 0 10px rgba(0,255,136,0.4)",
+            }}
+          >
             ◈ CASE CLOSED
           </div>
-          <div className="text-[8px] font-mono uppercase tracking-widest mt-0.5" style={{ color: "#2a5070" }}>
+          <div
+            className="text-[8px] font-mono uppercase tracking-widest mt-0.5"
+            style={{ color: "#2a5070" }}
+          >
             Investigation complete — rewards issued
           </div>
         </div>
@@ -1246,31 +1566,70 @@ function CaseRewardsModal({
             { label: "High findings", value: highCount },
           ].map(({ label, value }) => (
             <div key={label} className="flex items-center justify-between">
-              <span className="text-[8px] font-mono" style={{ color: "#4a6580" }}>{label}</span>
-              <span className="text-[9px] font-mono tabular-nums" style={{ color: "#c9d8e8" }}>{value}</span>
+              <span
+                className="text-[8px] font-mono"
+                style={{ color: "#4a6580" }}
+              >
+                {label}
+              </span>
+              <span
+                className="text-[9px] font-mono tabular-nums"
+                style={{ color: "#c9d8e8" }}
+              >
+                {value}
+              </span>
             </div>
           ))}
           <div className="mt-2 pt-2" style={{ borderTop: "1px solid #1e3d5a" }}>
             <div className="flex items-center justify-between">
-              <span className="text-[9px] font-mono" style={{ color: "#00ff88" }}>Credits earned</span>
-              <span className="text-[11px] font-mono font-bold tabular-nums" style={{ color: "#00ff88" }}>
+              <span
+                className="text-[9px] font-mono"
+                style={{ color: "#00ff88" }}
+              >
+                Credits earned
+              </span>
+              <span
+                className="text-[11px] font-mono font-bold tabular-nums"
+                style={{ color: "#00ff88" }}
+              >
                 +{credits.toLocaleString()}₡
               </span>
             </div>
             <div className="flex items-center justify-between mt-1">
-              <span className="text-[8px] font-mono" style={{ color: "#b06fff" }}>Reputation</span>
-              <span className="text-[9px] font-mono tabular-nums" style={{ color: "#b06fff" }}>+{reputation}</span>
+              <span
+                className="text-[8px] font-mono"
+                style={{ color: "#b06fff" }}
+              >
+                Reputation
+              </span>
+              <span
+                className="text-[9px] font-mono tabular-nums"
+                style={{ color: "#b06fff" }}
+              >
+                +{reputation}
+              </span>
             </div>
           </div>
-          <div className="mt-2 pt-2 flex items-center justify-between" style={{ borderTop: "1px solid #1e3d5a" }}>
-            <span className="text-[8px] font-mono" style={{ color: "#2a5070" }}>Total balance</span>
-            <span className="text-[10px] font-mono tabular-nums" style={{ color: "#00ff88" }}>
+          <div
+            className="mt-2 pt-2 flex items-center justify-between"
+            style={{ borderTop: "1px solid #1e3d5a" }}
+          >
+            <span className="text-[8px] font-mono" style={{ color: "#2a5070" }}>
+              Total balance
+            </span>
+            <span
+              className="text-[10px] font-mono tabular-nums"
+              style={{ color: "#00ff88" }}
+            >
               {updated.credits.toLocaleString()}₡
             </span>
           </div>
         </div>
 
-        <div className="px-5 py-3 flex justify-between items-center" style={{ borderTop: "1px solid #1e3d5a" }}>
+        <div
+          className="px-5 py-3 flex justify-between items-center"
+          style={{ borderTop: "1px solid #1e3d5a" }}
+        >
           <span className="text-[7px] font-mono" style={{ color: "#1e3d5a" }}>
             Spend credits to upgrade helpers before next case
           </span>
@@ -1515,9 +1874,7 @@ function SimulateContent() {
         className="flex min-h-screen flex-col items-center justify-center px-6"
         style={{ background: "#080c12" }}
       >
-        <div
-          className="flex max-w-md flex-col items-center gap-4 p-8 text-center rpg-panel"
-        >
+        <div className="flex max-w-md flex-col items-center gap-4 p-8 text-center rpg-panel">
           <span
             className="text-[12px] font-mono tracking-[0.16em]"
             style={{ color: "#00d4ff" }}
@@ -1599,12 +1956,12 @@ function SimulateContent() {
             ))}
           </div>
           {sim.phase > 0 && (
-          <span
-            className="ml-2 text-[10px] font-mono uppercase tracking-[0.14em]"
-            style={{ color: "#4a6580" }}
-          >
-            {sim.phaseLabel}
-          </span>
+            <span
+              className="ml-2 text-[10px] font-mono uppercase tracking-[0.14em]"
+              style={{ color: "#4a6580" }}
+            >
+              {sim.phaseLabel}
+            </span>
           )}
         </div>
 
@@ -1621,7 +1978,10 @@ function SimulateContent() {
             <>
               <span
                 className="text-[10px] font-mono"
-                style={{ color: "#00ff88", textShadow: "0 0 8px rgba(0,255,136,0.5)" }}
+                style={{
+                  color: "#00ff88",
+                  textShadow: "0 0 8px rgba(0,255,136,0.5)",
+                }}
               >
                 CASE CLOSED
               </span>
@@ -1694,9 +2054,7 @@ function SimulateContent() {
         </div>
 
         {/* Center: Game canvas */}
-        <div
-          className="relative flex min-w-0 flex-1 items-center justify-center overflow-hidden"
-        >
+        <div className="relative flex min-w-0 flex-1 items-center justify-center overflow-hidden">
           <div
             ref={canvasContainerRef}
             className="relative shrink-0 overflow-hidden"
@@ -1778,7 +2136,9 @@ function SimulateContent() {
         onResume={() => setPaused(false)}
         onRestart={() => {
           if (simulationId) {
-            router.replace(`/simulate?id=${simulationId}&map=moonCity${isRecording ? "&record=true" : ""}`);
+            router.replace(
+              `/simulate?id=${simulationId}&map=moonCity${isRecording ? "&record=true" : ""}`,
+            );
             return;
           }
           router.push("/");
@@ -1790,11 +2150,15 @@ function SimulateContent() {
       {sim.error && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
           <div className="rpg-panel px-6 py-4 text-center">
-            <p className="font-mono text-sm font-bold" style={{ color: "#ff3a3a" }}>
+            <p
+              className="font-mono text-sm font-bold"
+              style={{ color: "#ff3a3a" }}
+            >
               Connection Lost
             </p>
             <p className="mt-2 font-mono text-xs" style={{ color: "#4a6580" }}>
-              The investigation server disconnected. Please return home and load a new incident.
+              The investigation server disconnected. Please return home and load
+              a new incident.
             </p>
             <a
               href="/"
@@ -1926,7 +2290,9 @@ function GameMiniMap({
         height: frameHeight,
         background: "rgba(8,12,18,0.95)",
         border: "1px solid #1e3d5a",
-        transform: isStowed ? `translateX(-${frameWidth - stowedPeek}px)` : "translateX(0)",
+        transform: isStowed
+          ? `translateX(-${frameWidth - stowedPeek}px)`
+          : "translateX(0)",
       }}
     >
       <div className="relative flex items-center justify-between px-1 mb-1 border-b border-[#1e3d5a] pb-0.5">
@@ -1979,7 +2345,8 @@ function GameMiniMap({
         <div
           className="absolute inset-0 opacity-20"
           style={{
-            backgroundImage: "radial-gradient(#1e3d5a 0.5px, transparent 0.5px)",
+            backgroundImage:
+              "radial-gradient(#1e3d5a 0.5px, transparent 0.5px)",
             backgroundSize: "8px 8px",
           }}
         />
@@ -2018,7 +2385,9 @@ function GameMiniMap({
                 style={{
                   backgroundColor: marker.isLocked ? "#2a5070" : marker.color,
                   borderColor: marker.isLocked ? "#1e3d5a" : "#fff",
-                  boxShadow: marker.isLocked ? "none" : `0 0 6px ${marker.color}`,
+                  boxShadow: marker.isLocked
+                    ? "none"
+                    : `0 0 6px ${marker.color}`,
                 }}
                 onClick={(e) => {
                   e.stopPropagation();

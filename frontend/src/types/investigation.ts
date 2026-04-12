@@ -263,6 +263,50 @@ export const MOCK_METRICS: InvestigationMetrics = {
 };
 
 // ---------------------------------------------------------------------------
+// Endgame loop types
+// ---------------------------------------------------------------------------
+
+export interface CaseProposal {
+  rootCause: string;
+  systemsInvolved: string; // comma-separated node IDs or free text
+}
+
+export interface BossEvaluation {
+  funds_awarded: number;
+  commentary: string;
+  confidence_rating: number; // 0–1 (shown as bar, not labeled "score")
+  progress_delta: number; // 0–30 added to recoveryProgress
+  funds: number;
+}
+
+export type RemediationActionType =
+  | "isolate"
+  | "patch"
+  | "block_egress"
+  | "restore"
+  | "remediate";
+
+export interface RemediationAction {
+  id: RemediationActionType;
+  label: string;
+  description: string;
+  cost: number;
+  targetNode: string; // node ID selected by player
+}
+
+export interface RemediationResult {
+  action_type: RemediationActionType;
+  target_node: string;
+  progress_delta: number; // 0–25 added to recoveryProgress
+  cost: number;
+  commentary: string;
+  funds: number;
+  success: boolean;
+}
+
+export type EndgameOutcome = "win" | "lose" | null;
+
+// ---------------------------------------------------------------------------
 // Legacy aliases — kept for BuildingInspector / TimelineScrubber / EchoPanel
 // scaffolding components that reference the old type names
 // ---------------------------------------------------------------------------
@@ -296,11 +340,35 @@ export interface EchoHypothesis {
 // User Board types
 // ---------------------------------------------------------------------------
 
-export type BoardNodeType = "system" | "unknown" | "outcome" | "hypothesis" | "evidence";
-export type BoardNodeStatus = "normal" | "suspicious" | "confirmed" | "contradicted" | "isolated";
-export type BoardEdgeStatus = "unknown" | "suspected" | "confirmed" | "contradicted" | "isolated";
-export type HypothesisStatus = "open" | "supported" | "challenged" | "inconclusive";
-export type BoardRelation = "supports" | "questions" | "causes" | "contradicts" | "relates";
+export type BoardNodeType =
+  | "system"
+  | "unknown"
+  | "outcome"
+  | "hypothesis"
+  | "evidence";
+export type BoardNodeStatus =
+  | "normal"
+  | "suspicious"
+  | "confirmed"
+  | "contradicted"
+  | "isolated";
+export type BoardEdgeStatus =
+  | "unknown"
+  | "suspected"
+  | "confirmed"
+  | "contradicted"
+  | "isolated";
+export type HypothesisStatus =
+  | "open"
+  | "supported"
+  | "challenged"
+  | "inconclusive";
+export type BoardRelation =
+  | "supports"
+  | "questions"
+  | "causes"
+  | "contradicts"
+  | "relates";
 
 export interface BoardGraphNode {
   id: string;
@@ -309,7 +377,7 @@ export interface BoardGraphNode {
   status: BoardNodeStatus;
   revealed: boolean;
   linkedEvidenceIds: string[];
-  systemNodeId?: string;        // link back to CaseSystemNode.id
+  systemNodeId?: string; // link back to CaseSystemNode.id
   metadata?: Record<string, unknown>;
   position: { x: number; y: number };
 }
@@ -342,11 +410,11 @@ export interface BoardConnection {
 
 /** Defines what happens when evidence is placed on a specific board node */
 export interface EvidencePlacement {
-  evidenceKey: string;     // `${nodeId}:${taskType}` key
-  revealsNodeId?: string;  // unhide a hidden board node
+  evidenceKey: string; // `${nodeId}:${taskType}` key
+  revealsNodeId?: string; // unhide a hidden board node
   upgradesEdgeId?: string; // change edge status
   upgradesEdgeTo?: BoardEdgeStatus;
-  marksNodeId?: string;    // change a node's status
+  marksNodeId?: string; // change a node's status
   marksNodeAs?: BoardNodeStatus;
 }
 

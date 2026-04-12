@@ -2,106 +2,324 @@
 
 import { useState } from "react";
 import {
-  PRIMARY_CYBER_CITY_SECTOR_SEEDS,
-  computeSectorThreatStatuses,
+  CYBER_CITY_LINKS,
   DOMAIN_LABEL_BY_SECTOR,
 } from "@/data/cyberCitySectors";
 import { getPrimaryCase } from "@/data/sectorCases";
 import { audioManager } from "@/lib/audioManager";
-import type { SectorId } from "@/types/investigation";
+import type { RemediationResult, SectorId } from "@/types/investigation";
 import { SECTOR_COLORS } from "@/types/sectors";
 
-interface SectorStatusPanelProps {
-  activeSectorId: SectorId | null;
-  pressureLevel: number; // 0–10 from investigation hook
-  onSectorClick: (sectorId: SectorId) => void;
+// ---------------------------------------------------------------------------
+// Case nodes — hardcoded for midnight_exfil
+// ---------------------------------------------------------------------------
+
+interface CaseNode {
+  id: string;
+  name: string;
+  domain: string;
+  baseThreat: number; // starting compromise level (reflects case truth)
+  description: {
+    compromised: string;
+    recovering: string;
+    contained: string;
+  };
 }
 
-/** Short status blurbs shown in the hover tooltip, keyed by threat tier */
+const CASE_NODES: CaseNode[] = [
+  {
+    id: "DB-02",
+    name: "Financial Database",
+    domain: "Database / Storage",
+    baseThreat: 95,
+    description: {
+      compromised:
+        "47 GB SELECT dump executed at 03:46. pg_dump exfiltrated via SSH tunnel to EXT-01. bash_history cleared.",
+      recovering:
+        "Exfil path cut. Database access locked. Dump integrity unknown — restore recommended.",
+      contained: "Isolated. Export activity halted. Forensic copy preserved.",
+    },
+  },
+  {
+    id: "MAIL-01",
+    name: "Mail Gateway",
+    domain: "Mail / SMTP",
+    baseThreat: 85,
+    description: {
+      compromised:
+        "Forwarding rule created at 03:44 → ext-relay. 2,411 messages bulk-sent. .pst spool 480 MB.",
+      recovering:
+        "Forwarding rule removed. Outbound SMTP rate-limited. Credential reset in progress.",
+      contained:
+        "SMTP egress blocked. Admin session terminated. Rules audited.",
+    },
+  },
+  {
+    id: "GW-01",
+    name: "API Gateway",
+    domain: "Gateway / API",
+    baseThreat: 75,
+    description: {
+      compromised:
+        "API key rotated by attacker at 03:40. Rate limiter disabled 03:55. Internal routes to DB-02 exposed.",
+      recovering:
+        "Rate limiter re-enabled. API keys revoked. OAuth tokens reissued.",
+      contained:
+        "Egress on port 443 blocked. Config restored from clean backup.",
+    },
+  },
+  {
+    id: "WS-03",
+    name: "Dev Workstation",
+    domain: "Endpoint / Workstation",
+    baseThreat: 78,
+    description: {
+      compromised:
+        "mimikatz.exe executed at 03:35 — 14 credentials harvested. Lateral SSH to DB-02 and MAIL-01.",
+      recovering:
+        "RDP session terminated. mimikatz binary quarantined. Credential reset underway.",
+      contained:
+        "Workstation isolated. clean.bat execution prevented. Disk imaged.",
+    },
+  },
+  {
+    id: "EXT-01",
+    name: "External C2 Server",
+    domain: "External / Threat Actor",
+    baseThreat: 90,
+    description: {
+      compromised:
+        "Receiving C2 beacons from WS-03 since 03:28. 47.2 GB received on port 443. Staging at /var/exfil/.",
+      recovering:
+        "Egress to EXT-01 blocked at FW-01. Beacon interrupted. Staging not yet wiped.",
+      contained:
+        "All outbound routes to 198.51.100.42 blocked. TLS channel severed.",
+    },
+  },
+  {
+    id: "BACKUP-01",
+    name: "Backup Server",
+    domain: "Backup / Recovery",
+    baseThreat: 62,
+    description: {
+      compromised:
+        "VSS shadow copies deleted at 03:52. Retention policy changed 30d → 1d. Anti-forensics sweep at 03:55.",
+      recovering:
+        "Retention policy restored. New snapshot initiated. IMAP sync from MAIL-01 suspended.",
+      contained: "Backup integrity verified from offsite copy. VSS rebuilt.",
+    },
+  },
+  {
+    id: "FW-01",
+    name: "Perimeter Firewall",
+    domain: "Firewall / Perimeter",
+    baseThreat: 52,
+    description: {
+      compromised:
+        "Allow-rule added at 03:30 enabling DB-02 → EXT-01 on port 443. 47.2 GB passed before auto-expire.",
+      recovering:
+        "Rogue allow-rule removed. Egress policy hardened. Logs archived.",
+      contained:
+        "Ruleset audited. Default-deny egress enforced. Config hash verified.",
+    },
+  },
+];
+
+// Nodes that should show as higher threat regardless (attack chain order)
+const NODE_COLOR: Record<string, string> = {
+  "DB-02": "#ef4444",
+  "MAIL-01": "#f59e0b",
+  "GW-01": "#f97316",
+  "WS-03": "#a78bfa",
+  "EXT-01": "#ef4444",
+  "BACKUP-01": "#facc15",
+  "FW-01": "#22d3ee",
+};
+
+// ---------------------------------------------------------------------------
+// Sector threat data (used in "no active investigation" mode)
+// ---------------------------------------------------------------------------
+
+interface SectorStatus {
+  sectorId: SectorId;
+  threat: number;
+}
+
+const SECTOR_SEED: Record<SectorId, number> = {
+  "EDU-01": 0.17,
+  "MED-02": 0.43,
+  "FIN-03": 0.61,
+  "NET-04": 0.29,
+  "AUTH-05": 0.72,
+  "PWR-06": 0.38,
+  "CLOUD-07": 0.54,
+  "CIV-08": 0.11,
+};
+
 const THREAT_BLURBS: Record<
   SectorId,
   { secure: string; suspicious: string; alert: string; breached: string }
 > = {
   "EDU-01": {
-    secure: "Research lab sensors are quiet. Build runners and glass-lab terminals are stable.",
-    suspicious: "Late-night lab access and unusual package pulls are showing up inside the research wing.",
-    alert: "The glass-lab build stack is leaking artifacts toward the security perimeter.",
-    breached: "Research workstations inside the glass lab are staging code and model data for theft.",
-  },
-  "AUTH-05": {
-    secure: "Badge readers, identity brokers, and gate access are enforcing cleanly.",
-    suspicious: "Access failures are rising at the security bastion with unusual token reuse patterns.",
-    alert: "Credential replay is hitting the fortress gateway and forcing emergency access review.",
-    breached: "Security gateway trust has been broken. Admin credentials can move laterally across districts.",
-  },
-  "FIN-03": {
-    secure: "Finance tower transaction lanes are validating cleanly.",
-    suspicious: "Settlement queries and ledger reads are drifting above baseline inside the tower core.",
-    alert: "The neon tower is servicing unauthorized treasury queries and off-hours bulk exports.",
-    breached: "Transaction systems in the finance tower are compromised and preparing destructive actions.",
-  },
-  "CIV-08": {
-    secure: "Transit and civic orchestration queues are flowing normally through the central hub.",
-    suspicious: "Civic routing jobs are stalling and transit control messages are arriving out of order.",
-    alert: "The civic hub is misrouting approvals and dispatch traffic across the lower district.",
-    breached: "Core civic and transit processes are compromised inside the lower central hub.",
-  },
-  "MED-02": {
-    secure: "Clinical monitoring and diagnostics remain stable inside the medical block.",
-    suspicious: "After-hours access is appearing in diagnostics consoles and patient relay panels.",
-    alert: "Synthetic alarms are masking real events throughout the medical sector.",
-    breached: "Medical monitoring and diagnostics have been compromised across the hospital footprint.",
-  },
-  "PWR-06": {
-    secure: "Cooling towers and compute racks are balanced. Power draw is nominal.",
-    suspicious: "Cooling telemetry and compute hall loads are diverging in the shared infra yard.",
-    alert: "The power-plant/data-core zone is showing malicious process activity across servers and controls.",
-    breached: "Compute and plant control systems are compromised across the shared infrastructure block.",
-  },
-  "CLOUD-07": {
-    secure: "Telemetry dishes, uplink relays, and launch systems are synchronized.",
-    suspicious: "Launch telemetry and external relay packets are drifting at the comms square.",
-    alert: "The comms relay is forwarding anomalous uplink data toward the launch pad systems.",
-    breached: "Rocket square communications are compromised and leaking external telemetry.",
+    secure: "All research systems nominal. No anomalous traffic detected.",
+    suspicious: "Unusual late-night access patterns on faculty VPN endpoints.",
+    alert:
+      "Outbound data spikes from the AI research cluster. CI pipeline flagged.",
+    breached:
+      "Unauthorized commit deployed. Build runner phoning home to external C2.",
   },
   "NET-04": {
-    secure: "Peripheral habitat traffic remains low and non-operational.",
-    suspicious: "Minor utility chatter detected in the inactive top-right block.",
-    alert: "Unexpected relay activity spotted in the inactive perimeter block.",
-    breached: "Inactive top-right structures are being used as a staging relay.",
+    secure: "ISP backbone routing cleanly. No packet anomalies.",
+    suspicious: "Minor BGP route fluctuations on upstream peers.",
+    alert:
+      "Abnormal traffic volumes on core switching fabric. Spoofed packets detected.",
+    breached:
+      "DNS poisoning confirmed. Backbone redirecting traffic to rogue endpoints.",
+  },
+  "AUTH-05": {
+    secure:
+      "Identity gateway fully operational. MFA enforced across all users.",
+    suspicious: "Elevated failed login attempts from off-campus IPs.",
+    alert:
+      "Credential stuffing underway. Multiple accounts temporarily suspended.",
+    breached:
+      "Admin tokens exfiltrated. Threat actor has lateral movement capability.",
+  },
+  "FIN-03": {
+    secure: "Core banking systems stable. All transactions validated.",
+    suspicious: "High-frequency micro-transactions flagged by fraud detection.",
+    alert:
+      "SWIFT bridge logs show unauthorized query patterns. Audit mode enabled.",
+    breached:
+      "Ransomware payload executing. Financial records being encrypted.",
+  },
+  "PWR-06": {
+    secure: "Grid control systems nominal. All substations responding.",
+    suspicious:
+      "HMI interface accessed from unrecognised maintenance terminal.",
+    alert: "SCADA commands being replayed from spoofed controller address.",
+    breached: "Cascading shutdowns initiated by malicious PLC instruction set.",
+  },
+  "CIV-08": {
+    secure: "Transit and civic operations running on schedule.",
+    suspicious:
+      "Civic database returning unexpected NULL fields on audit queries.",
+    alert: "Emergency dispatch routing compromised. Calls being redirected.",
+    breached:
+      "Mission control uplink severed. Manual override protocols engaged.",
+  },
+  "CLOUD-07": {
+    secure: "Cloud archive fully replicated. All backups verified.",
+    suspicious: "Storage bucket ACL drift detected on three archive nodes.",
+    alert:
+      "Large-scale data reads on cold storage. Exfiltration risk elevated.",
+    breached:
+      "Backup encryption keys exposed. Archive integrity cannot be guaranteed.",
+  },
+  "MED-02": {
+    secure: "Patient systems and diagnostics operating normally.",
+    suspicious: "After-hours access to diagnostics DB from staff credentials.",
+    alert:
+      "Alert queue flooded with synthetic alarms masking privilege escalation.",
+    breached:
+      "Patient monitoring feeds compromised. Real alerts being suppressed.",
   },
 };
 
-function threatTier(
-  threat: number,
-): "secure" | "suspicious" | "alert" | "breached" {
-  if (threat >= 70) return "breached";
-  if (threat >= 40) return "alert";
-  if (threat >= 20) return "suspicious";
-  return "secure";
+const SECTOR_ORDER: SectorId[] = [
+  "EDU-01",
+  "NET-04",
+  "AUTH-05",
+  "FIN-03",
+  "PWR-06",
+  "CIV-08",
+  "CLOUD-07",
+  "MED-02",
+];
+
+function computeThreats(
+  activeSectorId: SectorId | null,
+  pressureLevel: number,
+): SectorStatus[] {
+  const suspiciousNeighbors = new Set<SectorId>();
+  if (activeSectorId) {
+    for (const link of CYBER_CITY_LINKS) {
+      if (!link.suspicious) continue;
+      if (link.sourceId === activeSectorId)
+        suspiciousNeighbors.add(link.targetId);
+      if (link.targetId === activeSectorId)
+        suspiciousNeighbors.add(link.sourceId);
+    }
+  }
+  return SECTOR_ORDER.map((sectorId) => {
+    const seed = SECTOR_SEED[sectorId] ?? 0.5;
+    const p = Math.min(pressureLevel / 10, 1);
+    let threat: number;
+    if (sectorId === activeSectorId) {
+      threat = 70 + p * 25;
+    } else if (suspiciousNeighbors.has(sectorId)) {
+      threat = 30 + seed * 15 + p * 20;
+    } else {
+      threat = 3 + seed * 12 + p * 15;
+    }
+    return { sectorId, threat: Math.min(Math.round(threat), 100) };
+  });
 }
 
-function statusLabel(threat: number): { text: string; color: string } {
-  if (threat >= 70) return { text: "BREACHED", color: "#ef4444" };
-  if (threat >= 40) return { text: "ALERT", color: "#f59e0b" };
-  if (threat >= 20) return { text: "SUSPICIOUS", color: "#facc15" };
-  return { text: "SECURE", color: "#34d399" };
+// ---------------------------------------------------------------------------
+// Node threat computation
+// ---------------------------------------------------------------------------
+
+function computeNodeThreat(
+  node: CaseNode,
+  discoveredNodes: string[],
+  remediations: RemediationResult[],
+): number {
+  let threat = node.baseThreat;
+  // Evidence found → confirms compromise (no change, already high)
+  const found = discoveredNodes.includes(node.id);
+  if (!found) threat = Math.round(threat * 0.6); // unknown = lower displayed threat
+
+  // Each successful remediation on this node reduces threat
+  const nodeRemeds = remediations.filter(
+    (r) => r.target_node === node.id && r.success,
+  );
+  for (const rem of nodeRemeds) {
+    threat = Math.max(5, Math.round(threat - rem.progress_delta * 2.5));
+  }
+
+  return Math.min(100, Math.max(0, threat));
 }
 
-function barColor(threat: number, accent: string) {
-  if (threat >= 70) return "#ef4444";
-  if (threat >= 40) return "#f59e0b";
-  if (threat >= 20) return "#facc15";
-  return accent;
+function nodeStatusLabel(threat: number): { text: string; color: string } {
+  if (threat >= 70) return { text: "COMPROMISED", color: "#ef4444" };
+  if (threat >= 40) return { text: "DEGRADED", color: "#f59e0b" };
+  if (threat >= 20) return { text: "RECOVERING", color: "#facc15" };
+  return { text: "CONTAINED", color: "#34d399" };
 }
 
-// ── Sub-components ──────────────────────────────────────────────────────────
+function nodeConditionText(node: CaseNode, threat: number): string {
+  if (threat >= 40) return node.description.compromised;
+  if (threat >= 20) return node.description.recovering;
+  return node.description.contained;
+}
+
+// ---------------------------------------------------------------------------
+// Shared sub-components
+// ---------------------------------------------------------------------------
 
 function ThreatBar({ threat, color }: { threat: number; color: string }) {
-  const fill = barColor(threat, color);
+  const fill =
+    threat >= 70
+      ? "#ef4444"
+      : threat >= 40
+        ? "#f59e0b"
+        : threat >= 20
+          ? "#facc15"
+          : color;
   return (
     <div
-      className="relative h-1.5 w-full rounded-full overflow-hidden"
+      className="relative h-1.5 w-full overflow-hidden rounded-full"
       style={{ background: "#0f1927" }}
     >
       <div
@@ -116,33 +334,56 @@ function ThreatBar({ threat, color }: { threat: number; color: string }) {
   );
 }
 
-interface HoverTooltipProps {
+// ---------------------------------------------------------------------------
+// Sector tooltip (pre-investigation)
+// ---------------------------------------------------------------------------
+
+function SectorTooltip({
+  sectorId,
+  threat,
+  isActive,
+}: {
   sectorId: SectorId;
   threat: number;
   isActive: boolean;
-}
-
-function HoverTooltip({ sectorId, threat, isActive }: HoverTooltipProps) {
+}) {
   const color = SECTOR_COLORS[sectorId] ?? "#00d4ff";
-  const status = statusLabel(threat);
-  const tier = threatTier(threat);
+  const tier =
+    threat >= 70
+      ? "breached"
+      : threat >= 40
+        ? "alert"
+        : threat >= 20
+          ? "suspicious"
+          : ("secure" as const);
   const blurb = THREAT_BLURBS[sectorId]?.[tier] ?? "";
-  const fill = barColor(threat, color);
-
-  // Use case title if sector has an active investigation
-  const caseData = getPrimaryCase(sectorId);
-  const title = caseData?.title ?? status.text;
+  const fill =
+    threat >= 70
+      ? "#ef4444"
+      : threat >= 40
+        ? "#f59e0b"
+        : threat >= 20
+          ? "#facc15"
+          : color;
+  const statusText =
+    threat >= 70
+      ? "BREACHED"
+      : threat >= 40
+        ? "ALERT"
+        : threat >= 20
+          ? "SUSPICIOUS"
+          : "SECURE";
+  const caseData = isActive ? getPrimaryCase(sectorId) : null;
 
   return (
     <div
-      className="absolute right-full top-0 mr-2 z-50 w-52 rounded-lg overflow-hidden pointer-events-none"
+      className="pointer-events-none absolute right-full top-0 z-50 mr-2 w-52 overflow-hidden rounded-lg"
       style={{
         background: "#07111e",
         border: `1px solid ${color}44`,
-        boxShadow: `0 8px 32px rgba(0,0,0,0.7), 0 0 16px ${color}18`,
+        boxShadow: `0 8px 32px rgba(0,0,0,0.7)`,
       }}
     >
-      {/* Tooltip header */}
       <div
         className="px-3 py-2"
         style={{
@@ -157,26 +398,21 @@ function HoverTooltip({ sectorId, threat, isActive }: HoverTooltipProps) {
           >
             {sectorId}
           </span>
-          <span
-            className="text-[8px] font-mono tracking-wider"
-            style={{ color: status.color }}
-          >
-            {status.text}
+          <span className="text-[8px] font-mono" style={{ color: fill }}>
+            {statusText}
           </span>
         </div>
-        <div className="text-[10px] font-mono font-semibold text-white mt-0.5 leading-tight">
-          {title}
+        <div className="mt-0.5 text-[10px] font-mono font-semibold text-white leading-tight">
+          {caseData ? caseData.title : DOMAIN_LABEL_BY_SECTOR[sectorId]}
         </div>
       </div>
-
-      {/* Threat bar */}
       <div
         className="px-3 py-2"
         style={{ borderBottom: `1px solid ${color}11` }}
       >
-        <div className="flex items-center gap-2 mb-1">
+        <div className="mb-1 flex items-center gap-2">
           <span className="text-[8px] font-mono" style={{ color: "#4a6580" }}>
-            THREAT LEVEL
+            THREAT
           </span>
           <span
             className="ml-auto text-[8px] font-mono tabular-nums"
@@ -186,21 +422,15 @@ function HoverTooltip({ sectorId, threat, isActive }: HoverTooltipProps) {
           </span>
         </div>
         <div
-          className="h-2 w-full rounded-full overflow-hidden"
+          className="h-2 w-full overflow-hidden rounded-full"
           style={{ background: "#0f1927" }}
         >
           <div
-            className="h-full rounded-full transition-all duration-700"
-            style={{
-              width: `${threat}%`,
-              background: fill,
-              boxShadow: threat >= 40 ? `0 0 8px ${fill}99` : "none",
-            }}
+            className="h-full rounded-full"
+            style={{ width: `${threat}%`, background: fill }}
           />
         </div>
       </div>
-
-      {/* Blurb */}
       <div className="px-3 py-2">
         <p
           className="text-[9px] font-mono leading-[1.55]"
@@ -208,7 +438,7 @@ function HoverTooltip({ sectorId, threat, isActive }: HoverTooltipProps) {
         >
           {blurb}
         </p>
-        {isActive && caseData && (
+        {isActive && (
           <div
             className="mt-2 text-[8px] font-mono tracking-wider"
             style={{ color }}
@@ -221,15 +451,150 @@ function HoverTooltip({ sectorId, threat, isActive }: HoverTooltipProps) {
   );
 }
 
-// ── Main component ──────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Node tooltip (during investigation)
+// ---------------------------------------------------------------------------
+
+function NodeTooltip({ node, threat }: { node: CaseNode; threat: number }) {
+  const color = NODE_COLOR[node.id] ?? "#00d4ff";
+  const status = nodeStatusLabel(threat);
+  const condition = nodeConditionText(node, threat);
+  const fill =
+    threat >= 70
+      ? "#ef4444"
+      : threat >= 40
+        ? "#f59e0b"
+        : threat >= 20
+          ? "#facc15"
+          : "#34d399";
+
+  return (
+    <div
+      className="pointer-events-none absolute right-full top-0 z-50 mr-2 w-60 overflow-hidden rounded-lg"
+      style={{
+        background: "#07111e",
+        border: `1px solid ${color}44`,
+        boxShadow: "0 8px 32px rgba(0,0,0,0.7)",
+      }}
+    >
+      <div
+        className="px-3 py-2"
+        style={{
+          borderBottom: `1px solid ${color}22`,
+          background: `${color}0a`,
+        }}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span
+            className="text-[9px] font-mono tracking-widest font-bold"
+            style={{ color }}
+          >
+            {node.id}
+          </span>
+          <span
+            className="text-[8px] font-mono"
+            style={{ color: status.color }}
+          >
+            {status.text}
+          </span>
+        </div>
+        <div className="mt-0.5 text-[10px] font-mono font-semibold text-white">
+          {node.name}
+        </div>
+        <div className="text-[8px] font-mono" style={{ color: "#2a5070" }}>
+          {node.domain}
+        </div>
+      </div>
+      <div
+        className="px-3 py-2"
+        style={{ borderBottom: `1px solid ${color}11` }}
+      >
+        <div className="mb-1 flex items-center justify-between">
+          <span className="text-[8px] font-mono" style={{ color: "#4a6580" }}>
+            COMPROMISE
+          </span>
+          <span
+            className="text-[8px] font-mono tabular-nums"
+            style={{ color: fill }}
+          >
+            {threat}%
+          </span>
+        </div>
+        <div
+          className="h-2 w-full overflow-hidden rounded-full"
+          style={{ background: "#0f1927" }}
+        >
+          <div
+            className="h-full rounded-full transition-all duration-700"
+            style={{ width: `${threat}%`, background: fill }}
+          />
+        </div>
+      </div>
+      <div className="px-3 py-2">
+        <p
+          className="text-[9px] font-mono leading-[1.55]"
+          style={{ color: "#6f87a1" }}
+        >
+          {condition}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Props
+// ---------------------------------------------------------------------------
+
+interface SectorStatusPanelProps {
+  activeSectorId: SectorId | null;
+  pressureLevel: number;
+  discoveredNodes: string[];
+  remediations: RemediationResult[];
+  onSectorClick: (sectorId: SectorId) => void;
+  onOpenRemediation: () => void;
+  proposalSubmitted: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 
 export function SectorStatusPanel({
   activeSectorId,
   pressureLevel,
+  discoveredNodes,
+  remediations,
   onSectorClick,
+  onOpenRemediation,
+  proposalSubmitted,
 }: SectorStatusPanelProps) {
-  const statuses = computeSectorThreatStatuses(activeSectorId, pressureLevel);
-  const [hoveredSector, setHoveredSector] = useState<SectorId | null>(null);
+  const [hovered, setHovered] = useState<string | null>(null);
+  const isInvestigating = activeSectorId !== null;
+
+  // Overall network integrity score
+  const overallIntegrity = isInvestigating
+    ? Math.max(
+        0,
+        Math.round(
+          100 -
+            CASE_NODES.reduce(
+              (sum, n) =>
+                sum +
+                computeNodeThreat(n, discoveredNodes, remediations) /
+                  CASE_NODES.length,
+              0,
+            ),
+        ),
+      )
+    : Math.max(0, 100 - Math.round(pressureLevel * 9));
+
+  const integrityColor =
+    overallIntegrity >= 60
+      ? "#34d399"
+      : overallIntegrity >= 35
+        ? "#f59e0b"
+        : "#ef4444";
 
   return (
     <div
@@ -245,166 +610,272 @@ export function SectorStatusPanel({
           className="text-[10px] font-mono uppercase tracking-[0.16em]"
           style={{ color: "#00d4ff" }}
         >
-          Mapped Systems
+          {isInvestigating ? "Node Integrity" : "Sector Integrity"}
         </h2>
         <p
           className="mt-1 text-[9px] font-mono leading-4"
           style={{ color: "#2a5070" }}
         >
-          Hover to inspect · Click to investigate
+          {isInvestigating
+            ? "Case: Midnight Exfiltration"
+            : "Hover to inspect · Click to investigate"}
         </p>
       </div>
 
-      {/* Sector list */}
+      {/* List */}
       <div className="flex-1 overflow-y-auto">
-        {statuses.map(({ sectorId, threat }) => {
-          const color = SECTOR_COLORS[sectorId] ?? "#00d4ff";
-          const isActive = sectorId === activeSectorId;
-          const isHovered = sectorId === hoveredSector;
-          const status = statusLabel(threat);
-          const seed = PRIMARY_CYBER_CITY_SECTOR_SEEDS.find((entry) => entry.id === sectorId);
-          if (!seed) return null;
+        {isInvestigating
+          ? /* ── Node view ─────────────────────────────────────────────── */
+            CASE_NODES.map((node) => {
+              const threat = computeNodeThreat(
+                node,
+                discoveredNodes,
+                remediations,
+              );
+              const status = nodeStatusLabel(threat);
+              const color = NODE_COLOR[node.id] ?? "#00d4ff";
+              const isHovered = hovered === node.id;
+              const hasEvidence = discoveredNodes.includes(node.id);
+              const remedCount = remediations.filter(
+                (r) => r.target_node === node.id && r.success,
+              ).length;
 
-          return (
-            <div key={sectorId} className="relative">
-              {/* Hover tooltip — floats to the left */}
-              {isHovered && (
-                <HoverTooltip
-                  sectorId={sectorId}
-                  threat={threat}
-                  isActive={isActive}
-                />
-              )}
+              return (
+                <div key={node.id} className="relative">
+                  {isHovered && <NodeTooltip node={node} threat={threat} />}
+                  {/* biome-ignore lint/a11y/noStaticElementInteractions: tooltip hover only */}
+                  <div
+                    className="w-full px-4 py-3 transition-all duration-150"
+                    style={{
+                      borderBottom: "1px solid #0e1824",
+                      background: isHovered ? `${color}0d` : "transparent",
+                    }}
+                    onMouseEnter={() => setHovered(node.id)}
+                    onMouseLeave={() => setHovered(null)}
+                  >
+                    {/* Row 1: ID + status */}
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="h-1.5 w-1.5 flex-shrink-0 rounded-full"
+                          style={{
+                            background: color,
+                            boxShadow: isHovered ? `0 0 6px ${color}` : "none",
+                          }}
+                        />
+                        <span
+                          className="text-[10px] font-mono font-bold"
+                          style={{ color: isHovered ? color : "#c9d8e8" }}
+                        >
+                          {node.id}
+                        </span>
+                      </div>
+                      <span
+                        className="text-[8px] font-mono tracking-wider"
+                        style={{ color: status.color }}
+                      >
+                        {status.text}
+                      </span>
+                    </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  audioManager.playButtonClick();
-                  onSectorClick(sectorId);
-                }}
-                onMouseEnter={() => setHoveredSector(sectorId)}
-                onMouseLeave={() => setHoveredSector(null)}
-                className="w-full text-left px-4 py-3 transition-all duration-150"
-                style={{
-                  borderBottom: "1px solid #0e1824",
-                  background: isActive
-                    ? `${color}18`
-                    : isHovered
-                      ? `${color}0d`
-                      : "transparent",
-                  cursor: "pointer",
-                }}
-              >
-                {/* Row 1: ID + status badge */}
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                      style={{
-                        background: color,
-                        boxShadow:
-                          isActive || isHovered ? `0 0 6px ${color}` : "none",
+                    {/* Node name */}
+                    <div
+                      className="mb-1 text-[8px] font-mono truncate"
+                      style={{ color: "#4a6580" }}
+                    >
+                      {node.name}
+                    </div>
+
+                    {/* Threat bar */}
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1">
+                        <ThreatBar threat={threat} color={color} />
+                      </div>
+                      <span
+                        className="w-7 flex-shrink-0 text-right text-[8px] font-mono tabular-nums"
+                        style={{ color: status.color }}
+                      >
+                        {threat}%
+                      </span>
+                    </div>
+
+                    {/* Evidence / remediation badges */}
+                    <div className="mt-1.5 flex gap-1.5">
+                      {hasEvidence && (
+                        <span
+                          className="rounded px-1.5 py-0.5 text-[7px] font-mono"
+                          style={{
+                            background: "rgba(0,212,255,0.08)",
+                            color: "#00d4ff",
+                          }}
+                        >
+                          evidence
+                        </span>
+                      )}
+                      {remedCount > 0 && (
+                        <span
+                          className="rounded px-1.5 py-0.5 text-[7px] font-mono"
+                          style={{
+                            background: "rgba(52,211,153,0.08)",
+                            color: "#34d399",
+                          }}
+                        >
+                          {remedCount} fix{remedCount > 1 ? "es" : ""}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          : /* ── Sector view ────────────────────────────────────────────── */
+            computeThreats(activeSectorId, pressureLevel).map(
+              ({ sectorId, threat }) => {
+                const color = SECTOR_COLORS[sectorId] ?? "#00d4ff";
+                const isActive = sectorId === activeSectorId;
+                const isHovered = hovered === sectorId;
+                const statusColor =
+                  threat >= 70
+                    ? "#ef4444"
+                    : threat >= 40
+                      ? "#f59e0b"
+                      : threat >= 20
+                        ? "#facc15"
+                        : "#34d399";
+                const statusText =
+                  threat >= 70
+                    ? "BREACHED"
+                    : threat >= 40
+                      ? "ALERT"
+                      : threat >= 20
+                        ? "SUSPICIOUS"
+                        : "SECURE";
+
+                return (
+                  <div key={sectorId} className="relative">
+                    {isHovered && (
+                      <SectorTooltip
+                        sectorId={sectorId}
+                        threat={threat}
+                        isActive={isActive}
+                      />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        audioManager.playButtonClick();
+                        onSectorClick(sectorId);
                       }}
-                    />
-                    <span
-                      className="text-[10px] font-mono font-bold"
+                      onMouseEnter={() => setHovered(sectorId)}
+                      onMouseLeave={() => setHovered(null)}
+                      className="w-full px-4 py-3 text-left transition-all duration-150"
                       style={{
-                        color: isActive
-                          ? color
+                        borderBottom: "1px solid #0e1824",
+                        background: isActive
+                          ? `${color}18`
                           : isHovered
-                            ? "#e2eaf2"
-                            : "#c9d8e8",
+                            ? `${color}0d`
+                            : "transparent",
+                        cursor: "pointer",
                       }}
                     >
-                      {sectorId}
-                    </span>
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="h-1.5 w-1.5 flex-shrink-0 rounded-full"
+                            style={{
+                              background: color,
+                              boxShadow:
+                                isActive || isHovered
+                                  ? `0 0 6px ${color}`
+                                  : "none",
+                            }}
+                          />
+                          <span
+                            className="text-[10px] font-mono font-bold"
+                            style={{
+                              color: isActive
+                                ? color
+                                : isHovered
+                                  ? "#e2eaf2"
+                                  : "#c9d8e8",
+                            }}
+                          >
+                            {sectorId}
+                          </span>
+                        </div>
+                        <span
+                          className="text-[8px] font-mono tracking-wider"
+                          style={{ color: statusColor }}
+                        >
+                          {statusText}
+                        </span>
+                      </div>
+                      <div
+                        className="mb-2 text-[8px] font-mono truncate"
+                        style={{ color: "#4a6580" }}
+                      >
+                        {DOMAIN_LABEL_BY_SECTOR[sectorId]}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <ThreatBar threat={threat} color={color} />
+                        </div>
+                        <span
+                          className="w-8 flex-shrink-0 text-right text-[8px] font-mono tabular-nums"
+                          style={{ color: statusColor }}
+                        >
+                          {threat}%
+                        </span>
+                      </div>
+                    </button>
                   </div>
-                  <span
-                    className="text-[8px] font-mono tracking-wider"
-                    style={{ color: status.color }}
-                  >
-                    {status.text}
-                  </span>
-                </div>
-
-                {/* Domain name */}
-                <div
-                  className="text-[8px] font-mono mb-2 truncate"
-                  style={{ color: "#4a6580" }}
-                >
-                  {seed.locationName}
-                </div>
-
-                <div
-                  className="text-[8px] font-mono mb-2 truncate"
-                  style={{ color: "#2a5070" }}
-                >
-                  {DOMAIN_LABEL_BY_SECTOR[sectorId]}
-                </div>
-
-                {/* Threat bar + percentage */}
-                <div className="flex items-center gap-2">
-                  <div className="flex-1">
-                    <ThreatBar threat={threat} color={color} />
-                  </div>
-                  <span
-                    className="text-[8px] font-mono tabular-nums w-8 text-right flex-shrink-0"
-                    style={{ color: status.color }}
-                  >
-                    {threat}%
-                  </span>
-                </div>
-              </button>
-            </div>
-          );
-        })}
+                );
+              },
+            )}
       </div>
 
-      {/* Footer: overall network health */}
+      {/* Footer */}
       <div
         className="shrink-0 px-4 py-3"
         style={{ borderTop: "1px solid #1e3d5a" }}
       >
-        <div className="flex items-center justify-between mb-1.5">
+        {proposalSubmitted && isInvestigating && (
+          <button
+            type="button"
+            onClick={onOpenRemediation}
+            className="mb-3 w-full rounded py-2 text-[9px] font-mono uppercase tracking-widest transition-opacity hover:opacity-80"
+            style={{
+              background: "rgba(0,212,255,0.1)",
+              border: "1px solid #00d4ff55",
+              color: "#00d4ff",
+            }}
+          >
+            ◈ Open Remediations
+          </button>
+        )}
+        <div className="mb-1.5 flex items-center justify-between">
           <span className="text-[9px] font-mono" style={{ color: "#2a5070" }}>
             NETWORK INTEGRITY
           </span>
           <span
             className="text-[9px] font-mono tabular-nums"
-            style={{
-              color:
-                pressureLevel >= 7
-                  ? "#ef4444"
-                  : pressureLevel >= 4
-                    ? "#f59e0b"
-                    : "#34d399",
-            }}
+            style={{ color: integrityColor }}
           >
-            {Math.max(0, 100 - Math.round(pressureLevel * 9))}%
+            {overallIntegrity}%
           </span>
         </div>
         <div
-          className="h-1 w-full rounded-full overflow-hidden"
+          className="h-1 w-full overflow-hidden rounded-full"
           style={{ background: "#0f1927" }}
         >
           <div
             className="h-full rounded-full transition-all duration-1000"
             style={{
-              width: `${Math.max(0, 100 - pressureLevel * 9)}%`,
-              background:
-                pressureLevel >= 7
-                  ? "#ef4444"
-                  : pressureLevel >= 4
-                    ? "#f59e0b"
-                    : "#34d399",
+              width: `${overallIntegrity}%`,
+              background: integrityColor,
             }}
           />
-        </div>
-        <div
-          className="mt-2 text-[8px] font-mono leading-4"
-          style={{ color: "#2a5070" }}
-        >
-          Top-right habitat block is intentionally inactive and excluded from major-system routing.
         </div>
       </div>
     </div>

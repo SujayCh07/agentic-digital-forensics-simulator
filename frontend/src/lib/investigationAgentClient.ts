@@ -8,10 +8,12 @@
 
 import { io, type Socket } from "socket.io-client";
 import type {
+  BossEvaluation,
   NipsAgentInstance,
   NipsEvidenceUpdate,
   NipsMarketplaceOffer,
   NipsToolActivity,
+  RemediationResult,
 } from "@/types/investigation";
 
 const API_BASE = "http://localhost:8000";
@@ -53,6 +55,17 @@ export interface NipsMarketplaceCallbacks {
   }) => void;
   onAgentsList: (data: { agents: NipsAgentInstance[]; funds: number }) => void;
   onError: (message: string) => void;
+}
+
+export interface NipsEndgameCallbacks {
+  onProposalEvaluated: (ev: BossEvaluation) => void;
+  onRemediationResult: (ev: RemediationResult) => void;
+}
+
+let _endgameCallbacks: NipsEndgameCallbacks | null = null;
+
+export function setEndgameCallbacks(callbacks: NipsEndgameCallbacks): void {
+  _endgameCallbacks = callbacks;
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +118,14 @@ function getSocket(): Socket {
   });
   _socket.on("nips_agents_list", (data) => {
     _marketplaceCallbacks?.onAgentsList(data);
+  });
+
+  // Endgame events
+  _socket.on("nips_proposal_evaluated", (data: BossEvaluation) => {
+    _endgameCallbacks?.onProposalEvaluated(data);
+  });
+  _socket.on("nips_remediation_result", (data: RemediationResult) => {
+    _endgameCallbacks?.onRemediationResult(data);
   });
 
   // Error
@@ -185,12 +206,34 @@ export function requestNipsAgentsList(): void {
   socket.emit("nips_list_agents");
 }
 
+export function submitProposal(rootCause: string, systemsInvolved: string): void {
+  const socket = getSocket();
+  socket.emit("nips_submit_proposal", {
+    root_cause: rootCause,
+    systems_involved: systemsInvolved,
+  });
+}
+
+export function executeRemediation(
+  actionType: string,
+  targetNode: string,
+  agentArchetype = "",
+): void {
+  const socket = getSocket();
+  socket.emit("nips_execute_remediation", {
+    action_type: actionType,
+    target_node: targetNode,
+    agent_archetype: agentArchetype,
+  });
+}
+
 export function disconnectNips(): void {
   _socket?.disconnect();
   _socket = null;
   _sessionCallbacks = null;
   _chatCallbacks = null;
   _marketplaceCallbacks = null;
+  _endgameCallbacks = null;
 }
 
 /**

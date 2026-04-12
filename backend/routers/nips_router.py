@@ -273,6 +273,81 @@ def register_nips_events(sio: Any) -> None:
         await sio.emit("nips_agent_detail", {"agent": agent.model_dump()}, to=sid)
 
     # ------------------------------------------------------------------
+    # Endgame: proposal submission + boss evaluation
+    # ------------------------------------------------------------------
+
+    @sio.on("nips_submit_proposal")
+    async def on_submit_proposal(sid: str, data: dict[str, Any] | None = None) -> None:
+        data = data or {}
+        session = get_session(sid)
+        if not session:
+            await sio.emit("nips_error", {"message": "No active NIPS session."}, to=sid)
+            return
+
+        from nips.boss_evaluation import evaluate_proposal
+
+        root_cause = str(data.get("root_cause", "")).strip()
+        systems_involved = str(data.get("systems_involved", "")).strip()
+
+        if not root_cause:
+            await sio.emit("nips_error", {"message": "Proposal requires a root cause."}, to=sid)
+            return
+
+        ev = evaluate_proposal(session.case_id, root_cause, systems_involved)
+        session.funds += ev.funds_awarded
+
+        await sio.emit("nips_proposal_evaluated", {
+            "funds_awarded": ev.funds_awarded,
+            "commentary":    ev.commentary,
+            "confidence_rating": ev.confidence_rating,
+            "progress_delta":    ev.progress_delta,
+            "funds":         session.funds,
+        }, to=sid)
+
+    # ------------------------------------------------------------------
+    # Endgame: remediation actions
+    # ------------------------------------------------------------------
+
+    @sio.on("nips_execute_remediation")
+    async def on_execute_remediation(sid: str, data: dict[str, Any] | None = None) -> None:
+        data = data or {}
+        session = get_session(sid)
+        if not session:
+            await sio.emit("nips_error", {"message": "No active NIPS session."}, to=sid)
+            return
+
+        from nips.remediation import execute_remediation
+
+        action_type = str(data.get("action_type", "")).strip()
+        target_node = str(data.get("target_node", "")).strip()
+        agent_archetype = str(data.get("agent_archetype", "")).strip()
+
+        if not action_type or not target_node:
+            await sio.emit("nips_error", {"message": "action_type and target_node are required."}, to=sid)
+            return
+
+        result = execute_remediation(
+            case_id=session.case_id,
+            action_type=action_type,
+            target_node=target_node,
+            current_funds=session.funds,
+            agent_archetype=agent_archetype,
+        )
+
+        if result.success:
+            session.funds = result.funds_remaining
+
+        await sio.emit("nips_remediation_result", {
+            "action_type":    result.action_type,
+            "target_node":    result.target_node,
+            "progress_delta": result.progress_delta,
+            "cost":           result.cost,
+            "commentary":     result.commentary,
+            "funds":          result.funds_remaining,
+            "success":        result.success,
+        }, to=sid)
+
+    # ------------------------------------------------------------------
     # Cleanup on disconnect
     # ------------------------------------------------------------------
 
