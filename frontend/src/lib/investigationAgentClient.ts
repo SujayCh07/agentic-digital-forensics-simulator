@@ -5,10 +5,19 @@
 
 import { io, type Socket } from "socket.io-client";
 import type {
+  FinalEvaluation,
+  FinalFeedback,
+  FinalReportSubmission,
+  IssueResolutionRequest,
+  IssueResolutionResult,
+  IssueState,
+  NipsCaseState,
   NipsAgentInstance,
   NipsEvidenceUpdate,
   NipsMarketplaceOffer,
   NipsToolActivity,
+  ThreatState,
+  AgentResult,
 } from "@/types/investigation";
 
 const API_BASE = "http://localhost:8000";
@@ -51,6 +60,21 @@ export interface NipsMarketplaceCallbacks {
   onError: (message: string) => void;
 }
 
+export interface NipsProgressionCallbacks {
+  onCaseState: (data: NipsCaseState) => void;
+  onIssueAvailable: (issue: IssueState) => void;
+  onIssueResolved: (result: IssueResolutionResult) => void;
+  onIssueFailed: (result: IssueResolutionResult) => void;
+  onThreatUpdated: (state: ThreatState) => void;
+  onFinalPhaseReady: (data: { caseId: string; ready: boolean }) => void;
+  onFinalEvaluation: (data: {
+    result: "pass" | "fail";
+    evaluation: FinalEvaluation;
+    feedback: FinalFeedback;
+  }) => void;
+  onError: (message: string) => void;
+}
+
 // ---------------------------------------------------------------------------
 // Singleton connection manager
 // ---------------------------------------------------------------------------
@@ -59,6 +83,143 @@ let _socket: Socket | null = null;
 let _sessionCallbacks: NipsSessionCallbacks | null = null;
 let _chatCallbacks: NipsChatCallbacks | null = null;
 let _marketplaceCallbacks: NipsMarketplaceCallbacks | null = null;
+let _progressionCallbacks: NipsProgressionCallbacks | null = null;
+
+function mapThreatState(data: {
+  spread_level: number;
+  case_confidence: number;
+  node_threats: Record<string, number>;
+  stabilized_node_ids: string[];
+}): ThreatState {
+  return {
+    spreadLevel: data.spread_level,
+    caseConfidence: data.case_confidence,
+    nodeThreats: data.node_threats,
+    stabilizedNodeIds: data.stabilized_node_ids,
+  };
+}
+
+function mapIssueState(data: {
+  id: string;
+  building_id: string;
+  sector_id: IssueState["sectorId"];
+  type: IssueState["type"];
+  title: string;
+  description: string;
+  required_evidence: string[];
+  optional_evidence?: string[];
+  required_agent: IssueState["requiredAgent"];
+  unlocks_issue_ids: string[];
+  status: IssueState["status"];
+  attempts: number;
+  available: boolean;
+  missing_evidence: string[];
+  last_failure_reason?: IssueState["lastFailureReason"];
+  feedback_message?: string;
+}): IssueState {
+  return {
+    id: data.id,
+    buildingId: data.building_id,
+    sectorId: data.sector_id,
+    type: data.type,
+    title: data.title,
+    description: data.description,
+    requiredEvidence: data.required_evidence,
+    optionalEvidence: data.optional_evidence ?? [],
+    requiredAgent: data.required_agent,
+    unlocksIssueIds: data.unlocks_issue_ids,
+    status: data.status,
+    attempts: data.attempts,
+    available: data.available,
+    missingEvidence: data.missing_evidence,
+    lastFailureReason: data.last_failure_reason,
+    feedbackMessage: data.feedback_message,
+  };
+}
+
+function mapIssueResolutionResult(data: {
+  issue_id: string;
+  building_id: string;
+  sector_id: IssueResolutionResult["sector_id"];
+  success: boolean;
+  status: IssueResolutionResult["status"];
+  reason?: IssueResolutionResult["reason"];
+  message: string;
+  unlocked_issue_ids: string[];
+  revealed_evidence_keys: string[];
+  threat_delta: number;
+  case_confidence_delta: number;
+  final_phase_ready: boolean;
+}): IssueResolutionResult {
+  return {
+    issue_id: data.issue_id,
+    building_id: data.building_id,
+    sector_id: data.sector_id,
+    success: data.success,
+    status: data.status,
+    reason: data.reason,
+    message: data.message,
+    unlocked_issue_ids: data.unlocked_issue_ids,
+    revealed_evidence_keys: data.revealed_evidence_keys,
+    threat_delta: data.threat_delta,
+    case_confidence_delta: data.case_confidence_delta,
+    final_phase_ready: data.final_phase_ready,
+  };
+}
+
+function mapCaseState(data: {
+  case_id: string;
+  issues: Array<Parameters<typeof mapIssueState>[0]>;
+  resolved_issue_count: number;
+  final_phase_ready: boolean;
+  threat_state: Parameters<typeof mapThreatState>[0];
+  synced_finding_ids: string[];
+  synced_evidence_keys: string[];
+  latest_feedback?: {
+    incorrect_assumptions: string[];
+    misleading_evidence: string[];
+    missing_connections: string[];
+    suggested_recheck_targets: string[];
+  } | null;
+}): NipsCaseState {
+  return {
+    case_id: data.case_id,
+    issues: data.issues.map(mapIssueState),
+    resolved_issue_count: data.resolved_issue_count,
+    final_phase_ready: data.final_phase_ready,
+    threat_state: mapThreatState(data.threat_state),
+    synced_finding_ids: data.synced_finding_ids,
+    synced_evidence_keys: data.synced_evidence_keys,
+    latest_feedback: data.latest_feedback
+      ? {
+          incorrectAssumptions: data.latest_feedback.incorrect_assumptions,
+          misleadingEvidence: data.latest_feedback.misleading_evidence,
+          missingConnections: data.latest_feedback.missing_connections,
+          suggestedRecheckTargets: data.latest_feedback.suggested_recheck_targets,
+        }
+      : null,
+  };
+}
+
+function mapFinalEvaluation(data: {
+  origin_correct: boolean;
+  path_accuracy: number;
+  attack_type_correct: boolean;
+  fix_correct: boolean;
+  score: number;
+  passed: boolean;
+  mitigation_accuracy: number;
+}): FinalEvaluation {
+  return {
+    originCorrect: data.origin_correct,
+    pathAccuracy: data.path_accuracy,
+    attackTypeCorrect: data.attack_type_correct,
+    fixCorrect: data.fix_correct,
+    score: data.score,
+    passed: data.passed,
+    mitigationAccuracy: data.mitigation_accuracy,
+  };
+}
 
 function getSocket(): Socket {
   if (_socket?.connected) return _socket;
@@ -103,11 +264,44 @@ function getSocket(): Socket {
     _marketplaceCallbacks?.onAgentsList(data);
   });
 
+  // Progression events
+  _socket.on("nips_case_state", (data) => {
+    _progressionCallbacks?.onCaseState(mapCaseState(data));
+  });
+  _socket.on("nips_issue_available", (data) => {
+    _progressionCallbacks?.onIssueAvailable(mapIssueState(data));
+  });
+  _socket.on("nips_issue_resolved", (data) => {
+    _progressionCallbacks?.onIssueResolved(mapIssueResolutionResult(data));
+  });
+  _socket.on("nips_issue_failed", (data) => {
+    _progressionCallbacks?.onIssueFailed(mapIssueResolutionResult(data));
+  });
+  _socket.on("nips_threat_updated", (data) => {
+    _progressionCallbacks?.onThreatUpdated(mapThreatState(data));
+  });
+  _socket.on("nips_final_phase_ready", (data: { case_id: string; ready: boolean }) => {
+    _progressionCallbacks?.onFinalPhaseReady({ caseId: data.case_id, ready: data.ready });
+  });
+  _socket.on("nips_final_evaluation", (data) => {
+    _progressionCallbacks?.onFinalEvaluation({
+      result: data.result,
+      evaluation: mapFinalEvaluation(data.evaluation),
+      feedback: {
+        incorrectAssumptions: data.feedback.incorrect_assumptions,
+        misleadingEvidence: data.feedback.misleading_evidence,
+        missingConnections: data.feedback.missing_connections,
+        suggestedRecheckTargets: data.feedback.suggested_recheck_targets,
+      },
+    });
+  });
+
   // Error
   _socket.on("nips_error", (data: { message: string }) => {
     _chatCallbacks?.onError(data.message);
     _sessionCallbacks?.onError(data.message);
     _marketplaceCallbacks?.onError(data.message);
+    _progressionCallbacks?.onError(data.message);
   });
 
   return _socket;
@@ -149,6 +343,12 @@ export function setMarketplaceCallbacks(
   _marketplaceCallbacks = callbacks;
 }
 
+export function setProgressionCallbacks(
+  callbacks: NipsProgressionCallbacks,
+): void {
+  _progressionCallbacks = callbacks;
+}
+
 export function sendNipsChat(
   agentInstanceId: string,
   message: string,
@@ -177,12 +377,41 @@ export function requestNipsAgentsList(): void {
   socket.emit("nips_list_agents");
 }
 
+export function syncNipsFinding(finding: {
+  finding_id: string;
+  evidence_key: string;
+  node_id: string;
+  task_type?: AgentResult["taskType"];
+  summary: string;
+  details: string;
+  severity: AgentResult["severity"];
+  evidence_type: AgentResult["evidenceType"];
+  confidence: number;
+  tags: string[];
+  agent_id: string;
+  agent_name: string;
+}): void {
+  const socket = getSocket();
+  socket.emit("nips_sync_finding", finding);
+}
+
+export function resolveNipsIssue(request: IssueResolutionRequest): void {
+  const socket = getSocket();
+  socket.emit("nips_resolve_issue", request);
+}
+
+export function submitNipsFinalReport(report: FinalReportSubmission): void {
+  const socket = getSocket();
+  socket.emit("nips_submit_final_report", report);
+}
+
 export function disconnectNips(): void {
   _socket?.disconnect();
   _socket = null;
   _sessionCallbacks = null;
   _chatCallbacks = null;
   _marketplaceCallbacks = null;
+  _progressionCallbacks = null;
 }
 
 /**

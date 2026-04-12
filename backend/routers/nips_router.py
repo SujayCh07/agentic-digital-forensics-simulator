@@ -13,7 +13,18 @@ import logging
 from typing import Any
 
 from nips.chat import stream_agent_chat
-from nips.models import EvidenceUpdate
+from nips.models import (
+    EvidenceUpdate,
+    FinalReportSubmission,
+    IssueResolutionRequest,
+    SyncedFinding,
+)
+from nips.progression import (
+    build_case_state,
+    evaluate_final_report,
+    resolve_issue,
+    sync_finding,
+)
 from nips.session import (
     CASE_SUMMARY,
     add_evidence,
@@ -31,6 +42,13 @@ from nips.session import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+async def _emit_case_state(sio: Any, sid: str) -> None:
+    session = get_session(sid)
+    if not session:
+        return
+    await sio.emit("nips_case_state", build_case_state(session).model_dump(), to=sid)
 
 
 def register_nips_events(sio: Any) -> None:
@@ -63,6 +81,7 @@ def register_nips_events(sio: Any) -> None:
             },
             to=sid,
         )
+        await _emit_case_state(sio, sid)
 
     # ------------------------------------------------------------------
     # Chat
@@ -133,6 +152,7 @@ def register_nips_events(sio: Any) -> None:
                         k: v for k, v in event.items()
                         if k in EvidenceUpdate.model_fields
                     })
+                    eu.agent_archetype = agent.archetype
                     add_evidence(session, eu)
                     await sio.emit("nips_evidence_update", event, to=sid)
 
@@ -232,6 +252,84 @@ def register_nips_events(sio: Any) -> None:
             return
 
         await sio.emit("nips_agent_detail", {"agent": agent.model_dump()}, to=sid)
+
+    # ------------------------------------------------------------------
+    # Deterministic progression
+    # ------------------------------------------------------------------
+
+    @sio.on("nips_sync_finding")
+    async def on_sync_finding(sid: str, data: dict[str, Any]) -> None:
+        session = get_session(sid)
+        if not session:
+            await sio.emit("nips_error", {"message": "No active NIPS session."}, to=sid)
+            return
+
+        finding = SyncedFinding(**data)
+        synced, newly_available = sync_finding(session, finding)
+
+        if synced:
+            await sio.emit(
+                "nips_threat_updated",
+                session.threat_state.model_dump(),
+                to=sid,
+            )
+
+        case_state = build_case_state(session)
+        for issue_id in newly_available:
+            payload = next((issue for issue in case_state.issues if issue["id"] == issue_id), None)
+            if payload:
+                await sio.emit("nips_issue_available", payload, to=sid)
+
+        if session.final_phase_ready:
+            await sio.emit(
+                "nips_final_phase_ready",
+                {"case_id": session.case_id, "ready": True},
+                to=sid,
+            )
+
+        await sio.emit("nips_case_state", case_state.model_dump(), to=sid)
+
+    @sio.on("nips_resolve_issue")
+    async def on_resolve_issue(sid: str, data: dict[str, Any]) -> None:
+        session = get_session(sid)
+        if not session:
+            await sio.emit("nips_error", {"message": "No active NIPS session."}, to=sid)
+            return
+
+        request = IssueResolutionRequest(**data)
+        result = resolve_issue(session, request)
+
+        event_name = "nips_issue_resolved" if result.success else "nips_issue_failed"
+        await sio.emit(event_name, result.model_dump(), to=sid)
+        await sio.emit("nips_threat_updated", session.threat_state.model_dump(), to=sid)
+        await sio.emit("nips_case_state", build_case_state(session).model_dump(), to=sid)
+
+        if result.final_phase_ready:
+            await sio.emit(
+                "nips_final_phase_ready",
+                {"case_id": session.case_id, "ready": True},
+                to=sid,
+            )
+
+    @sio.on("nips_submit_final_report")
+    async def on_submit_final_report(sid: str, data: dict[str, Any]) -> None:
+        session = get_session(sid)
+        if not session:
+            await sio.emit("nips_error", {"message": "No active NIPS session."}, to=sid)
+            return
+
+        submission = FinalReportSubmission(**data)
+        envelope = evaluate_final_report(session, submission)
+        await sio.emit(
+            "nips_final_evaluation",
+            {
+                "result": "pass" if envelope.evaluation.passed else "fail",
+                "evaluation": envelope.evaluation.model_dump(),
+                "feedback": envelope.feedback.model_dump(),
+            },
+            to=sid,
+        )
+        await sio.emit("nips_case_state", build_case_state(session).model_dump(), to=sid)
 
     # ------------------------------------------------------------------
     # Cleanup on disconnect

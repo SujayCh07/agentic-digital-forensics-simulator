@@ -15,7 +15,8 @@ import { BoardGraphCanvas } from "./BoardGraphCanvas";
 import type { BoardCanvasHandle, BoardSimNode, BoardSimEdge } from "./BoardGraphCanvas";
 import { AgentConsultPanel } from "./AgentConsultPanel";
 
-import type { AgentId, AgentResult } from "@/types/investigation";
+import { evidenceKeyForFinding } from "@/lib/investigationProgression";
+import type { AgentId, AgentResult, FinalFeedback, IssueState } from "@/types/investigation";
 import type { BoardHookReturn } from "@/hooks/useBoardState";
 
 const DRAG_TYPE = "application/nips-evidence";
@@ -27,10 +28,19 @@ interface UserBoardProps {
   board: BoardHookReturn;
   completedFindings: AgentResult[];
   lockedAgents: AgentId[];
+  issues?: IssueState[];
+  latestFeedback?: FinalFeedback | null;
   onClose: () => void;
 }
 
-export function UserBoard({ board, completedFindings, lockedAgents, onClose }: UserBoardProps) {
+export function UserBoard({
+  board,
+  completedFindings,
+  lockedAgents,
+  issues = [],
+  latestFeedback = null,
+  onClose,
+}: UserBoardProps) {
   const canvasHandleRef = useRef<BoardCanvasHandle>(null);
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
 
@@ -148,14 +158,19 @@ export function UserBoard({ board, completedFindings, lockedAgents, onClose }: U
   };
 
   const handleConsult = useCallback((agentId: AgentId) => {
-    const pinned = completedFindings.filter((f) => board.isPinned(`${f.nodeId}:${f.taskType}`));
+    const pinned = completedFindings.filter((finding) =>
+      board.isPinned(evidenceKeyForFinding(finding)),
+    );
     board.consultAgent(agentId, pinned.length > 0 ? pinned : completedFindings);
   }, [board, completedFindings]);
 
-  const pinnedFindings = completedFindings.filter((f) => board.isPinned(`${f.nodeId}:${f.taskType}`));
+  const pinnedFindings = completedFindings.filter((finding) =>
+    board.isPinned(evidenceKeyForFinding(finding)),
+  );
   const evidenceList   = evidenceTab === "pinned" ? pinnedFindings : completedFindings;
   const hypothesisCount = board.boardNodes.filter((node) => node.type === "hypothesis").length;
   const evidenceNodeCount = board.boardNodes.filter((node) => node.type === "evidence").length;
+  const resolvedIssueCount = issues.filter((issue) => issue.status === "resolved").length;
 
   const AGENT_COLOR: Record<string, string> = { logis: "#c9d8e8", nexus: "#00d4ff", filer: "#f59e0b", chrono: "#b06fff" };
   const SEV_COLOR:   Record<string, string> = { critical: "#ff3a3a", high: "#f59e0b", medium: "#00d4ff", low: "#4a6580" };
@@ -218,6 +233,25 @@ export function UserBoard({ board, completedFindings, lockedAgents, onClose }: U
         </div>
       </div>
 
+      {(resolvedIssueCount > 0 || latestFeedback) && (
+        <div
+          className="flex items-center justify-between gap-4 px-5 py-3"
+          style={{ background: "rgba(9,16,26,0.96)", borderBottom: "1px solid #173146" }}
+        >
+          <div className="text-[8px] font-mono leading-5" style={{ color: "#7aa5c6" }}>
+            Resolved issues: {resolvedIssueCount}
+            {latestFeedback
+              ? ` • Recheck: ${latestFeedback.suggestedRecheckTargets.join(", ")}`
+              : ""}
+          </div>
+          {latestFeedback && (
+            <div className="text-[7px] font-mono" style={{ color: "#ffcf70" }}>
+              {latestFeedback.missingConnections[0]}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-1 overflow-hidden">
 
         {/* Left: Evidence panel */}
@@ -249,12 +283,12 @@ export function UserBoard({ board, completedFindings, lockedAgents, onClose }: U
                 {completedFindings.length === 0 ? "Deploy agents to gather evidence." : "No pinned evidence yet."}
               </p>
             ) : evidenceList.map((f) => {
-              const evidenceKey = `${f.nodeId}:${f.taskType}`;
-              const id = `ev-node-${f.nodeId}-${f.taskType}`;
+              const evidenceKey = evidenceKeyForFinding(f);
+              const id = `ev-node-${f.findingId}`;
               const onCanvas = board.boardNodes.some(n => n.id === id);
               return (
                 <div
-                  key={`${f.nodeId}:${f.taskType}`}
+                  key={f.findingId}
                   draggable={!onCanvas}
                   onDragStart={(e) => handleDragStart(e, f)}
                   className="rounded"

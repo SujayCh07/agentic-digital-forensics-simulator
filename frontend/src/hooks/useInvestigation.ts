@@ -34,18 +34,39 @@ import {
   TASK_RESULTS,
 } from "@/data/case_midnight_exfil";
 import { DEFAULT_ACTIVE_HELPERS } from "@/data/helpers";
+import {
+  resolveNipsIssue,
+  setProgressionCallbacks,
+  submitNipsFinalReport,
+  syncNipsFinding,
+} from "@/lib/investigationAgentClient";
 import { getCapableAgent, resolveIntent } from "@/lib/intentResolver";
+import {
+  buildEvidenceKey,
+  buildFindingId,
+  buildStableFindingSeed,
+  inferTaskTypeFromEvidenceUpdate,
+  resolveAgentIdFromEvidence,
+  resolveArtifactType,
+  resolveTaskType,
+} from "@/lib/investigationProgression";
 import type {
   ActiveHelpers,
   AgentDefinition,
   AgentId,
   AgentResult,
-  ArtifactType,
   CaseSystemNode,
+  FinalEvaluation,
+  FinalFeedback,
+  FinalReportSubmission,
+  IssueState,
+  NipsAgentInstance,
+  NipsCaseState,
   Helper,
   NipsEvidenceUpdate,
   Task,
   TaskType,
+  ThreatState,
 } from "@/types/investigation";
 import type { SimEvent, SimMetrics } from "@/types";
 import type { GraphData } from "./useSimulation";
@@ -63,6 +84,12 @@ const PRESSURE_INTERVAL_MS = 45_000; // 45 seconds per pressure tick
 const STARTING_FUNDS   = 1500;
 
 const ALL_AGENT_IDS: AgentId[] = ["logis", "nexus", "filer", "chrono"];
+const NIPS_ARCHETYPE_BY_AGENT_ID = {
+  logis: "LOGIS",
+  nexus: "NEXUS",
+  filer: "FILER",
+  chrono: "CHRONO",
+} as const;
 
 /** Derive locked agents: everyone except the chosen starter */
 function deriveLockedAtStart(activeHelpers: ActiveHelpers): AgentId[] {
@@ -110,6 +137,15 @@ const INITIAL_METRICS: SimMetrics = {
   socialUnrest:     0.1,    // threat level (low)
   businessSurvival: 1.0,    // all systems online
   govApproval:      0,      // case confidence (no findings yet)
+};
+
+const INITIAL_THREAT_STATE: ThreatState = {
+  spreadLevel: Math.round(
+    (CASE_NODES.reduce((sum, node) => sum + node.threatLevel, 0) / CASE_NODES.length) * 1000,
+  ) / 1000,
+  caseConfidence: 0,
+  nodeThreats: Object.fromEntries(CASE_NODES.map((node) => [node.id, node.threatLevel])),
+  stabilizedNodeIds: [],
 };
 
 // ---------------------------------------------------------------------------
@@ -264,6 +300,11 @@ export interface InvestigationHookReturn {
 
   // Pressure / escalation
   pressureLevel: number;   // 0–10
+  threatState: ThreatState;
+  caseState: NipsCaseState | null;
+  issues: IssueState[];
+  finalPhaseReady: boolean;
+  finalEvaluation: { result: "pass" | "fail"; evaluation: FinalEvaluation; feedback: FinalFeedback } | null;
 
   // Attack graph (compatible with SocialGraph)
   graphData: GraphData;
@@ -276,7 +317,9 @@ export interface InvestigationHookReturn {
   caseName:     string;
   incidentBrief: string;
   objective:    string;
-  addExternalEvidence: (eu: NipsEvidenceUpdate) => void;
+  resolveIssue: (issueId: string, agentId: AgentId) => void;
+  submitFinalReport: (report: FinalReportSubmission) => void;
+  addExternalEvidence: (eu: NipsEvidenceUpdate, roster?: NipsAgentInstance[]) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -300,6 +343,15 @@ export function useInvestigation(
   const [funds,             setFunds]              = useState(STARTING_FUNDS);
   const [lockedAgents,      setLockedAgents]       = useState<AgentId[]>(() => deriveLockedAtStart(activeHelpers));
   const [pressureLevel,     setPressureLevel]      = useState(0);
+  const [threatState,       setThreatState]        = useState<ThreatState>(INITIAL_THREAT_STATE);
+  const [caseState,         setCaseState]          = useState<NipsCaseState | null>(null);
+  const [issues,            setIssues]             = useState<IssueState[]>([]);
+  const [finalPhaseReady,   setFinalPhaseReady]    = useState(false);
+  const [finalEvaluation,   setFinalEvaluation]    = useState<{
+    result: "pass" | "fail";
+    evaluation: FinalEvaluation;
+    feedback: FinalFeedback;
+  } | null>(null);
   const [graphData,         setGraphData]          = useState<GraphData>({
     relationships: CASE_RELATIONSHIPS,
     npcs:          CASE_AGENTS_NPCS,
@@ -405,6 +457,116 @@ export function useInvestigation(
         : [...prev, event],
     );
   }, []);
+
+  useEffect(() => {
+    setProgressionCallbacks({
+      onCaseState: (data) => {
+        setCaseState(data);
+        setIssues(data.issues);
+        setThreatState(data.threat_state);
+        setFinalPhaseReady(data.final_phase_ready);
+        setMetrics((prev) => ({
+          ...prev,
+          govApproval: data.threat_state.caseConfidence,
+          socialUnrest: Math.max(prev.socialUnrest, data.threat_state.spreadLevel),
+        }));
+        setSystemNodes((prev) =>
+          prev.map((node) => {
+            const nodeThreat = data.threat_state.nodeThreats[node.id];
+            const stabilized = data.threat_state.stabilizedNodeIds.includes(node.id);
+            return {
+              ...node,
+              threatLevel: nodeThreat ?? node.threatLevel,
+              status: stabilized
+                ? "recovered"
+                : node.status === "recovered"
+                  ? "suspicious"
+                  : node.status,
+            };
+          }),
+        );
+      },
+      onIssueAvailable: (issue) => {
+        pushEvent({
+          id: `issue-available-${issue.id}-${Date.now()}`,
+          type: "system_response",
+          agentId: "system",
+          agentName: "SYSTEM",
+          message: `New actionable issue available at ${issue.buildingId}: ${issue.title}`,
+          phase: stageRef.current,
+          round: cycleRef.current,
+          maxRounds: 99,
+          timestamp: Date.now(),
+          data: { issueId: issue.id, buildingId: issue.buildingId },
+        });
+      },
+      onIssueResolved: (result) => {
+        pushEvent({
+          id: `issue-resolved-${result.issue_id}-${Date.now()}`,
+          type: "policy_response",
+          agentId: "system",
+          agentName: "SYSTEM",
+          message: result.message,
+          phase: stageRef.current,
+          round: cycleRef.current,
+          maxRounds: 99,
+          timestamp: Date.now(),
+          data: {
+            issueId: result.issue_id,
+            nodeId: result.building_id,
+            issueResolved: true,
+          },
+        });
+      },
+      onIssueFailed: (result) => {
+        pushEvent({
+          id: `issue-failed-${result.issue_id}-${Date.now()}`,
+          type: "layoff",
+          agentId: "system",
+          agentName: "SYSTEM",
+          message: result.message,
+          phase: stageRef.current,
+          round: cycleRef.current,
+          maxRounds: 99,
+          timestamp: Date.now(),
+          data: {
+            issueId: result.issue_id,
+            nodeId: result.building_id,
+            reason: result.reason,
+          },
+        });
+      },
+      onThreatUpdated: (state) => {
+        setThreatState(state);
+      },
+      onFinalPhaseReady: ({ ready }) => {
+        setFinalPhaseReady(ready);
+      },
+      onFinalEvaluation: (data) => {
+        setFinalEvaluation(data);
+        setIsComplete(data.evaluation.passed);
+        pushEvent({
+          id: `final-evaluation-${Date.now()}`,
+          type: data.result === "pass" ? "policy_response" : "system_response",
+          agentId: "system",
+          agentName: "SYSTEM",
+          message: data.result === "pass"
+            ? "Final report accepted. Case closed."
+            : "Final report rejected. Review the structured feedback and continue the investigation.",
+          phase: stageRef.current,
+          round: cycleRef.current,
+          maxRounds: 99,
+          timestamp: Date.now(),
+          data: {
+            finalEvaluation: true,
+            result: data.result,
+            score: data.evaluation.score,
+          },
+        });
+      },
+      onError: () => undefined,
+    });
+  }, [pushEvent]);
 
   // ── Unlock agent ──────────────────────────────────────────────────────────
   const unlockAgent = useCallback((agentId: AgentId): boolean => {
@@ -569,12 +731,36 @@ export function useInvestigation(
         // Look up pre-written result; apply helper accuracy scaling
         const key = `${nodeId}:${taskType}`;
         const template = TASK_RESULTS[key] ?? { ...FALLBACK_RESULT, nodeId, nodeName: node.name, taskType };
-        const rawResult: AgentResult = { ...template, agentId, agentName: agent.name };
+        const evidenceKey = buildEvidenceKey(nodeId, taskType);
+        const findingId = buildFindingId({
+          evidenceKey,
+          nodeId,
+          taskType,
+          summary: template.summary,
+        });
+        const rawResult: AgentResult = {
+          ...template,
+          findingId,
+          evidenceKey,
+          source: "local_task",
+          agentId,
+          agentName: agent.name,
+        };
         const result = applyHelperAccuracy(rawResult, activeHelpers[agentId]);
+        const isRepeatFinding = findingsRef.current.some(
+          (finding) => finding.findingId === result.findingId,
+        );
 
         // Update node with finding reference
         setSystemNodes(prev => prev.map(n =>
-          n.id === nodeId ? { ...n, knownFindings: [...n.knownFindings, taskId] } : n,
+          n.id === nodeId
+            ? {
+                ...n,
+                knownFindings: n.knownFindings.includes(result.findingId)
+                  ? n.knownFindings
+                  : [...n.knownFindings, result.findingId],
+              }
+            : n,
         ));
 
         // Update agent NPC position in graph
@@ -591,7 +777,9 @@ export function useInvestigation(
         setAgents(prev => prev.map(a => a.id === agentId ? { ...a, status: "reporting" } : a));
 
         setCompletedFindings(prev => {
-          const next = [...prev, result];
+          const next = prev.some((finding) => finding.findingId === result.findingId)
+            ? prev
+            : [...prev, result];
           findingsRef.current = next;
 
           // Update metrics
@@ -603,17 +791,6 @@ export function useInvestigation(
           const critCount = next.filter(f => f.severity === "critical").length;
           if (critCount >= 6) { setStage(3); stageRef.current = 3; }
           else if (critCount >= 3) { setStage(2); stageRef.current = 2; }
-
-          // Case completion: all 3 key exfil-chain findings discovered
-          const keyFindings = [
-            "MAIL-01:trace_lateral_movement",
-            "DB-02:analyze_logs",
-            "GW-01:trace_connections",
-          ];
-          const allFound = keyFindings.every(k =>
-            next.some(f => `${f.nodeId}:${f.taskType}` === k),
-          );
-          if (allFound) setIsComplete(true);
 
           return next;
         });
@@ -639,6 +816,8 @@ export function useInvestigation(
           timestamp: Date.now(),
           data: {
             nodeId, taskType,
+            findingId: result.findingId,
+            evidenceKey: result.evidenceKey,
             confidence: result.confidence,
             severity: result.severity,
             tags: result.tags,
@@ -677,6 +856,23 @@ export function useInvestigation(
           ));
         }, REPORT_DURATION);
         timeoutsRef.current.push(t3);
+
+        if (!isRepeatFinding) {
+          syncNipsFinding({
+            finding_id: result.findingId,
+            evidence_key: result.evidenceKey,
+            node_id: result.nodeId,
+            task_type: result.taskType,
+            summary: result.summary,
+            details: result.details,
+            severity: result.severity,
+            evidence_type: result.evidenceType,
+            confidence: result.confidence,
+            tags: result.tags,
+            agent_id: NIPS_ARCHETYPE_BY_AGENT_ID[agentId],
+            agent_name: agent.name,
+          });
+        }
       }, getExecuteDuration(activeHelpers[agentId]));
       timeoutsRef.current.push(t2);
     }, MOVE_DURATION);
@@ -716,6 +912,17 @@ export function useInvestigation(
     runTask(agentId, nodeId, resolved.taskType, rawInstruction);
   }, [runFailure, runTask]);
 
+  const resolveIssueForAgent = useCallback((issueId: string, agentId: AgentId) => {
+    resolveNipsIssue({
+      issue_id: issueId,
+      agent_archetype: NIPS_ARCHETYPE_BY_AGENT_ID[agentId],
+    });
+  }, []);
+
+  const submitFinalReportAction = useCallback((report: FinalReportSubmission) => {
+    submitNipsFinalReport(report);
+  }, []);
+
   return {
     activeHelpers,
     events,
@@ -732,6 +939,11 @@ export function useInvestigation(
     lockedAgents,
     unlockAgent,
     pressureLevel,
+    threatState,
+    caseState,
+    issues,
+    finalPhaseReady,
+    finalEvaluation,
     graphData,
     stage,
     currentCycle,
@@ -740,30 +952,74 @@ export function useInvestigation(
     caseName:     CASE_META.name,
     incidentBrief: CASE_META.brief,
     objective:    CASE_META.objective,
-    addExternalEvidence: (eu: NipsEvidenceUpdate) => {
-      // 1. Convert NIPS discovery to AgentResult
+    resolveIssue: resolveIssueForAgent,
+    submitFinalReport: submitFinalReportAction,
+    addExternalEvidence: (eu: NipsEvidenceUpdate, roster: NipsAgentInstance[] = []) => {
+      const taskType = inferTaskTypeFromEvidenceUpdate(eu);
+      const stableSeed = buildStableFindingSeed({
+        nodeId: eu.node_id,
+        summary: eu.summary,
+        tags: eu.tags,
+      });
+      const evidenceKey = eu.evidence_key ?? buildEvidenceKey(
+        eu.node_id,
+        taskType,
+        eu.finding_id ?? stableSeed,
+      );
+      const findingId = buildFindingId({
+        findingId: eu.finding_id,
+        evidenceKey,
+        nodeId: eu.node_id,
+        taskType,
+        summary: eu.summary,
+      });
+
       const result: AgentResult = {
-        agentId: eu.agent_instance_id as any, // or map archetype
+        findingId,
+        evidenceKey,
+        source: "nips_chat",
+        agentId: resolveAgentIdFromEvidence(eu, roster),
         agentName: eu.agent_display_name,
         nodeId: eu.node_id,
         nodeName: CASE_NODES.find(n => n.id === eu.node_id)?.name || eu.node_id,
-        taskType: eu.evidence_type as TaskType,
+        taskType,
         summary: eu.summary,
         details: eu.details,
         confidence: eu.confidence,
         severity: eu.severity,
-        evidenceType: eu.evidence_type as ArtifactType,
+        evidenceType: resolveArtifactType(eu.evidence_type),
         tags: eu.tags,
+        isRedHerring: eu.is_false_positive,
       };
 
-      // 2. Add to completed findings
-      setCompletedFindings(prev => [...prev, result]);
+      setSystemNodes((prev) =>
+        prev.map((node) =>
+          node.id === eu.node_id
+            ? {
+                ...node,
+                knownFindings: node.knownFindings.includes(findingId)
+                  ? node.knownFindings
+                  : [...node.knownFindings, findingId],
+              }
+            : node,
+        ),
+      );
 
-      // 3. Push to evidence feed
+      setCompletedFindings((prev) => {
+        const next = prev.some((finding) => finding.findingId === findingId)
+          ? prev
+          : [...prev, result];
+        findingsRef.current = next;
+        const newMetrics = computeMetrics(next);
+        setMetrics(newMetrics);
+        setMetricsHistory((history) => [...history, newMetrics].slice(-30));
+        return next;
+      });
+
       const newEvent: SimEvent = {
         id: `ev-nips-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         type: "reaction", // Use reaction type for findings
-        agentId: eu.agent_instance_id,
+        agentId: result.agentId,
         agentName: eu.agent_display_name,
         agentCategory: eu.evidence_type.split("_")[0].toUpperCase(),
         message: eu.summary,
@@ -771,11 +1027,20 @@ export function useInvestigation(
         round: currentCycle,
         maxRounds: (CASE_META as any).maxCycles || 10,
         timestamp: Date.now(),
-        data: { nips: true, severity: eu.severity, nodeId: eu.node_id }
+        data: {
+          nips: true,
+          severity: eu.severity,
+          nodeId: eu.node_id,
+          findingId,
+          evidenceKey,
+        }
       };
-      setEvents(prev => [...prev, newEvent]);
+      setEvents((prev) =>
+        prev.some((event) => event.data && (event.data as { findingId?: string }).findingId === findingId)
+          ? prev
+          : [...prev, newEvent],
+      );
 
-      // 4. Update metrics/funds based on severity
       const reward = eu.severity === "critical" ? 800 : eu.severity === "high" ? 400 : 200;
       setFunds(f => f + reward);
     }

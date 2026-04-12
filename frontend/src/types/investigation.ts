@@ -73,11 +73,13 @@ export interface Task {
 }
 
 export interface AgentResult {
+  findingId: string;
+  evidenceKey: string;
   agentId: AgentId;
   agentName: string;
   nodeId: string;
   nodeName: string;
-  taskType: TaskType;
+  taskType: TaskType | null;
   summary: string;
   details: string;
   confidence: number; // 0–1
@@ -85,6 +87,7 @@ export interface AgentResult {
   evidenceType: ArtifactType;
   tags: string[];
   isRedHerring?: boolean;
+  source: "local_task" | "nips_chat" | "issue_resolution" | "system";
 }
 
 // ---------------------------------------------------------------------------
@@ -115,7 +118,7 @@ export interface CaseSystemNode {
   /** Backend coordinate space (0-19 x 0-14) */
   tileX: number;
   tileY: number;
-  knownFindings: string[]; // agentResult ids found here so far
+  knownFindings: string[]; // finding ids discovered here so far
 }
 
 export interface CaseNetworkEdge {
@@ -236,6 +239,125 @@ export interface InvestigationState {
   selectedNodeId: string | null;
   isComplete: boolean;
   objective: string;
+}
+
+// ---------------------------------------------------------------------------
+// Midgame / Endgame progression
+// ---------------------------------------------------------------------------
+
+export type IssueStatus =
+  | "locked"
+  | "available"
+  | "resolved"
+  | "failed_attempt";
+
+export type IssueFailureReason =
+  | "insufficient_evidence"
+  | "wrong_agent"
+  | "timeline_conflict"
+  | "contradicted_by_findings";
+
+export type IssueType =
+  | "credential_abuse"
+  | "lateral_movement"
+  | "data_exfil"
+  | "staging_relay"
+  | "egress_control";
+
+export interface IssueDefinition {
+  id: string;
+  buildingId: string;
+  sectorId: SectorId;
+  type: IssueType;
+  title: string;
+  description: string;
+  requiredEvidence: string[];
+  optionalEvidence?: string[];
+  requiredAgent: "LOGIS" | "NEXUS" | "FILER" | "CHRONO";
+  unlocksIssueIds: string[];
+}
+
+export interface IssueState extends IssueDefinition {
+  status: IssueStatus;
+  attempts: number;
+  available: boolean;
+  missingEvidence: string[];
+  unlockedAt?: number;
+  resolvedAt?: number;
+  lastFailureReason?: IssueFailureReason;
+  feedbackMessage?: string;
+}
+
+export interface ThreatState {
+  spreadLevel: number;
+  caseConfidence: number;
+  nodeThreats: Record<string, number>;
+  stabilizedNodeIds: string[];
+}
+
+export interface IssueResolutionRequest {
+  issue_id: string;
+  agent_archetype: "LOGIS" | "NEXUS" | "FILER" | "CHRONO";
+}
+
+export interface IssueResolutionResult {
+  issue_id: string;
+  building_id: string;
+  sector_id: SectorId;
+  success: boolean;
+  status: IssueStatus;
+  reason?: IssueFailureReason;
+  message: string;
+  unlocked_issue_ids: string[];
+  revealed_evidence_keys: string[];
+  threat_delta: number;
+  case_confidence_delta: number;
+  final_phase_ready: boolean;
+}
+
+export type AttackType = "data_exfil" | "credential_abuse" | "malware" | "intrusion";
+
+export type MitigationPlanOption =
+  | "reset_credentials"
+  | "patch_vulnerability"
+  | "isolate_system"
+  | "restore_backups"
+  | "remove_persistence"
+  | "block_external_communication";
+
+export interface FinalReportSubmission {
+  origin_node_id: string;
+  attack_path: string[];
+  attack_type: AttackType;
+  mitigation_plan: MitigationPlanOption[];
+}
+
+export interface FinalEvaluation {
+  originCorrect: boolean;
+  pathAccuracy: number;
+  attackTypeCorrect: boolean;
+  fixCorrect: boolean;
+  score: number;
+  passed: boolean;
+  mitigationAccuracy: number;
+}
+
+export interface FinalFeedback {
+  incorrectAssumptions: string[];
+  misleadingEvidence: string[];
+  missingConnections: string[];
+  suggestedRecheckTargets: string[];
+}
+
+export interface NipsCaseState {
+  case_id: string;
+  issues: IssueState[];
+  resolved_issue_count: number;
+  final_phase_ready: boolean;
+  threat_state: ThreatState;
+  synced_finding_ids: string[];
+  synced_evidence_keys: string[];
+  latest_feedback?: FinalFeedback | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -485,6 +607,10 @@ export interface NipsEvidenceUpdate {
   agent_instance_id: string;
   agent_display_name: string;
   is_false_positive: boolean;
+  agent_archetype?: NipsArchetype;
+  finding_id?: string;
+  evidence_key?: string;
+  task_type?: TaskType | null;
 }
 
 // Types referenced by AgentCommandModal (kept for compatibility)

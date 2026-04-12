@@ -28,11 +28,16 @@ export default function IncidentNode() {
     notesText,
     setNotesText,
     incidentSources,
+    trendSources,
     uploadingIncidentSources,
+    uploadingTrends,
     handleIncidentNarrativeFiles,
+    handleTrendFiles,
     removeIncidentSource,
+    removeTrendSource,
   } = useForm();
   const narrativeRef = useRef<HTMLInputElement>(null);
+  const trendRef = useRef<HTMLInputElement>(null);
 
   const notesOk = notesText.trim().length >= MIN_NOTES_CHARS_FOR_TEXT_ONLY;
   const readyHint =
@@ -163,6 +168,85 @@ export default function IncidentNode() {
           </span>
         </div>
 
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              ref={trendRef}
+              type="file"
+              accept=".csv,.tsv,text/csv"
+              onChange={handleTrendFiles}
+              className="hidden"
+              id="trend-csv-node"
+              data-testid="trend-csv-input"
+              multiple
+            />
+            <label
+              htmlFor="trend-csv-node"
+              className="rpg-panel px-3 py-1.5 text-[13px] font-mono cursor-pointer transition-opacity hover:opacity-80"
+              style={{
+                color: uploadingTrends ? "#A0824A" : "#3D2510",
+                background: "#E8D5A3",
+                opacity: uploadingTrends ? 0.6 : 1,
+              }}
+            >
+              {uploadingTrends ? "Uploading…" : "+ Telemetry CSV"}
+            </label>
+            <span
+              className="text-[12px] font-mono"
+              style={{ color: trendSources.length > 0 ? "#3E7C34" : "#8B7355" }}
+            >
+              {trendSources.length > 0
+                ? `${trendSources.length} telemetry source${trendSources.length === 1 ? "" : "s"} attached`
+                : "Attach CSV telemetry separately from the incident brief."}
+            </span>
+          </div>
+
+          {trendSources.length > 0 && (
+            <div className="space-y-1">
+              {trendSources.map((source) => (
+                <div
+                  key={source.id}
+                  className="flex items-start gap-2 rounded p-2 text-[12px] font-mono"
+                  style={{
+                    background: "#FFF8DC",
+                    border: "1px solid #C4A46C",
+                    color: "#6B4C2A",
+                  }}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span style={{ color: "#3D2510" }}>{source.filename}</span>
+                      <span
+                        className="rounded px-1 text-[11px]"
+                        style={{
+                          background: "#E8D5A3",
+                          color: "#5B3A1E",
+                        }}
+                      >
+                        CSV
+                      </span>
+                    </div>
+                    <div
+                      className="mt-1 line-clamp-3 whitespace-pre-wrap"
+                      style={{ color: "#8B7355" }}
+                    >
+                      {source.preview_text}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeTrendSource(source.id)}
+                    className="transition-opacity hover:opacity-60"
+                    style={{ color: "#B83A52" }}
+                    data-testid={`remove-trend-${source.id}`}
+                  >
+                    {"\u00D7"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </NodeWrapper>
   );

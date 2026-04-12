@@ -18,6 +18,7 @@ import {
   AGENT_CONSULT_TEMPLATES,
   DEFAULT_CONSULT_RESPONSES,
 } from "@/data/boardData";
+import { evidenceKeyForFinding } from "@/lib/investigationProgression";
 import type {
   AgentId,
   AgentResult,
@@ -290,7 +291,8 @@ export function useBoardState(): BoardHookReturn {
     updateNodePosition,
     updateHypothesisPosition,
     addEvidenceNode: (f: AgentResult) => {
-      const id = `ev-node-${f.nodeId}-${f.taskType}`;
+      const evidenceKey = evidenceKeyForFinding(f);
+      const id = `ev-node-${f.findingId}`;
       setBoardNodes(prev => {
         if (prev.some(n => n.id === id)) return prev;
         const node: BoardGraphNode = {
@@ -299,7 +301,7 @@ export function useBoardState(): BoardHookReturn {
           label: f.nodeName,
           status: "normal",
           revealed: true,
-          linkedEvidenceIds: [`${f.nodeId}:${f.taskType}`],
+          linkedEvidenceIds: [evidenceKey],
           position: { x: 800 + Math.random() * 50, y: 100 + Math.random() * 50 },
           metadata: {
             agentId: f.agentId,
@@ -312,7 +314,7 @@ export function useBoardState(): BoardHookReturn {
         return [...prev, node];
       });
       // Also pin it
-      pinEvidence(`${f.nodeId}:${f.taskType}`);
+      pinEvidence(evidenceKey);
     }
   };
 }

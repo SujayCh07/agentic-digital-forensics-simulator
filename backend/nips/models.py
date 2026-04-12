@@ -170,6 +170,170 @@ class EvidenceUpdate(BaseModel):
     agent_instance_id: str = ""
     agent_display_name: str = ""
     is_false_positive: bool = False
+    agent_archetype: ArchetypeId | None = None
+    finding_id: str | None = None
+    evidence_key: str | None = None
+    task_type: str | None = None
+
+
+IssueStatus = Literal["locked", "available", "resolved", "failed_attempt"]
+IssueFailureReason = Literal[
+    "insufficient_evidence",
+    "wrong_agent",
+    "timeline_conflict",
+    "contradicted_by_findings",
+]
+MitigationPlanOption = Literal[
+    "reset_credentials",
+    "patch_vulnerability",
+    "isolate_system",
+    "restore_backups",
+    "remove_persistence",
+    "block_external_communication",
+]
+AttackType = Literal["data_exfil", "credential_abuse", "malware", "intrusion"]
+
+
+class SyncedFinding(BaseModel):
+    finding_id: str
+    evidence_key: str
+    node_id: str
+    task_type: str | None = None
+    summary: str
+    details: str = ""
+    severity: Literal["low", "medium", "high", "critical"] = "low"
+    evidence_type: str = "log_entry"
+    confidence: float = 0.5
+    tags: list[str] = Field(default_factory=list)
+    agent_id: str = ""
+    agent_name: str = ""
+
+
+class CaseNode(BaseModel):
+    id: str
+    label: str
+    sector_id: str
+    node_type: str
+    threat_level: float = 0.0
+    tags: list[str] = Field(default_factory=list)
+    aliases: list[str] = Field(default_factory=list)
+    tool_data: dict[str, str] = Field(default_factory=dict)
+
+
+class IssueDefinition(BaseModel):
+    id: str
+    building_id: str
+    sector_id: str
+    type: str
+    title: str
+    description: str
+    required_evidence: list[str] = Field(default_factory=list)
+    optional_evidence: list[str] = Field(default_factory=list)
+    required_agent: ArchetypeId
+    unlocks_issue_ids: list[str] = Field(default_factory=list)
+    spread_reduction: float = 0.0
+    confidence_delta: float = 0.0
+    reveals_evidence_keys: list[str] = Field(default_factory=list)
+    required_tags: list[str] = Field(default_factory=list)
+    contradictory_tags: list[str] = Field(default_factory=list)
+
+
+class IssueState(BaseModel):
+    issue_id: str
+    status: IssueStatus = "locked"
+    available: bool = False
+    attempts: int = 0
+    missing_evidence: list[str] = Field(default_factory=list)
+    last_failure_reason: IssueFailureReason | None = None
+    feedback_message: str | None = None
+    unlocked_at: float | None = None
+    resolved_at: float | None = None
+    resolved_by: ArchetypeId | None = None
+
+
+class ThreatState(BaseModel):
+    spread_level: float = 0.0
+    case_confidence: float = 0.0
+    node_threats: dict[str, float] = Field(default_factory=dict)
+    stabilized_node_ids: list[str] = Field(default_factory=list)
+
+
+class FinalTruth(BaseModel):
+    origin_node_id: str
+    attack_path: list[str]
+    attack_type: AttackType
+    required_mitigations: list[MitigationPlanOption]
+
+
+class CaseBundle(BaseModel):
+    case_id: str
+    title: str
+    summary: str
+    nodes: list[CaseNode]
+    connections: list[dict[str, str]] = Field(default_factory=list)
+    aliases: dict[str, str] = Field(default_factory=dict)
+    issues: list[IssueDefinition] = Field(default_factory=list)
+    final_truth: FinalTruth
+
+
+class IssueResolutionRequest(BaseModel):
+    issue_id: str
+    agent_archetype: ArchetypeId
+
+
+class IssueResolutionResult(BaseModel):
+    issue_id: str
+    building_id: str
+    sector_id: str
+    success: bool
+    status: IssueStatus
+    message: str
+    reason: IssueFailureReason | None = None
+    unlocked_issue_ids: list[str] = Field(default_factory=list)
+    revealed_evidence_keys: list[str] = Field(default_factory=list)
+    threat_delta: float = 0.0
+    case_confidence_delta: float = 0.0
+    final_phase_ready: bool = False
+
+
+class FinalReportSubmission(BaseModel):
+    origin_node_id: str
+    attack_path: list[str] = Field(default_factory=list)
+    attack_type: AttackType
+    mitigation_plan: list[MitigationPlanOption] = Field(default_factory=list)
+
+
+class FinalEvaluation(BaseModel):
+    origin_correct: bool
+    path_accuracy: float
+    attack_type_correct: bool
+    fix_correct: bool
+    score: float
+    passed: bool
+    mitigation_accuracy: float
+
+
+class FinalFeedback(BaseModel):
+    incorrect_assumptions: list[str] = Field(default_factory=list)
+    misleading_evidence: list[str] = Field(default_factory=list)
+    missing_connections: list[str] = Field(default_factory=list)
+    suggested_recheck_targets: list[str] = Field(default_factory=list)
+
+
+class FinalEvaluationEnvelope(BaseModel):
+    evaluation: FinalEvaluation
+    feedback: FinalFeedback
+
+
+class CaseState(BaseModel):
+    case_id: str
+    issues: list[dict[str, Any]] = Field(default_factory=list)
+    resolved_issue_count: int = 0
+    final_phase_ready: bool = False
+    threat_state: ThreatState = Field(default_factory=ThreatState)
+    synced_finding_ids: list[str] = Field(default_factory=list)
+    synced_evidence_keys: list[str] = Field(default_factory=list)
+    latest_feedback: FinalFeedback | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -187,3 +351,10 @@ class NipsSession(BaseModel):
     chat_sessions: dict[str, AgentChatSession] = Field(default_factory=dict)
     discovered_evidence: list[EvidenceUpdate] = Field(default_factory=list)
     pressure: float = 0.0
+    synced_findings: list[SyncedFinding] = Field(default_factory=list)
+    issue_states: dict[str, IssueState] = Field(default_factory=dict)
+    threat_state: ThreatState = Field(default_factory=ThreatState)
+    case_confidence: float = 0.0
+    final_phase_ready: bool = False
+    final_reports: list[FinalReportSubmission] = Field(default_factory=list)
+    evaluation_history: list[FinalEvaluationEnvelope] = Field(default_factory=list)

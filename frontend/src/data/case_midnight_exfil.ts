@@ -274,7 +274,10 @@ export const CASE_RELATIONSHIPS: BackendRelationship[] = CASE_EDGES.map((e) => (
 // Key: `${nodeId}:${taskType}`
 // ---------------------------------------------------------------------------
 
-type ResultTemplate = Omit<AgentResult, "agentId" | "agentName">;
+type ResultTemplate = Omit<
+  AgentResult,
+  "findingId" | "evidenceKey" | "agentId" | "agentName" | "source"
+>;
 
 export const TASK_RESULTS: Record<string, ResultTemplate> = {
   // ── MAIL-01 ───────────────────────────────────────────────────────────────

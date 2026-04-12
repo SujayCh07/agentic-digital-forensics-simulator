@@ -12,6 +12,7 @@ import uuid
 from typing import Any
 
 from nips.agent_generator import generate_agent, generate_marketplace_batch
+from nips.case_bundle import MIDNIGHT_EXFIL_SUMMARY, get_case_bundle
 from nips.models import (
     AgentChatSession,
     AgentInstance,
@@ -20,6 +21,7 @@ from nips.models import (
     MarketplaceOffer,
     NipsSession,
 )
+from nips.progression import initial_threat_state, initialize_issue_states, refresh_issue_states
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +36,7 @@ _sessions: dict[str, NipsSession] = {}
 # ---------------------------------------------------------------------------
 
 CASE_SUMMARY = (
-    "Case: The Midnight Exfiltration\n"
-    "At 03:47 this morning, 47 GB of classified source code left the perimeter. "
-    "The exfiltration window lasted 22 minutes. Six internal systems and one "
-    "external C2 server were active during the breach.\n"
-    "Objective: Identify the origin node, trace the full attack path, and "
-    "determine the exfiltration method before evidence degrades."
+    MIDNIGHT_EXFIL_SUMMARY
 )
 
 
@@ -63,10 +60,11 @@ def create_session(sid: str, case_id: str = "midnight_exfil") -> NipsSession:
     now = time.time()
     offers = _generate_offers(now)
     starters = _generate_starter_agents()
+    bundle = get_case_bundle(case_id)
 
     session = NipsSession(
         sid=sid,
-        case_id=case_id,
+        case_id=bundle.case_id,
         funds=INITIAL_FUNDS,
         deployed_agents=starters,
         marketplace_offers=offers,
@@ -74,7 +72,15 @@ def create_session(sid: str, case_id: str = "midnight_exfil") -> NipsSession:
         chat_sessions={},
         discovered_evidence=[],
         pressure=0.0,
+        synced_findings=[],
+        issue_states=initialize_issue_states(bundle.case_id),
+        threat_state=initial_threat_state(bundle.case_id),
+        case_confidence=0.0,
+        final_phase_ready=False,
+        final_reports=[],
+        evaluation_history=[],
     )
+    refresh_issue_states(session)
     _sessions[sid] = session
     logger.info("NIPS session created: sid=%s, case=%s, starters=%d", sid, case_id, len(starters))
     return session

@@ -1,18 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { evidenceKeyForFinding } from "@/lib/investigationProgression";
 import type {
   AgentDefinition,
   AgentId,
   AgentResult,
   CaseSystemNode,
-  SystemNodeModel,
+  IssueState,
 } from "@/types/investigation";
 
 interface FloatingSystemInspectorProps {
-  cityNode: SystemNodeModel;
-  sourceNode: CaseSystemNode | null;
+  node: CaseSystemNode;
   findings: AgentResult[];
+  issues: IssueState[];
   agents: AgentDefinition[];
   lockedAgents: AgentId[];
   funds: number;
@@ -21,15 +22,16 @@ interface FloatingSystemInspectorProps {
     top: number;
   };
   onSubmitInstruction: (agentId: AgentId, rawInstruction: string) => void;
-  onToggleIsolation: () => void;
+  onResolveIssue: (issueId: string, agentId: AgentId) => void;
   onClose: () => void;
 }
 
-const STATUS_COLOR: Record<SystemNodeModel["status"], string> = {
-  healthy: "#35f7cf",
+const STATUS_COLOR: Record<CaseSystemNode["status"], string> = {
+  clean: "#35f7cf",
   suspicious: "#ffb347",
-  compromised: "#ff3a3a",
-  isolated: "#4aa8ff",
+  compromised: "#ff5c5c",
+  offline: "#4f6f8b",
+  recovered: "#00d4ff",
 };
 
 const AGENT_COLOR: Record<AgentId, string> = {
@@ -39,16 +41,23 @@ const AGENT_COLOR: Record<AgentId, string> = {
   chrono: "#b06fff",
 };
 
+const REQUIRED_AGENT_LABEL: Record<IssueState["requiredAgent"], AgentId> = {
+  LOGIS: "logis",
+  NEXUS: "nexus",
+  FILER: "filer",
+  CHRONO: "chrono",
+};
+
 export function FloatingSystemInspector({
-  cityNode,
-  sourceNode,
+  node,
   findings,
+  issues,
   agents,
   lockedAgents,
   funds,
   position,
   onSubmitInstruction,
-  onToggleIsolation,
+  onResolveIssue,
   onClose,
 }: FloatingSystemInspectorProps) {
   const [instruction, setInstruction] = useState("");
@@ -60,100 +69,92 @@ export function FloatingSystemInspector({
     );
     if (first) setSelectedAgentId(first.id);
     setInstruction("");
-  }, [cityNode.id, agents, lockedAgents]);
+  }, [agents, lockedAgents, node.id]);
 
-  const statusColor = STATUS_COLOR[cityNode.status];
-  const actionable = sourceNode !== null;
-  const relatedFindings = useMemo(
-    () =>
-      findings
-        .filter((finding) => finding.nodeId === sourceNode?.id)
-        .slice(-3)
-        .reverse(),
-    [findings, sourceNode?.id],
+  const statusColor = STATUS_COLOR[node.status];
+  const nodeFindings = useMemo(
+    () => findings.filter((finding) => finding.nodeId === node.id).reverse(),
+    [findings, node.id],
+  );
+  const nodeIssues = useMemo(
+    () => issues.filter((issue) => issue.buildingId === node.id),
+    [issues, node.id],
+  );
+  const findingKeys = useMemo(
+    () => new Set(nodeFindings.map((finding) => evidenceKeyForFinding(finding))),
+    [nodeFindings],
   );
 
   const selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
   const selectedAgentLocked = lockedAgents.includes(selectedAgentId);
   const selectedAgentBusy = selectedAgent ? selectedAgent.status !== "idle" : true;
-  const canSubmit =
-    actionable &&
+  const canDispatch =
     !selectedAgentLocked &&
     !selectedAgentBusy &&
     instruction.trim().length >= 4;
 
   return (
     <div
-      className="absolute z-50 w-[360px] rpg-panel animate-[modalIn_140ms_ease-out]"
+      className="absolute z-40 w-[390px] rounded-xl"
       style={{
         left: position.left,
         top: position.top,
         background: "rgba(8, 12, 18, 0.96)",
-        border: `1px solid ${statusColor}66`,
-        boxShadow: `0 10px 28px rgba(0,0,0,0.75), 0 0 20px ${statusColor}24`,
+        border: `1px solid ${statusColor}55`,
+        boxShadow: `0 16px 40px rgba(0,0,0,0.78), 0 0 18px ${statusColor}1f`,
       }}
       onPointerDown={(event) => event.stopPropagation()}
     >
       <div
-        className="flex items-start justify-between px-3 py-2"
-        style={{ borderBottom: "1px solid #1e3d5a" }}
+        className="flex items-start justify-between px-4 py-3"
+        style={{ borderBottom: "1px solid #173146" }}
       >
         <div>
-          <div className="text-[10px] font-mono font-bold" style={{ color: "#cfe9ff" }}>
-            {cityNode.id}
+          <div className="text-[10px] font-mono font-bold tracking-[0.14em]" style={{ color: "#cfe9ff" }}>
+            {node.id}
           </div>
-          <div className="text-[8px] font-mono" style={{ color: "#6ca4c4" }}>
-            {cityNode.label}
+          <div className="mt-1 text-[12px] font-mono" style={{ color: "#d9edff" }}>
+            {node.name}
           </div>
-          <div className="mt-1 text-[7px] font-mono uppercase tracking-widest" style={{ color: statusColor }}>
-            {cityNode.status}
+          <div className="mt-1 text-[8px] font-mono uppercase tracking-[0.18em]" style={{ color: statusColor }}>
+            {node.status}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onToggleIsolation}
-            className="rpg-panel px-2 py-1 text-[7px] font-mono uppercase tracking-widest hover:opacity-80"
-            style={{ color: cityNode.status === "isolated" ? "#35f7cf" : "#ffcf70" }}
-          >
-            {cityNode.status === "isolated" ? "release" : "isolate"}
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-[8px] font-mono uppercase tracking-widest hover:opacity-70"
-            style={{ color: "#6c8ca8" }}
-          >
-            close
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-[8px] font-mono uppercase tracking-[0.16em] hover:opacity-70"
+          style={{ color: "#6c8ca8" }}
+        >
+          close
+        </button>
       </div>
 
-      <div className="px-3 py-2" style={{ borderBottom: "1px solid #1e3d5a" }}>
+      <div className="px-4 py-3" style={{ borderBottom: "1px solid #173146" }}>
         <div className="flex items-center justify-between">
-          <span className="text-[8px] font-mono uppercase tracking-widest" style={{ color: "#6ca4c4" }}>
-            Threat
+          <span className="text-[8px] font-mono uppercase tracking-[0.16em]" style={{ color: "#6ca4c4" }}>
+            Node Threat
           </span>
           <span className="text-[8px] font-mono tabular-nums" style={{ color: statusColor }}>
-            {Math.round(cityNode.threatLevel * 100)}%
+            {Math.round(node.threatLevel * 100)}%
           </span>
         </div>
-        <div className="mt-1 h-1 overflow-hidden rounded-sm" style={{ background: "#173146" }}>
+        <div className="mt-2 h-1 overflow-hidden rounded-full" style={{ background: "#173146" }}>
           <div
-            className="h-full rounded-sm"
+            className="h-full rounded-full"
             style={{
-              width: `${Math.round(cityNode.threatLevel * 100)}%`,
+              width: `${Math.round(node.threatLevel * 100)}%`,
               background: statusColor,
             }}
           />
         </div>
       </div>
 
-      <div className="px-3 py-2" style={{ borderBottom: "1px solid #1e3d5a" }}>
-        <div className="mb-2 text-[8px] font-mono uppercase tracking-widest" style={{ color: "#6ca4c4" }}>
-          Dispatch
+      <div className="px-4 py-3" style={{ borderBottom: "1px solid #173146" }}>
+        <div className="mb-2 text-[8px] font-mono uppercase tracking-[0.16em]" style={{ color: "#6ca4c4" }}>
+          Dispatch Agent
         </div>
-        <div className="mb-2 grid grid-cols-4 gap-1">
+        <div className="grid grid-cols-4 gap-1.5">
           {agents.map((agent) => {
             const isLocked = lockedAgents.includes(agent.id);
             const isBusy = agent.status !== "idle";
@@ -166,12 +167,12 @@ export function FloatingSystemInspector({
                   if (isLocked) return;
                   setSelectedAgentId(agent.id);
                 }}
-                className="px-1 py-1 text-[8px] font-mono uppercase tracking-wide"
+                className="rounded-md px-2 py-1.5 text-[8px] font-mono uppercase tracking-[0.12em]"
                 style={{
                   border: `1px solid ${isSelected ? `${AGENT_COLOR[agent.id]}88` : "#1e3d5a"}`,
-                  background: isSelected ? `${AGENT_COLOR[agent.id]}1f` : "#0a1320",
+                  background: isSelected ? `${AGENT_COLOR[agent.id]}16` : "#0a1320",
                   color: isLocked ? "#38526a" : AGENT_COLOR[agent.id],
-                  opacity: isBusy && !isLocked ? 0.7 : 1,
+                  opacity: isBusy && !isLocked ? 0.6 : 1,
                 }}
               >
                 {agent.name}
@@ -182,58 +183,162 @@ export function FloatingSystemInspector({
         <input
           value={instruction}
           onChange={(event) => setInstruction(event.target.value)}
-          placeholder={
-            actionable
-              ? "e.g. trace lateral movement through this sector"
-              : "Telemetry unavailable for this node."
-          }
-          disabled={!actionable}
-          className="w-full rpg-panel px-2 py-1 text-[9px] font-mono outline-none"
-          style={{
-            color: actionable ? "#d3e9ff" : "#6d8da8",
-            background: "#0a1320",
-          }}
+          placeholder="e.g. trace the pivot path through this node"
+          className="mt-3 w-full rounded-md px-2 py-2 text-[9px] font-mono outline-none"
+          style={{ background: "#0a1320", border: "1px solid #1e3d5a", color: "#d3e9ff" }}
         />
         <div className="mt-2 flex items-center justify-between">
           <span className="text-[7px] font-mono" style={{ color: "#4f6f8b" }}>
-            funds: {funds.toLocaleString()}₡
+            funds: {funds.toLocaleString()}C
           </span>
           <button
             type="button"
             onClick={() => {
-              if (!canSubmit || !selectedAgent) return;
+              if (!selectedAgent || !canDispatch) return;
               onSubmitInstruction(selectedAgent.id, instruction.trim());
             }}
-            disabled={!canSubmit}
-            className="rpg-panel px-2 py-1 text-[8px] font-mono uppercase tracking-widest"
+            disabled={!canDispatch}
+            className="rounded-md px-3 py-1.5 text-[8px] font-mono uppercase tracking-[0.16em]"
             style={{
-              color: canSubmit ? "#35f7cf" : "#4f6f8b",
-              borderColor: canSubmit ? "#35f7cf66" : "#1e3d5a",
+              color: canDispatch ? "#35f7cf" : "#4f6f8b",
+              border: `1px solid ${canDispatch ? "#35f7cf66" : "#1e3d5a"}`,
+              background: canDispatch ? "rgba(53,247,207,0.08)" : "rgba(15,25,39,0.4)",
             }}
           >
-            dispatch
+            dispatch task
           </button>
         </div>
       </div>
 
-      <div className="px-3 py-2">
-        <div className="mb-1 text-[8px] font-mono uppercase tracking-widest" style={{ color: "#6ca4c4" }}>
-          Evidence
+      <div className="px-4 py-3" style={{ borderBottom: "1px solid #173146" }}>
+        <div className="mb-2 text-[8px] font-mono uppercase tracking-[0.16em]" style={{ color: "#6ca4c4" }}>
+          Actionable Issues
         </div>
-        {relatedFindings.length === 0 ? (
+        {nodeIssues.length === 0 ? (
           <div className="text-[8px] font-mono" style={{ color: "#4f6f8b" }}>
-            No recovered evidence yet for this system.
+            No structured midgame issues are attached to this node yet.
           </div>
         ) : (
-          <div className="space-y-1">
-            {relatedFindings.map((finding) => (
+          <div className="space-y-2">
+            {nodeIssues.map((issue) => {
+              const requiredAgentId = REQUIRED_AGENT_LABEL[issue.requiredAgent];
+              const selectedMatches = selectedAgentId === requiredAgentId;
+              const readyForAttempt =
+                issue.status === "available" &&
+                !selectedAgentLocked &&
+                !selectedAgentBusy;
+
+              return (
+                <div
+                  key={issue.id}
+                  className="rounded-lg px-3 py-2"
+                  style={{ background: "#0c1826", border: "1px solid #1e3d5a" }}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-[9px] font-mono font-bold" style={{ color: "#d8ecff" }}>
+                        {issue.title}
+                      </div>
+                      <div className="mt-1 text-[8px] font-mono leading-5" style={{ color: "#6f87a1" }}>
+                        {issue.description}
+                      </div>
+                    </div>
+                    <span
+                      className="rounded px-2 py-1 text-[7px] font-mono uppercase tracking-[0.16em]"
+                      style={{
+                        color:
+                          issue.status === "resolved"
+                            ? "#35f7cf"
+                            : issue.status === "available"
+                              ? "#ffcf70"
+                              : issue.status === "failed_attempt"
+                                ? "#ff7f7f"
+                                : "#4f6f8b",
+                        border: "1px solid #1e3d5a",
+                      }}
+                    >
+                      {issue.status}
+                    </span>
+                  </div>
+
+                  <div className="mt-2 flex items-center gap-2 text-[7px] font-mono uppercase tracking-[0.14em]">
+                    <span style={{ color: "#4f6f8b" }}>Required agent</span>
+                    <span style={{ color: AGENT_COLOR[requiredAgentId] }}>{issue.requiredAgent}</span>
+                  </div>
+
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {issue.requiredEvidence.map((evidenceKey) => {
+                      const known = findingKeys.has(evidenceKey);
+                      return (
+                        <span
+                          key={evidenceKey}
+                          className="rounded px-2 py-1 text-[7px] font-mono"
+                          style={{
+                            color: known ? "#35f7cf" : "#ffcf70",
+                            background: known ? "rgba(53,247,207,0.08)" : "rgba(255,207,112,0.08)",
+                            border: `1px solid ${known ? "#35f7cf33" : "#ffcf7033"}`,
+                          }}
+                        >
+                          {known ? "have" : "need"} {evidenceKey}
+                        </span>
+                      );
+                    })}
+                  </div>
+
+                  {issue.feedbackMessage ? (
+                    <div className="mt-2 text-[8px] font-mono leading-5" style={{ color: "#7aa5c6" }}>
+                      {issue.feedbackMessage}
+                    </div>
+                  ) : null}
+
+                  <div className="mt-3 flex items-center justify-between">
+                    <span className="text-[7px] font-mono" style={{ color: selectedMatches ? AGENT_COLOR[requiredAgentId] : "#4f6f8b" }}>
+                      {selectedMatches
+                        ? "Selected agent matches issue role."
+                        : `Select ${issue.requiredAgent} to resolve this issue.`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onResolveIssue(issue.id, selectedAgentId)}
+                      disabled={!readyForAttempt}
+                      className="rounded-md px-3 py-1.5 text-[8px] font-mono uppercase tracking-[0.16em]"
+                      style={{
+                        color: readyForAttempt ? "#00d4ff" : "#4f6f8b",
+                        border: `1px solid ${readyForAttempt ? "#00d4ff55" : "#1e3d5a"}`,
+                        background: readyForAttempt ? "rgba(0,212,255,0.08)" : "rgba(15,25,39,0.4)",
+                      }}
+                    >
+                      assign resolve
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="px-4 py-3">
+        <div className="mb-2 text-[8px] font-mono uppercase tracking-[0.16em]" style={{ color: "#6ca4c4" }}>
+          Recent Evidence
+        </div>
+        {nodeFindings.length === 0 ? (
+          <div className="text-[8px] font-mono" style={{ color: "#4f6f8b" }}>
+            No recovered findings have been linked to this node yet.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {nodeFindings.slice(0, 3).map((finding) => (
               <div
-                key={`${finding.nodeId}-${finding.taskType}-${finding.summary}`}
-                className="rounded-sm px-2 py-1"
+                key={finding.findingId}
+                className="rounded-md px-3 py-2"
                 style={{ background: "#0c1826", border: "1px solid #1e3d5a" }}
               >
                 <div className="text-[8px] font-mono" style={{ color: "#cfe9ff" }}>
                   {finding.summary}
+                </div>
+                <div className="mt-1 text-[7px] font-mono" style={{ color: "#6f87a1" }}>
+                  {finding.evidenceKey}
                 </div>
               </div>
             ))}

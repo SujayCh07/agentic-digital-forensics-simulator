@@ -11,6 +11,7 @@ import { AgentStatusBar } from "@/components/AgentStatusBar";
 import { Dashboard } from "@/components/Dashboard";
 import { EconomicReportModal } from "@/components/EconomicReportModal";
 import { EventFeed } from "@/components/EventFeed";
+import { FloatingSystemInspector } from "@/components/FloatingSystemInspector";
 import { HelperSelectionPanel } from "@/components/HelperSelectionPanel";
 import { NodeListPanel } from "@/components/NodeListPanel";
 import { NPCInteractionModal } from "@/components/NPCInteractionModal";
@@ -23,8 +24,22 @@ import { useBoardState } from "@/hooks/useBoardState";
 import { useSimulation } from "@/hooks/useSimulation";
 import { useRadio } from "@/hooks/useRadio";
 import { RadioPanel } from "@/components/RadioPanel";
-import type { ActiveHelpers, AgentDefinition, AgentId, CaseSystemNode, NipsAgentInstance, NipsMarketplaceOffer, NipsEvidenceUpdate } from "@/types/investigation";
+import type {
+  ActiveHelpers,
+  AgentDefinition,
+  AgentId,
+  AttackType,
+  CaseSystemNode,
+  FinalFeedback,
+  FinalReportSubmission,
+  IssueState,
+  MitigationPlanOption,
+  NipsAgentInstance,
+  NipsMarketplaceOffer,
+  NipsEvidenceUpdate,
+} from "@/types/investigation";
 import { clearReplayData, getReplayData } from "@/lib/replayStore";
+import { evidenceKeyForFinding } from "@/lib/investigationProgression";
 import {
   initNipsSession,
   buyNipsAgent,
@@ -169,6 +184,19 @@ interface AgentMarkerData {
   sectorLabel: string;
 }
 
+type IssueMarkerVisualState = "locked" | "available" | "resolved" | "failed_attempt";
+
+interface IssueMarkerData {
+  nodeId: string;
+  sectorId: string;
+  label: string;
+  issueCount: number;
+  unresolvedCount: number;
+  visualState: IssueMarkerVisualState;
+  anchorTileX: number;
+  anchorTileY: number;
+}
+
 function normalizeAgentId(id: string) {
   return id.toLowerCase();
 }
@@ -229,6 +257,44 @@ function buildAgentMarkers(
       assignmentLabel: nodeName ?? "Awaiting task",
       sectorCode: sector?.id ?? "TRANSIT",
       sectorLabel: sector ? DOMAIN_LABEL_BY_SECTOR[sector.id] : "Transit lane",
+    }];
+  });
+}
+
+function buildIssueMarkers(
+  issues: IssueState[],
+  systemNodes: CaseSystemNode[],
+): IssueMarkerData[] {
+  const grouped = new Map<string, IssueState[]>();
+  for (const issue of issues) {
+    const current = grouped.get(issue.buildingId) ?? [];
+    current.push(issue);
+    grouped.set(issue.buildingId, current);
+  }
+
+  return Array.from(grouped.entries()).flatMap(([nodeId, nodeIssues]) => {
+    const seed = CYBER_CITY_SECTOR_SEEDS.find((entry) => entry.nodeId === nodeId);
+    const node = systemNodes.find((entry) => entry.id === nodeId);
+    if (!seed || !node) return [];
+
+    const unresolvedCount = nodeIssues.filter((issue) => issue.status !== "resolved").length;
+    const visualState = nodeIssues.some((issue) => issue.status === "failed_attempt")
+      ? "failed_attempt"
+      : nodeIssues.some((issue) => issue.status === "available")
+        ? "available"
+        : nodeIssues.every((issue) => issue.status === "resolved")
+          ? "resolved"
+          : "locked";
+
+    return [{
+      nodeId,
+      sectorId: seed.id,
+      label: node.name,
+      issueCount: nodeIssues.length,
+      unresolvedCount,
+      visualState,
+      anchorTileX: seed.anchor.tileX,
+      anchorTileY: seed.anchor.tileY,
     }];
   });
 }
@@ -330,6 +396,7 @@ function InvestigateGame({
   const router = useRouter();
   const inv = useInvestigation(activeHelpers);
   const [activeOverlay, setActiveOverlay] = useState<"board" | "market" | null>(null);
+  const [showFinalReport, setShowFinalReport] = useState(false);
   const [rewardsShown, setRewardsShown] = useState(false);
   const board = useBoardState();
   const [paused, setPaused] = useState(false);
@@ -431,14 +498,14 @@ function InvestigateGame({
       const posHandler = (npc: NPCState) => {
         setNpcPositions((prev) => ({ ...prev, [npc.id]: npc }));
       };
-
-      eventBridge.on("sim:npc-click", (data: { npcId: string }) => {
+      const clickHandler = (data: { npcId: string }) => {
         audioManager.playButtonClick();
         handler(data);
-      });
+      };
+      eventBridge.on("sim:npc-click", clickHandler);
       eventBridge.on("sim:npc-position", posHandler);
       cleanup = () => {
-        eventBridge.off("sim:npc-click", handler);
+        eventBridge.off("sim:npc-click", clickHandler);
         eventBridge.off("sim:npc-position", posHandler);
       };
     });
@@ -489,13 +556,27 @@ function InvestigateGame({
       ),
     [nipsAgents, npcPositions, inv.lockedAgents, inv.agents, inv.systemNodes],
   );
+  const issueMarkers = useMemo(
+    () => buildIssueMarkers(inv.issues, inv.systemNodes),
+    [inv.issues, inv.systemNodes],
+  );
+  const selectedNode = useMemo(
+    () => inv.systemNodes.find((node) => node.id === inv.selectedNodeId) ?? null,
+    [inv.selectedNodeId, inv.systemNodes],
+  );
   const pinnedFindingCount = useMemo(
     () =>
       inv.completedFindings.filter((finding) =>
-        board.isPinned(`${finding.nodeId}:${finding.taskType}`),
+        board.isPinned(evidenceKeyForFinding(finding)),
       ).length,
     [board, inv.completedFindings],
   );
+
+  useEffect(() => {
+    if (inv.finalEvaluation?.evaluation.passed) {
+      setShowFinalReport(false);
+    }
+  }, [inv.finalEvaluation]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -662,6 +743,24 @@ function InvestigateGame({
               {nipsFunds.toLocaleString()}
             </span>
           </div>
+          {inv.finalPhaseReady && !inv.isComplete && (
+            <button
+              type="button"
+              onClick={() => {
+                audioManager.playButtonClick();
+                setShowFinalReport(true);
+              }}
+              className="rpg-panel px-3 py-1.5 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-80"
+              style={{
+                color: "#ffcf70",
+                border: "1px solid rgba(255,207,112,0.5)",
+                background: "rgba(255,207,112,0.08)",
+                boxShadow: "0 0 16px rgba(255,207,112,0.12)",
+              }}
+            >
+              {inv.finalEvaluation ? "Retry Final Report" : "Final Report"}
+            </button>
+          )}
           {inv.isComplete && (
             <button
               type="button"
@@ -716,6 +815,30 @@ function InvestigateGame({
         </div>
       </div>
 
+      {inv.finalEvaluation && !inv.finalEvaluation.evaluation.passed && (
+        <div
+          className="mx-3 mt-3 rounded-lg border px-4 py-3"
+          style={{
+            background: "rgba(12,24,38,0.96)",
+            borderColor: "rgba(255,92,92,0.28)",
+          }}
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="text-[9px] font-mono uppercase tracking-[0.16em]" style={{ color: "#ff9a9a" }}>
+                Final Report Rejected
+              </div>
+              <div className="mt-1 text-[8px] font-mono leading-5" style={{ color: "#7aa5c6" }}>
+                Suggested recheck targets: {inv.finalEvaluation.feedback.suggestedRecheckTargets.join(", ")}
+              </div>
+            </div>
+            <div className="text-[9px] font-mono tabular-nums" style={{ color: "#d8ecff" }}>
+              Score {Math.round(inv.finalEvaluation.evaluation.score)}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main layout */}
       <div className="flex flex-1 gap-2 overflow-hidden p-3">
         {/* Left: Evidence feed */}
@@ -747,16 +870,22 @@ function InvestigateGame({
             <EventFeed
               events={inv.events}
               onPinEvent={(event: SimEvent) => {
-                const finding = inv.completedFindings.find(f =>
-                  event.message.includes(f.summary.substring(0, 30))
+                const payload = event.data as { evidenceKey?: string; findingId?: string } | undefined;
+                const finding = inv.completedFindings.find((entry) =>
+                  entry.findingId === payload?.findingId ||
+                  entry.evidenceKey === payload?.evidenceKey ||
+                  event.message.includes(entry.summary.substring(0, 30)),
                 );
                 if (finding) {
-                  board.pinEvidence(`${finding.nodeId}:${finding.taskType}`);
+                  board.pinEvidence(finding.evidenceKey);
                 }
               }}
               onOpenBoard={(event: SimEvent) => {
-                const finding = inv.completedFindings.find(f =>
-                  event.message.includes(f.summary.substring(0, 30))
+                const payload = event.data as { evidenceKey?: string; findingId?: string } | undefined;
+                const finding = inv.completedFindings.find((entry) =>
+                  entry.findingId === payload?.findingId ||
+                  entry.evidenceKey === payload?.evidenceKey ||
+                  event.message.includes(entry.summary.substring(0, 30)),
                 );
                 if (finding) {
                   board.addEvidenceNode(finding);
@@ -815,6 +944,45 @@ function InvestigateGame({
                 }}
               />
             </div>
+            <div
+              className="pointer-events-none absolute z-20 overflow-hidden"
+              style={{
+                left: overlayMetrics.offsetX,
+                top: overlayMetrics.offsetY,
+                width: overlayMetrics.width,
+                height: overlayMetrics.height,
+              }}
+            >
+              <IssueOverlay
+                markers={issueMarkers}
+                scaleX={overlayMetrics.scaleX}
+                scaleY={overlayMetrics.scaleY}
+                onSelectNode={(nodeId) => {
+                  inv.setSelectedNodeId(inv.selectedNodeId === nodeId ? null : nodeId);
+                }}
+              />
+            </div>
+            {selectedNode && (
+              <FloatingSystemInspector
+                node={selectedNode}
+                findings={inv.completedFindings}
+                issues={inv.issues}
+                agents={inv.agents}
+                lockedAgents={inv.lockedAgents}
+                funds={nipsFunds}
+                position={{
+                  left: overlayMetrics.offsetX + Math.max(16, overlayMetrics.width - 406),
+                  top: overlayMetrics.offsetY + 16,
+                }}
+                onSubmitInstruction={(agentId, rawInstruction) => {
+                  inv.submitInstruction(agentId, selectedNode.id, rawInstruction);
+                }}
+                onResolveIssue={(issueId, agentId) => {
+                  inv.resolveIssue(issueId, agentId);
+                }}
+                onClose={() => inv.setSelectedNodeId(null)}
+              />
+            )}
           </div>
         </div>
 
@@ -844,7 +1012,21 @@ function InvestigateGame({
           board={board}
           completedFindings={inv.completedFindings}
           lockedAgents={inv.lockedAgents}
+          issues={inv.issues}
+          latestFeedback={inv.finalEvaluation?.feedback ?? inv.caseState?.latest_feedback ?? null}
           onClose={() => setActiveOverlay(null)}
+        />
+      )}
+
+      {showFinalReport && (
+        <FinalReportModal
+          nodes={inv.systemNodes}
+          latestFeedback={inv.finalEvaluation?.feedback ?? inv.caseState?.latest_feedback ?? null}
+          onSubmit={(report) => {
+            inv.submitFinalReport(report);
+            setShowFinalReport(false);
+          }}
+          onClose={() => setShowFinalReport(false)}
         />
       )}
 
@@ -954,7 +1136,7 @@ function InvestigateGame({
           agent={chatAgent}
           nodeContext={nodeContextStr}
           initialMessages={chatHistories[chatAgent.instance_id]}
-          onEvidenceUpdate={(ev) => inv.addExternalEvidence(ev)}
+          onEvidenceUpdate={(ev) => inv.addExternalEvidence(ev, nipsAgents)}
           onOpenRadio={() => {
             radio.setSelectedAgent(chatAgent);
             radio.setIsOpen(true);
@@ -984,6 +1166,238 @@ function InvestigateGame({
           }}
         />
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// FinalReportModal
+// ---------------------------------------------------------------------------
+
+function FinalReportModal({
+  nodes,
+  latestFeedback,
+  onSubmit,
+  onClose,
+}: {
+  nodes: CaseSystemNode[];
+  latestFeedback: FinalFeedback | null;
+  onSubmit: (report: FinalReportSubmission) => void;
+  onClose: () => void;
+}) {
+  const [originNodeId, setOriginNodeId] = useState("WKS-03");
+  const [attackType, setAttackType] = useState<AttackType>("data_exfil");
+  const [attackPath, setAttackPath] = useState<string[]>([]);
+  const [mitigations, setMitigations] = useState<MitigationPlanOption[]>([]);
+
+  const togglePathNode = (nodeId: string) => {
+    setAttackPath((prev) =>
+      prev.includes(nodeId)
+        ? prev.filter((entry) => entry !== nodeId)
+        : [...prev, nodeId],
+    );
+  };
+
+  const toggleMitigation = (option: MitigationPlanOption) => {
+    setMitigations((prev) =>
+      prev.includes(option)
+        ? prev.filter((entry) => entry !== option)
+        : [...prev, option],
+    );
+  };
+
+  const canSubmit =
+    originNodeId.length > 0 &&
+    attackPath.length >= 2 &&
+    mitigations.length > 0;
+
+  return (
+    <div
+      className="fixed inset-0 z-[85] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="rpg-panel w-full max-w-3xl overflow-hidden"
+        style={{ background: "rgba(8,12,18,0.98)" }}
+      >
+        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "1px solid #1e3d5a" }}>
+          <div>
+            <div className="text-[11px] font-mono uppercase tracking-[0.16em]" style={{ color: "#ffcf70" }}>
+              Final Accusation
+            </div>
+            <div className="mt-1 text-[8px] font-mono leading-5" style={{ color: "#7aa5c6" }}>
+              Submit the origin, ordered path, attack type, and containment plan.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-[9px] font-mono uppercase tracking-[0.16em] hover:opacity-70"
+            style={{ color: "#6c8ca8" }}
+          >
+            close
+          </button>
+        </div>
+
+        <div className="grid gap-0 md:grid-cols-[1.15fr_0.85fr]">
+          <div className="px-5 py-4" style={{ borderRight: "1px solid #1e3d5a" }}>
+            <div className="mb-4">
+              <div className="mb-2 text-[8px] font-mono uppercase tracking-[0.16em]" style={{ color: "#6ca4c4" }}>
+                Origin Node
+              </div>
+              <select
+                value={originNodeId}
+                onChange={(event) => setOriginNodeId(event.target.value)}
+                className="w-full rounded-md px-3 py-2 text-[9px] font-mono outline-none"
+                style={{ background: "#0a1320", border: "1px solid #1e3d5a", color: "#d3e9ff" }}
+              >
+                {nodes.map((node) => (
+                  <option key={node.id} value={node.id}>
+                    {node.id} — {node.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="mb-4">
+              <div className="mb-2 text-[8px] font-mono uppercase tracking-[0.16em]" style={{ color: "#6ca4c4" }}>
+                Ordered Attack Path
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {nodes.map((node) => {
+                  const selected = attackPath.includes(node.id);
+                  return (
+                    <button
+                      key={node.id}
+                      type="button"
+                      onClick={() => togglePathNode(node.id)}
+                      className="rounded-md px-2 py-1.5 text-[8px] font-mono"
+                      style={{
+                        background: selected ? "rgba(0,212,255,0.12)" : "#0a1320",
+                        border: `1px solid ${selected ? "#00d4ff66" : "#1e3d5a"}`,
+                        color: selected ? "#00d4ff" : "#7aa5c6",
+                      }}
+                    >
+                      {selected ? `${attackPath.indexOf(node.id) + 1}. ` : ""}{node.id}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-2 text-[8px] font-mono" style={{ color: "#6f87a1" }}>
+                Current path: {attackPath.length > 0 ? attackPath.join(" -> ") : "Select nodes in order"}
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-2 text-[8px] font-mono uppercase tracking-[0.16em]" style={{ color: "#6ca4c4" }}>
+                Attack Type
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {(["data_exfil", "credential_abuse", "intrusion", "malware"] as const).map((option) => {
+                  const selected = attackType === option;
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => setAttackType(option)}
+                      className="rounded-md px-2 py-1.5 text-[8px] font-mono uppercase"
+                      style={{
+                        background: selected ? "rgba(255,207,112,0.12)" : "#0a1320",
+                        border: `1px solid ${selected ? "#ffcf7066" : "#1e3d5a"}`,
+                        color: selected ? "#ffcf70" : "#7aa5c6",
+                      }}
+                    >
+                      {option.replaceAll("_", " ")}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="px-5 py-4">
+            <div className="mb-4">
+              <div className="mb-2 text-[8px] font-mono uppercase tracking-[0.16em]" style={{ color: "#6ca4c4" }}>
+                Mitigation Plan
+              </div>
+              <div className="space-y-2">
+                {([
+                  "reset_credentials",
+                  "patch_vulnerability",
+                  "isolate_system",
+                  "restore_backups",
+                  "remove_persistence",
+                  "block_external_communication",
+                ] as MitigationPlanOption[]).map((option) => {
+                  const selected = mitigations.includes(option);
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => toggleMitigation(option)}
+                      className="flex w-full items-center justify-between rounded-md px-3 py-2 text-[8px] font-mono uppercase"
+                      style={{
+                        background: selected ? "rgba(53,247,207,0.10)" : "#0a1320",
+                        border: `1px solid ${selected ? "#35f7cf55" : "#1e3d5a"}`,
+                        color: selected ? "#35f7cf" : "#7aa5c6",
+                      }}
+                    >
+                      <span>{option.replaceAll("_", " ")}</span>
+                      <span>{selected ? "included" : "add"}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-lg border px-3 py-3" style={{ borderColor: "#1e3d5a", background: "#0c1826" }}>
+              <div className="text-[8px] font-mono uppercase tracking-[0.16em]" style={{ color: "#6ca4c4" }}>
+                Review Notes
+              </div>
+              {latestFeedback ? (
+                <div className="mt-2 space-y-2 text-[8px] font-mono leading-5" style={{ color: "#7aa5c6" }}>
+                  <div>Incorrect assumptions: {latestFeedback.incorrectAssumptions.join(" | ")}</div>
+                  <div>Misleading evidence: {latestFeedback.misleadingEvidence.join(" | ")}</div>
+                  <div>Missing connections: {latestFeedback.missingConnections.join(" | ")}</div>
+                </div>
+              ) : (
+                <div className="mt-2 text-[8px] font-mono leading-5" style={{ color: "#6f87a1" }}>
+                  Submit once the issue chain, attack path, and containment plan feel internally consistent.
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 flex items-center justify-between">
+              <span className="text-[7px] font-mono" style={{ color: "#4f6f8b" }}>
+                Failure returns you to investigation mode with your evidence preserved.
+              </span>
+              <button
+                type="button"
+                disabled={!canSubmit}
+                onClick={() => {
+                  if (!canSubmit) return;
+                  onSubmit({
+                    origin_node_id: originNodeId,
+                    attack_path: attackPath,
+                    attack_type: attackType,
+                    mitigation_plan: mitigations,
+                  });
+                }}
+                className="rounded-md px-4 py-2 text-[9px] font-mono uppercase tracking-[0.16em]"
+                style={{
+                  color: canSubmit ? "#ffcf70" : "#4f6f8b",
+                  border: `1px solid ${canSubmit ? "#ffcf7066" : "#1e3d5a"}`,
+                  background: canSubmit ? "rgba(255,207,112,0.08)" : "rgba(15,25,39,0.4)",
+                }}
+              >
+                submit report
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1668,6 +2082,57 @@ function AgentOverlay({
               {marker.agent.display_name}
             </button>
           </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function IssueOverlay({
+  markers,
+  scaleX,
+  scaleY,
+  onSelectNode,
+}: {
+  markers: IssueMarkerData[];
+  scaleX: number;
+  scaleY: number;
+  onSelectNode: (nodeId: string) => void;
+}) {
+  const stateColor: Record<IssueMarkerVisualState, string> = {
+    locked: "#4f6f8b",
+    available: "#ffcf70",
+    resolved: "#35f7cf",
+    failed_attempt: "#ff7f7f",
+  };
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-30 overflow-hidden">
+      {markers.map((marker) => {
+        const left = marker.anchorTileX * WORLD_TILE_SIZE * scaleX - 18;
+        const top = marker.anchorTileY * WORLD_TILE_SIZE * scaleY - 38;
+        const color = stateColor[marker.visualState];
+        return (
+          <button
+            key={marker.nodeId}
+            type="button"
+            onClick={() => onSelectNode(marker.nodeId)}
+            className="pointer-events-auto absolute flex min-w-[42px] flex-col items-center rounded-full px-2 py-1 text-[7px] font-mono uppercase tracking-[0.14em] transition-transform hover:scale-105"
+            style={{
+              left,
+              top,
+              background: "rgba(8,12,18,0.92)",
+              border: `1px solid ${color}88`,
+              color,
+              boxShadow: `0 0 18px ${color}22`,
+            }}
+            title={`${marker.label} • ${marker.unresolvedCount} unresolved issues`}
+          >
+            <span>{marker.unresolvedCount > 0 ? marker.unresolvedCount : marker.issueCount}</span>
+            <span className="mt-0.5 text-[6px]" style={{ color: "#c9d8e8" }}>
+              issue
+            </span>
+          </button>
         );
       })}
     </div>

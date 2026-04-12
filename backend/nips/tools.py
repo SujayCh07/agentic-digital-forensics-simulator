@@ -9,98 +9,40 @@ from __future__ import annotations
 
 from typing import Any
 
+from nips.case_bundle import get_case_bundle, resolve_case_node_id
+
 # ---------------------------------------------------------------------------
 # Case data (the Midnight Exfiltration) — kept server-side so the model
 # can't peek beyond what the agent should know.
 # ---------------------------------------------------------------------------
 
+_CASE_BUNDLE = get_case_bundle("midnight_exfil")
 _NODE_DATA: dict[str, dict[str, Any]] = {
-    "MAIL-01": {
-        "name": "Mail Gateway",
-        "logs": "03:42 — auth success admin@corp.local; 03:44 — forwarding rule created → ext-relay; 03:47 — bulk send 2,411 msgs",
-        "network": "Inbound SMTP from EXT-01, outbound to BACKUP-01 port 993",
-        "files": "rule_export.json (created 03:44, 12 KB), .pst spool 480 MB",
-        "timeline": "03:42 login → 03:44 rule → 03:47 bulk send → 03:52 rule deleted",
-    },
-    "DB-02": {
-        "name": "Financial Database",
-        "logs": "03:45 — SELECT * FROM transactions WHERE amount > 10000; 03:46 — pg_dump initiated; 03:48 — 47 GB export completed",
-        "network": "Lateral from WS-03 via SSH tunnel, egress to EXT-01 on port 443",
-        "files": "dump_20240115.sql.gz (47 GB), .bash_history (cleared 03:50)",
-        "timeline": "03:45 query → 03:46 dump start → 03:48 dump end → 03:49 SSH tunnel closed → 03:50 bash_history cleared",
-    },
-    "WS-03": {
-        "name": "Dev Workstation",
-        "logs": "03:30 — RDP login from VPN; 03:35 — mimikatz.exe executed; 03:38 — credential harvest: 14 accounts",
-        "network": "VPN ingress, lateral SSH to DB-02 and MAIL-01, no direct egress",
-        "files": "mimikatz.exe (SHA256: a1b2c3…), cred_dump.txt (14 entries), clean.bat (scheduled 04:00)",
-        "timeline": "03:30 RDP → 03:35 mimikatz → 03:38 creds → 03:40 lateral to MAIL-01 → 03:43 lateral to DB-02",
-    },
-    "FW-01": {
-        "name": "Perimeter Firewall",
-        "logs": "03:47 — allow TCP 443 WS-03→EXT-01; 03:48 — allow TCP 443 DB-02→EXT-01; 03:49 — 47.2 GB transferred",
-        "network": "NAT gateway, allow-list includes EXT-01 on 443 (added 03:30)",
-        "files": "fw_config_backup.bin (modified 03:30 — rule added)",
-        "timeline": "03:30 rule added → 03:47 traffic spike → 04:09 rule removed (auto-expire)",
-    },
-    "EXT-01": {
-        "name": "External C2 Server",
-        "logs": "Received 47.2 GB over TLS; beacon interval 60s from WS-03 since 03:28",
-        "network": "Inbound from FW-01 NAT; IP 198.51.100.42, hosting on port 443",
-        "files": "Staging directory /var/exfil/ — 47 GB; encrypted with AES-256-GCM",
-        "timeline": "03:28 beacon start → 03:47 exfil start → 04:09 exfil end → 04:15 staging wiped",
-    },
-    "BACKUP-01": {
-        "name": "Backup Server",
-        "logs": "03:52 — shadow copy deletion; 03:53 — backup retention policy changed from 30d to 1d",
-        "network": "IMAP sync from MAIL-01; no external connections",
-        "files": "Backup manifests altered; VSS snapshots deleted (03:52)",
-        "timeline": "03:52 VSS delete → 03:53 retention change → 03:55 anti-forensics sweep",
-    },
-    "GW-01": {
-        "name": "API Gateway",
-        "logs": "03:40 — API key rotation triggered; 03:41 — OAuth token bulk-revoked; 03:55 — rate limiter disabled",
-        "network": "Exposes /api/v2 to internet; internal routes to DB-02 and MAIL-01",
-        "files": "api_config.yaml modified 03:40; .env.bak created 03:41",
-        "timeline": "03:40 key rotation → 03:41 token revoke → 03:55 rate-limit off → 04:00 config restored",
-    },
+    node.id: {
+        "name": node.label,
+        "logs": node.tool_data.get("logs", "No log data available."),
+        "network": node.tool_data.get("network", "No network data available."),
+        "files": node.tool_data.get("files", "No file data available."),
+        "timeline": node.tool_data.get("timeline", "No timeline data available."),
+    }
+    for node in _CASE_BUNDLE.nodes
+}
+_NODE_ALIASES: dict[str, str] = dict(_CASE_BUNDLE.aliases)
+_DISPLAY_NODE_ID: dict[str, str] = {
+    "WKS-03": "WKS-03 / WS-03",
 }
 
-_NODE_ALIASES: dict[str, str] = {}
-for _nid, _nd in _NODE_DATA.items():
-    _NODE_ALIASES[_nid.lower()] = _nid
-    _NODE_ALIASES[_nd["name"].lower()] = _nid
-    for _word in _nd["name"].lower().split():
-        if len(_word) > 2:
-            _NODE_ALIASES[_word] = _nid
-# Frontend uses WKS-03 for the workstation, backend data uses WS-03
-_NODE_ALIASES["wks-03"] = "WS-03"
-_NODE_ALIASES["workstation alpha"] = "WS-03"
+
+def _display_node_id(node_id: str) -> str:
+    return _DISPLAY_NODE_ID.get(node_id, node_id)
 
 
 def resolve_node_id(raw: str) -> str:
     """Try to resolve a natural-language node reference to a real node ID."""
-    if raw in _NODE_DATA:
-        return raw
-    lower = raw.lower().strip()
-    if lower in _NODE_ALIASES:
-        return _NODE_ALIASES[lower]
-    for alias, nid in _NODE_ALIASES.items():
-        if alias in lower or lower in alias:
-            return nid
-    return raw
+    return resolve_case_node_id(raw)
 
 
-_KNOWN_CONNECTIONS: list[dict[str, str]] = [
-    {"source": "WS-03", "target": "MAIL-01", "type": "SSH lateral"},
-    {"source": "WS-03", "target": "DB-02", "type": "SSH tunnel"},
-    {"source": "DB-02", "target": "EXT-01", "type": "TLS exfiltration"},
-    {"source": "MAIL-01", "target": "BACKUP-01", "type": "IMAP sync"},
-    {"source": "WS-03", "target": "EXT-01", "type": "C2 beacon"},
-    {"source": "FW-01", "target": "EXT-01", "type": "NAT gateway"},
-    {"source": "GW-01", "target": "DB-02", "type": "API route"},
-    {"source": "GW-01", "target": "MAIL-01", "type": "API route"},
-]
+_KNOWN_CONNECTIONS: list[dict[str, str]] = list(_CASE_BUNDLE.connections)
 
 # ---------------------------------------------------------------------------
 # Tool declarations (for google.genai function calling)
@@ -232,7 +174,7 @@ async def execute_inspect_logs(
     if not node:
         return f"Node {node_id} not found in accessible systems. Available: {', '.join(_NODE_DATA.keys())}"
     logs = node.get("logs", "No log data available.")
-    result = f"=== Log inspection: {node['name']} ({node_id}) ===\nScope: {scope}\n\n{logs}"
+    result = f"=== Log inspection: {node['name']} ({_display_node_id(node_id)}) ===\nScope: {scope}\n\n{logs}"
     if focus:
         result += f"\n\n[Focus filter applied: '{focus}']"
     return result
@@ -267,7 +209,7 @@ async def execute_trace_network(
         f"  {c['source']} → {c['target']} ({c['type']})" for c in connections
     )
     return (
-        f"=== Network trace: {node['name']} ({node_id}) ===\n"
+        f"=== Network trace: {node['name']} ({_display_node_id(node_id)}) ===\n"
         f"Depth: {depth}\n\n"
         f"Network info: {net_info}\n\n"
         f"Connections:\n{conn_lines or '  No connections found.'}"
@@ -285,7 +227,7 @@ async def execute_analyze_file_artifacts(
     if not node:
         return f"Node {node_id} not found in accessible systems. Available: {', '.join(_NODE_DATA.keys())}"
     files = node.get("files", "No file artifacts found.")
-    result = f"=== File artifact analysis: {node['name']} ({node_id}) ===\n\n{files}"
+    result = f"=== File artifact analysis: {node['name']} ({_display_node_id(node_id)}) ===\n\n{files}"
     if artifact_hint:
         result += f"\n\n[Artifact focus: '{artifact_hint}']"
     return result
@@ -304,7 +246,7 @@ async def execute_reconstruct_timeline(
         if not node:
             return f"Node {node_id} not found in accessible systems. Available: {', '.join(_NODE_DATA.keys())}"
         tl = node.get("timeline", "No timeline data.")
-        return f"=== Timeline: {node['name']} ({node_id}) ===\n\n{tl}"
+        return f"=== Timeline: {node['name']} ({_display_node_id(node_id)}) ===\n\n{tl}"
 
     lines = []
     for nid, nd in _NODE_DATA.items():
@@ -382,7 +324,7 @@ async def execute_summarize_node_state(
         return f"Node {node_id} not found. Available: {', '.join(_NODE_DATA.keys())}"
     node_evidence = [e for e in (evidence or []) if e.get("node_id") == node_id]
     return (
-        f"=== Node state: {node['name']} ({node_id}) ===\n"
+        f"=== Node state: {node['name']} ({_display_node_id(node_id)}) ===\n"
         f"Logs summary: {node.get('logs', 'N/A')[:120]}…\n"
         f"Network: {node.get('network', 'N/A')[:120]}…\n"
         f"Files: {node.get('files', 'N/A')[:120]}…\n"
@@ -413,7 +355,7 @@ async def execute_propose_next_best_action(
     if count == 0:
         return (
             "No evidence collected yet. Recommend starting with log inspection "
-            "on WS-03 (the dev workstation) — the most likely initial compromise point."
+            "on WKS-03 / WS-03 (the workstation) — the most likely initial compromise point."
         )
     investigated_nodes = {e.get("node_id") for e in (evidence or [])}
     uninvestigated = [nid for nid in _NODE_DATA if nid not in investigated_nodes]
@@ -425,7 +367,7 @@ async def execute_propose_next_best_action(
         )
     return (
         "All nodes have been investigated at least once. "
-        "Recommend correlating findings across WS-03, DB-02, and EXT-01 "
+        "Recommend correlating findings across WKS-03, BACKUP-01, and GW-01 "
         "to build the full exfiltration narrative."
     )
 

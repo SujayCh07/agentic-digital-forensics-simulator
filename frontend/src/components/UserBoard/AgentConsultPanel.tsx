@@ -67,7 +67,7 @@ export function AgentConsultPanel({
           <div className="flex flex-col gap-1 max-h-24 overflow-y-auto">
             {selectedFindings.map((f) => (
               <div
-                key={`${f.nodeId}:${f.taskType}`}
+                key={f.findingId}
                 className="text-[7px] font-mono px-1.5 py-0.5 rounded truncate"
                 style={{ color: "#4a6580", background: "#1e3d5a20" }}
               >
