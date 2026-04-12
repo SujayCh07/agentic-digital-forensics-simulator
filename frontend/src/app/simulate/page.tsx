@@ -36,6 +36,7 @@ import {
   saveProgress,
   type PlayerProgress,
 } from "@/lib/playerProgress";
+import { audioManager } from "@/lib/audioManager";
 import type { NPCHoverInfo, SimEvent } from "@/types";
 
 const SocialGraph = dynamic(
@@ -247,6 +248,28 @@ function InvestigateGame({
   const [chatHistories, setChatHistories] = useState<Record<string, MessageEntry[]>>({});
   const [showDirectory, setShowDirectory] = useState(false);
   const [showMarketplace, setShowMarketplace] = useState(false);
+
+  // ── Audio: unlock on first interaction, start gameplay music ────────────────
+  useEffect(() => {
+    const unlock = () => audioManager.unlock();
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("keydown", unlock, { once: true });
+    audioManager.startGameplayMusic();
+    return () => {
+      audioManager.stopMusic();
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
+
+  // ── Audio: switch music based on pressure level ──────────────────────────────
+  useEffect(() => {
+    if (inv.pressureLevel >= 7) {
+      audioManager.switchToCorruptMusic();
+    } else {
+      audioManager.startGameplayMusic();
+    }
+  }, [inv.pressureLevel]);
 
   // Init NIPS backend session
   useEffect(() => {
@@ -547,7 +570,7 @@ function InvestigateGame({
           {inv.isComplete && (
             <button
               type="button"
-              onClick={() => setRewardsShown(true)}
+              onClick={() => { audioManager.playButtonClick(); setRewardsShown(true); }}
               className="text-[9px] font-mono transition-opacity hover:opacity-70"
               style={{ color: "#00ff88", textShadow: "0 0 8px rgba(0,255,136,0.5)" }}
             >
@@ -556,7 +579,7 @@ function InvestigateGame({
           )}
           <button
             type="button"
-            onClick={() => setShowBoard(true)}
+            onClick={() => { audioManager.playPauseMenu(); setShowBoard(true); }}
             className="rpg-panel px-2 py-1 text-[8px] font-mono uppercase tracking-widest transition-opacity hover:opacity-70"
             style={{ color: showBoard ? "#b06fff" : "#b06fff80", border: `1px solid ${showBoard ? "#b06fff" : "#1e3d5a"}`, boxShadow: showBoard ? "0 0 8px rgba(176,111,255,0.2)" : undefined }}
           >
@@ -564,7 +587,7 @@ function InvestigateGame({
           </button>
           <button
             type="button"
-            onClick={() => setShowMarketplace((p) => !p)}
+            onClick={() => { audioManager.playPauseMenu(); setShowMarketplace((p) => !p); }}
             className="rpg-panel px-2 py-1 text-[8px] font-mono uppercase tracking-widest transition-opacity hover:opacity-70"
             style={{ color: showMarketplace ? "#f59e0b" : "#4a6580", border: `1px solid ${showMarketplace ? "#f59e0b" : "#1e3d5a"}` }}
           >
@@ -572,7 +595,7 @@ function InvestigateGame({
           </button>
           <button
             type="button"
-            onClick={() => setShowDirectory(true)}
+            onClick={() => { audioManager.playPauseMenu(); setShowDirectory(true); }}
             className="rpg-panel px-2 py-1 text-[8px] font-mono uppercase tracking-widest transition-opacity hover:opacity-70"
             style={{ color: "#4a6580" }}
           >
@@ -580,7 +603,7 @@ function InvestigateGame({
           </button>
           <button
             type="button"
-            onClick={() => setShowGraph(true)}
+            onClick={() => { audioManager.playPauseMenu(); setShowGraph(true); }}
             className="rpg-panel px-2 py-1 text-[8px] font-mono uppercase tracking-widest transition-opacity hover:opacity-70"
             style={{ color: "#4a6580" }}
           >
@@ -588,7 +611,7 @@ function InvestigateGame({
           </button>
           <button
             type="button"
-            onClick={() => setFocusMode((f) => !f)}
+            onClick={() => { audioManager.playButtonClick(); setFocusMode((f) => !f); }}
             className="rpg-panel px-2 py-1 text-[8px] font-mono uppercase tracking-widest transition-opacity hover:opacity-70"
             style={{ color: focusMode ? "#00d4ff" : "#4a6580", border: `1px solid ${focusMode ? "#00d4ff" : "#1e3d5a"}` }}
           >
@@ -639,9 +662,9 @@ function InvestigateGame({
             <GameCanvas />
             {/* Zoom / Fullscreen controls */}
             <div className="absolute top-2 right-2 z-40 flex gap-1">
-              <button type="button" onClick={() => { import("@/game/bridge/EventBridge").then(({ eventBridge }) => eventBridge.emitCameraZoom(1)); }} className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70" style={{ color: "#4a6580" }}>ZOOM+</button>
-              <button type="button" onClick={() => { import("@/game/bridge/EventBridge").then(({ eventBridge }) => eventBridge.emitCameraZoom(-1)); }} className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70" style={{ color: "#4a6580" }}>ZOOM-</button>
-              <button type="button" onClick={toggleFullscreen} className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70" style={{ color: "#4a6580" }}>{isFullscreen ? "EXIT" : "FULL"}</button>
+              <button type="button" onClick={() => { audioManager.playButtonClick(); import("@/game/bridge/EventBridge").then(({ eventBridge }) => eventBridge.emitCameraZoom(1)); }} className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70" style={{ color: "#4a6580" }}>ZOOM+</button>
+              <button type="button" onClick={() => { audioManager.playButtonClick(); import("@/game/bridge/EventBridge").then(({ eventBridge }) => eventBridge.emitCameraZoom(-1)); }} className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70" style={{ color: "#4a6580" }}>ZOOM-</button>
+              <button type="button" onClick={() => { audioManager.playButtonClick(); toggleFullscreen(); }} className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70" style={{ color: "#4a6580" }}>{isFullscreen ? "EXIT" : "FULL"}</button>
             </div>
             {/* NPC hover tooltip */}
             {hoverInfo && (

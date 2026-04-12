@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import type { SimEvent } from "@/types";
+import { audioManager } from "@/lib/audioManager";
 
 interface EventFeedProps {
   events: SimEvent[];
@@ -57,8 +58,13 @@ function eventColor(type: SimEvent["type"]): string {
 
 export function EventFeed({ events, onEventClick, onPinEvent }: EventFeedProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const prevLenRef = useRef(events.length);
 
   useEffect(() => {
+    if (events.length > prevLenRef.current) {
+      audioManager.playEvidenceAdded();
+    }
+    prevLenRef.current = events.length;
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [events.length]);
 

@@ -1,6 +1,7 @@
 "use client";
 
 import type { CaseSystemNode } from "@/types/investigation";
+import { audioManager } from "@/lib/audioManager";
 
 interface NodeListPanelProps {
   nodes: CaseSystemNode[];
@@ -62,7 +63,7 @@ export function NodeListPanel({
             <button
               key={node.id}
               type="button"
-              onClick={() => onSelectNode(node.id)}
+              onClick={() => { audioManager.playButtonClick(); onSelectNode(node.id); }}
               className="w-full text-left px-3 py-2 transition-all"
               style={{
                 borderBottom: "1px solid #0d1520",

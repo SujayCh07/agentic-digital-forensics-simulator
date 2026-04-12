@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { NipsMarketplaceOffer } from "@/types/investigation";
+import { audioManager } from "@/lib/audioManager";
 
 interface AgentMarketplaceProps {
   offers: NipsMarketplaceOffer[];
@@ -99,7 +100,7 @@ function OfferCard({
       <button
         type="button"
         disabled={!canAfford}
-        onClick={() => onBuy(offer.offer_id)}
+        onClick={() => { if (canAfford) audioManager.playButtonClick(); else audioManager.playLockedClick(); onBuy(offer.offer_id); }}
         className={`mt-auto rounded border px-3 py-1.5 text-[10px] font-mono uppercase ${
           canAfford
             ? "border-[var(--accent-cyan)] text-[var(--accent-cyan)] hover:bg-[var(--accent-cyan)]/10"

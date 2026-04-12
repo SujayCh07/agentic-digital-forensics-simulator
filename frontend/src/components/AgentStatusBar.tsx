@@ -1,6 +1,7 @@
 "use client";
 
 import type { AgentDefinition, AgentId, Task } from "@/types/investigation";
+import { audioManager } from "@/lib/audioManager";
 
 interface AgentStatusBarProps {
   agents: AgentDefinition[];
@@ -57,7 +58,11 @@ export function AgentStatusBar({
           <button
             type="button"
             key={agent.id}
-            onClick={() => !isLocked && onAgentClick?.(agent.id)}
+            onClick={() => {
+              if (isLocked) { audioManager.playLockedClick(); return; }
+              audioManager.playButtonClick();
+              onAgentClick?.(agent.id);
+            }}
             className="rpg-panel flex flex-col justify-between px-2.5 py-1.5 min-w-[130px] text-left transition-all hover:brightness-110"
             style={{
               borderColor: isLocked
