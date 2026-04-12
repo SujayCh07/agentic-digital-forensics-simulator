@@ -8,7 +8,6 @@ import {
 } from "../map/RoadGraph";
 import type { OccupancyGrid } from "./OccupancyGrid";
 import { compressPath, findPath } from "./Pathfinder";
-
 type TileCheck = (col: number, row: number) => boolean;
 const ZONE_NODE_PREFERENCES: Record<string, string[]> = {
   government: ["A", "B", "C", "D"],
