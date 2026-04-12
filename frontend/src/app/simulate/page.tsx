@@ -22,6 +22,7 @@ import { Dashboard } from "@/components/Dashboard";
 import { EconomicReportModal } from "@/components/EconomicReportModal";
 import { EndgameModal } from "@/components/EndgameModal";
 import { EventFeed } from "@/components/EventFeed";
+import { FinalClaimModal } from "@/components/FinalClaimModal";
 import { HelperSelectionPanel } from "@/components/HelperSelectionPanel";
 import { NPCInteractionModal } from "@/components/NPCInteractionModal";
 import { PauseOverlay } from "@/components/PauseOverlay";
@@ -438,6 +439,10 @@ function InvestigateGame({
   const [showProposalModal, setShowProposalModal] = useState(false);
   const [showRemediationOverlay, setShowRemediationOverlay] = useState(false);
   const [proposalEval, setProposalEval] = useState<BossEvaluation | null>(null);
+  const [showFinalClaimModal, setShowFinalClaimModal] = useState(false);
+  const [finalClaimEval, setFinalClaimEval] = useState<BossEvaluation | null>(
+    null,
+  );
   const [remediationHistory, setRemediationHistory] = useState<
     RemediationResult[]
   >([]);
@@ -541,19 +546,25 @@ function InvestigateGame({
 
     setEndgameCallbacks({
       onProposalEvaluated: (ev) => {
-        setProposalEval(ev);
         setNipsFunds((prev) => prev + ev.funds_awarded);
-        setExternalDelta((prev) => prev + ev.progress_delta);
-        if (!proposalSubmitted) {
-          setProposalSubmitted(true);
-          setTimerRunning(true);
-        }
-        // Final proposal at 75%: win immediately if accuracy ≥ 75%
-        if (finalProposalActiveRef.current && ev.confidence_rating >= 0.75) {
+        if (finalProposalActiveRef.current) {
+          // This is the final claim submission
           finalProposalActiveRef.current = false;
-          setEndgameOutcome("win");
+          setFinalClaimEval(ev);
+          setExternalDelta((prev) => prev + ev.progress_delta);
+          if (ev.confidence_rating >= 0.75) {
+            setEndgameOutcome("win");
+          }
+          // If < 75%: leave FinalClaimModal open so player sees the result
+        } else {
+          // Normal initial proposal
+          setProposalEval(ev);
+          setExternalDelta((prev) => prev + ev.progress_delta);
+          if (!proposalSubmitted) {
+            setProposalSubmitted(true);
+            setTimerRunning(true);
+          }
         }
-        finalProposalActiveRef.current = false;
       },
       onRemediationResult: (result) => {
         setLastRemediationResult(result);
@@ -997,25 +1008,29 @@ function InvestigateGame({
               Submit Report
             </button>
           )}
-          {proposalSubmitted && recoveryProgress >= 75 && !endgameOutcome && (
-            <button
-              type="button"
-              onClick={() => {
-                audioManager.playButtonClick();
-                finalProposalActiveRef.current = true;
-                setShowProposalModal(true);
-              }}
-              className="rpg-panel px-3.5 py-2 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-80"
-              style={{
-                color: "#34d399",
-                border: "1px solid #34d39966",
-                background: "rgba(52,211,153,0.12)",
-                boxShadow: "0 0 12px rgba(52,211,153,0.2)",
-              }}
-            >
-              ◈ Finalize Investigation
-            </button>
-          )}
+          {proposalSubmitted &&
+            recoveryProgress >= 75 &&
+            !endgameOutcome &&
+            !showFinalClaimModal && (
+              <button
+                type="button"
+                onClick={() => {
+                  audioManager.playButtonClick();
+                  finalProposalActiveRef.current = true;
+                  setFinalClaimEval(null);
+                  setShowFinalClaimModal(true);
+                }}
+                className="rpg-panel px-3.5 py-2 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-80"
+                style={{
+                  color: "#34d399",
+                  border: "1px solid #34d39966",
+                  background: "rgba(52,211,153,0.12)",
+                  boxShadow: "0 0 12px rgba(52,211,153,0.2)",
+                }}
+              >
+                ◈ Finalize Investigation
+              </button>
+            )}
           <button
             type="button"
             onClick={toggleBoard}
@@ -1441,11 +1456,23 @@ function InvestigateGame({
         />
       )}
 
-      {/* Proposal Modal */}
+      {/* Proposal Modal (initial report) */}
       {showProposalModal && (
         <ProposalModal
           evaluation={proposalEval}
           onClose={() => setShowProposalModal(false)}
+        />
+      )}
+
+      {/* Final Claim Modal (at 75%+) */}
+      {showFinalClaimModal && !endgameOutcome && (
+        <FinalClaimModal
+          evaluation={finalClaimEval}
+          timerSeconds={endgameTimer}
+          onClose={() => {
+            setShowFinalClaimModal(false);
+            finalProposalActiveRef.current = false;
+          }}
         />
       )}
 
@@ -1462,6 +1489,8 @@ function InvestigateGame({
             setExternalDelta(0);
             setProposalSubmitted(false);
             setProposalEval(null);
+            setFinalClaimEval(null);
+            setShowFinalClaimModal(false);
             setLastRemediationResult(null);
             setRemediationHistory([]);
             setEndgameTimer(300);

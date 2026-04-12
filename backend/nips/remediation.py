@@ -125,13 +125,14 @@ def score_remediation(
         _REMEDIATION_TRUTH.get(case_id, {}).get(action_type, {})
     )
     score = truth_map.get(target_node.upper(), truth_map.get("default", 10))
-    # Progress delta: non-linear — correct actions give meaningful progress
+    # Progress delta: scaled down so remediations are impactful but not game-winning alone.
+    # Best possible single action (score 95, best agent ~1.35×) → ~9 pts max.
     if score >= 70:
-        delta = 10 + (score - 70) * 0.5   # 10–17.5
+        delta = 3.0 + (score - 70) * 0.15   # 3.0–7.5
     elif score >= 40:
-        delta = 4 + (score - 40) * 0.2    # 4–10
+        delta = 1.2 + (score - 40) * 0.06   # 1.2–3.0
     else:
-        delta = score * 0.1                # 0–4
+        delta = score * 0.03                  # 0–1.2
 
     # Apply agent archetype bonus/penalty
     arch = agent_archetype.upper().strip()
