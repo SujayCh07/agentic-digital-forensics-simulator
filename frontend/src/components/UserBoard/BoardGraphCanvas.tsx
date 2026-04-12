@@ -354,6 +354,8 @@ export const BoardGraphCanvas = forwardRef<BoardCanvasHandle, Props>(
     const dragRef      = useRef<BoardSimNode | null>(null);
     const zoomRef      = useRef<d3.ZoomTransform>(d3.zoomIdentity);
     const zoomBehaviorRef = useRef<d3.ZoomBehavior<HTMLCanvasElement, unknown> | null>(null);
+    // True while the pointer is held down over a node (used to suppress D3 panning)
+    const nodeDownRef  = useRef(false);
     const [dims, setDims] = useState({ w: 880, h: 560 });
 
     // Measure container
@@ -382,6 +384,8 @@ export const BoardGraphCanvas = forwardRef<BoardCanvasHandle, Props>(
 
       const zoom = d3.zoom<HTMLCanvasElement, unknown>()
         .scaleExtent([0.25, 3])
+        // Don't pan/zoom while the mouse is held down on a node
+        .filter((event) => !nodeDownRef.current)
         .on("zoom", (e: d3.D3ZoomEvent<HTMLCanvasElement, unknown>) => {
           zoomRef.current = e.transform;
         });
@@ -557,7 +561,7 @@ function drawMiniMap(
       return () => cancelAnimationFrame(rafRef.current);
     }, [draw]);
 
-    // ── Mouse interaction (copied from SocialGraph pattern) ───────────────
+    // ── Mouse interaction ─────────────────────────────────────────────────
     useEffect(() => {
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -585,7 +589,6 @@ function drawMiniMap(
           const s = e.source as BoardSimNode;
           const t = e.target as BoardSimNode;
           if (s.x == null || s.y == null || t.x == null || t.y == null) continue;
-          // Midpoint proximity check
           const mx = (s.x + t.x) / 2;
           const my = (s.y + t.y) / 2;
           const dy2 = (s.y + t.y) / 2 - s.y;
@@ -598,8 +601,26 @@ function drawMiniMap(
         return null;
       }
 
+      // Pending drag: records mousedown position so we can distinguish click vs drag
+      const pending = { node: null as BoardSimNode | null, sx: 0, sy: 0 };
+      const DRAG_THRESHOLD = 4; // px before drag activates
+
       const onMove = (e: MouseEvent) => {
         const { x, y } = getMousePos(e);
+
+        // Promote pending to active drag once threshold exceeded
+        if (pending.node && !dragRef.current) {
+          if (Math.hypot(x - pending.sx, y - pending.sy) > DRAG_THRESHOLD) {
+            const [gx, gy] = screenToGraph(x, y);
+            dragRef.current = pending.node;
+            dragRef.current.fx = gx;
+            dragRef.current.fy = gy;
+            canvas.style.cursor = "grabbing";
+            simRef.current?.alphaTarget(0.3).restart();
+          }
+        }
+
+        // Active drag: lock node to cursor
         if (dragRef.current) {
           const [gx, gy] = screenToGraph(x, y);
           dragRef.current.fx = gx;
@@ -607,6 +628,8 @@ function drawMiniMap(
           simRef.current?.alpha(0.3).restart();
           return;
         }
+
+        // Hover effects
         const [gx, gy] = screenToGraph(x, y);
         const node = getNodeAt(gx, gy);
         hoveredNodeRef.current = node;
@@ -620,26 +643,18 @@ function drawMiniMap(
         const [gx, gy] = screenToGraph(x, y);
         const node = getNodeAt(gx, gy);
         if (node) {
-          dragRef.current = node;
-          node.fx = gx;
-          node.fy = gy;
-          canvas.style.cursor = "grabbing";
-          simRef.current?.alphaTarget(0.3).restart();
+          nodeDownRef.current = true;   // suppress D3 pan
+          pending.node = node;
+          pending.sx = x;
+          pending.sy = y;
           e.stopPropagation();
         }
       };
 
-      const onClick = (e: MouseEvent) => {
-        const { x, y } = getMousePos(e);
-        const [gx, gy] = screenToGraph(x, y);
-        const node = getNodeAt(gx, gy);
-        if (node) { onNodeClick?.(node); return; }
-        const edge = getEdgeAt(gx, gy);
-        if (edge) { onEdgeClick?.(edge); return; }
-        onCanvasClick?.();
-      };
-
       const onUp = () => {
+        nodeDownRef.current = false;    // re-enable D3 pan
+        const wasDragging = !!dragRef.current;
+
         if (dragRef.current) {
           dragRef.current.fx = null;
           dragRef.current.fy = null;
@@ -647,27 +662,47 @@ function drawMiniMap(
           canvas.style.cursor = "default";
           simRef.current?.alphaTarget(0);
         }
+
+        // If button released without dragging → plain click → fire connection logic
+        const candidate = pending.node;
+        pending.node = null;
+        if (!wasDragging && candidate) {
+          onNodeClick?.(candidate);
+        }
+      };
+
+      const onClick = (e: MouseEvent) => {
+        const { x, y } = getMousePos(e);
+        const [gx, gy] = screenToGraph(x, y);
+        // Node clicks handled in onUp — only dispatch edges/canvas from here
+        if (getNodeAt(gx, gy)) return;
+        const edge = getEdgeAt(gx, gy);
+        if (edge) { onEdgeClick?.(edge); return; }
+        onCanvasClick?.();
       };
 
       const onLeave = () => {
         hoveredNodeRef.current = null;
         hoveredEdgeRef.current = null;
-        onUp();
+        // Don't cancel active drag; clear only pending candidate
+        if (!dragRef.current) pending.node = null;
       };
 
       canvas.addEventListener("mousemove", onMove);
       canvas.addEventListener("mousedown", onDown);
       canvas.addEventListener("click",     onClick);
-      canvas.addEventListener("mouseup",   onUp);
       canvas.addEventListener("mouseleave", onLeave);
+      // mouseup on document so releasing outside the canvas always fires
+      document.addEventListener("mouseup", onUp);
       return () => {
         canvas.removeEventListener("mousemove", onMove);
         canvas.removeEventListener("mousedown", onDown);
         canvas.removeEventListener("click",     onClick);
-        canvas.removeEventListener("mouseup",   onUp);
         canvas.removeEventListener("mouseleave", onLeave);
+        document.removeEventListener("mouseup", onUp);
       };
     }, [onNodeClick, onEdgeClick, onCanvasClick]);
+
 
     // ── Imperative API for parent to add/remove nodes & edges ─────────────
     useImperativeHandle(ref, () => ({
