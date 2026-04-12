@@ -33,6 +33,17 @@ from nips.session import (
 logger = logging.getLogger(__name__)
 
 
+def _reward_for_severity(severity: str) -> int:
+    severity_key = severity.lower().strip()
+    if severity_key == "critical":
+        return 500
+    if severity_key == "high":
+        return 300
+    if severity_key == "medium":
+        return 200
+    return 100
+
+
 def register_nips_events(sio: Any) -> None:
     """Register all NIPS Socket.IO event handlers on *sio*."""
 
@@ -134,7 +145,17 @@ def register_nips_events(sio: Any) -> None:
                         if k in EvidenceUpdate.model_fields
                     })
                     add_evidence(session, eu)
-                    await sio.emit("nips_evidence_update", event, to=sid)
+                    reward = _reward_for_severity(eu.severity)
+                    session.funds += reward
+                    await sio.emit(
+                        "nips_evidence_update",
+                        {
+                            **event,
+                            "reward_credits": reward,
+                            "funds": session.funds,
+                        },
+                        to=sid,
+                    )
 
                 elif event_type == "done":
                     full_answer = event.get("full_answer", "")
