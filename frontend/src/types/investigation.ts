@@ -229,7 +229,7 @@ export interface EchoHypothesis {
 // User Board types
 // ---------------------------------------------------------------------------
 
-export type BoardNodeType = "system" | "unknown" | "outcome" | "hypothesis";
+export type BoardNodeType = "system" | "unknown" | "outcome" | "hypothesis" | "evidence";
 export type BoardNodeStatus = "normal" | "suspicious" | "confirmed" | "contradicted" | "isolated";
 export type BoardEdgeStatus = "unknown" | "suspected" | "confirmed" | "contradicted" | "isolated";
 export type HypothesisStatus = "open" | "supported" | "challenged" | "inconclusive";

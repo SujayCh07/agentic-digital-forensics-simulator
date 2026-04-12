@@ -29,8 +29,8 @@ LOGIS = AgentArchetype(
         "propose_next_best_action",
     ],
     personality_defaults={
-        "personality_type": "Methodical",
-        "communication_style": "Precise, detail-oriented, structured reports",
+        "personality_type": "Sharp",
+        "communication_style": "Fast, clear, and skips the jargon",
     },
     strong_areas=[
         "authentication anomaly detection",
@@ -84,8 +84,8 @@ NEXUS = AgentArchetype(
         "propose_next_best_action",
     ],
     personality_defaults={
-        "personality_type": "Strategic",
-        "communication_style": "Direct, map-oriented, connection-focused",
+        "personality_type": "Swift",
+        "communication_style": "Direct, focuses on the connections",
     },
     strong_areas=[
         "lateral movement detection",
@@ -139,8 +139,8 @@ FILER = AgentArchetype(
         "propose_next_best_action",
     ],
     personality_defaults={
-        "personality_type": "Meticulous",
-        "communication_style": "Thorough, evidence-cataloguing, detail-rich",
+        "personality_type": "Keen",
+        "communication_style": "Straightforward evidence handler",
     },
     strong_areas=[
         "deleted file recovery",
@@ -194,8 +194,8 @@ CHRONO = AgentArchetype(
         "propose_next_best_action",
     ],
     personality_defaults={
-        "personality_type": "Reflective",
-        "communication_style": "Narrative, big-picture, cause-and-effect focused",
+        "personality_type": "Insightful",
+        "communication_style": "Focuses on the story and the timing",
     },
     strong_areas=[
         "event sequence reconstruction",

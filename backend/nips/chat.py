@@ -1,7 +1,7 @@
-"""Gemini-backed chat orchestration for NIPS agents.
+"""OpenAI-backed chat orchestration for NIPS agents.
 
 Yields typed event dicts that the Socket.IO router forwards to the client:
-  - thought_chunk   : ephemeral reasoning text
+  - thought_chunk   : ephemeral reasoning text (emulated or empty for OpenAI)
   - tool_call_start : tool invocation began
   - tool_call_result: tool finished (with scored output preview)
   - assistant_chunk : final-answer text fragment
@@ -15,12 +15,12 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+import json
 from typing import Any, AsyncIterator
 
-from google import genai
-from google.genai import types as genai_types
+from openai import AsyncOpenAI
 
-from config import GEMINI_API_KEY, NIPS_MODEL_NAME
+from config import OPENAI_API_KEY, NIPS_MODEL_NAME
 from nips.archetypes import ARCHETYPES
 from nips.models import AgentInstance, ChatMessage, EvidenceUpdate
 from nips.prompts import build_system_prompt
@@ -30,96 +30,72 @@ from nips.tools import TOOL_DECLARATION_MAP, TOOL_EXECUTORS
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Gemini client (lazy singleton)
+# OpenAI client (lazy singleton)
 # ---------------------------------------------------------------------------
 
-_client: genai.Client | None = None
+_client: AsyncOpenAI | None = None
 
 
-def _get_client() -> genai.Client:
+def _get_client() -> AsyncOpenAI:
     global _client
     if _client is None:
-        key = GEMINI_API_KEY
+        key = OPENAI_API_KEY
         if not key:
             raise RuntimeError(
-                "GEMINI_API_KEY is not set. "
-                "Get a key at https://aistudio.google.com/apikey"
+                "OPENAI_API_KEY is not set. "
+                "Update your .env file."
             )
-        _client = genai.Client(api_key=key)
+        _client = AsyncOpenAI(api_key=key)
     return _client
 
 
 # ---------------------------------------------------------------------------
-# Build Gemini tool declarations from archetype
+# Build OpenAI tool declarations from archetype
 # ---------------------------------------------------------------------------
 
 
-def _build_tool_declarations(agent: AgentInstance) -> list[genai_types.Tool]:
-    """Return a list of google-genai Tool objects for the agent's archetype."""
+def _build_openai_tools(agent: AgentInstance) -> list[dict[str, Any]]:
+    """Return a list of OpenAI tool dictionaries for the agent's archetype."""
     archetype = ARCHETYPES[agent.archetype]
-    func_decls = []
+    tools = []
     for tool_name in archetype.allowed_tools:
         decl = TOOL_DECLARATION_MAP.get(tool_name)
         if not decl:
             continue
-        props = decl.get("parameters", {}).get("properties", {})
-        required = decl.get("parameters", {}).get("required", [])
+        
+        # Simplify schema for OpenAI format
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": decl["name"],
+                "description": decl["description"],
+                "parameters": decl["parameters"],
+            }
+        })
 
-        schema_props: dict[str, Any] = {}
-        for pname, pdef in props.items():
-            prop_schema: dict[str, Any] = {"type": pdef["type"].upper()}
-            if "description" in pdef:
-                prop_schema["description"] = pdef["description"]
-            if "enum" in pdef:
-                prop_schema["enum"] = pdef["enum"]
-            schema_props[pname] = prop_schema
-
-        func_decls.append(genai_types.FunctionDeclaration(
-            name=decl["name"],
-            description=decl["description"],
-            parameters=genai_types.Schema(
-                type="OBJECT",
-                properties={
-                    k: genai_types.Schema(**v)
-                    for k, v in schema_props.items()
-                },
-                required=required,
-            ) if schema_props else None,
-        ))
-
-    if not func_decls:
-        return []
-    return [genai_types.Tool(function_declarations=func_decls)]
+    return tools
 
 
 # ---------------------------------------------------------------------------
-# Convert chat history → Gemini contents
+# Convert chat history → OpenAI messages
 # ---------------------------------------------------------------------------
 
 
-def _history_to_contents(messages: list[ChatMessage]) -> list[genai_types.Content]:
-    """Convert stored chat messages to Gemini Content objects."""
-    contents: list[genai_types.Content] = []
+def _history_to_messages(messages: list[ChatMessage]) -> list[dict[str, Any]]:
+    """Convert stored chat messages to OpenAI message objects."""
+    openai_msgs: list[dict[str, Any]] = []
     for msg in messages:
         if msg.role == "user":
-            contents.append(genai_types.Content(
-                role="user",
-                parts=[genai_types.Part.from_text(text=msg.content)],
-            ))
+            openai_msgs.append({"role": "user", "content": msg.content})
         elif msg.role == "assistant":
-            contents.append(genai_types.Content(
-                role="model",
-                parts=[genai_types.Part.from_text(text=msg.content)],
-            ))
+            openai_msgs.append({"role": "assistant", "content": msg.content})
         elif msg.role == "tool" and msg.tool_name:
-            contents.append(genai_types.Content(
-                role="user",
-                parts=[genai_types.Part.from_function_response(
-                    name=msg.tool_name,
-                    response={"result": msg.content},
-                )],
-            ))
-    return contents
+            openai_msgs.append({
+                "role": "tool",
+                "tool_call_id": msg.tool_call_id or f"call_{uuid.uuid4().hex[:12]}",
+                "content": msg.content,
+            })
+    return openai_msgs
 
 
 # ---------------------------------------------------------------------------
@@ -139,11 +115,7 @@ async def stream_agent_chat(
     funds: int = 0,
     pressure: float = 0.0,
 ) -> AsyncIterator[dict[str, Any]]:
-    """Stream a Gemini chat turn, yielding typed event dicts.
-
-    The caller (Socket.IO router) should forward each yielded dict as a
-    separate Socket.IO event.
-    """
+    """Stream an OpenAI chat turn, yielding typed event dicts."""
     client = _get_client()
     archetype = ARCHETYPES[agent.archetype]
 
@@ -158,78 +130,56 @@ async def stream_agent_chat(
         allowed_tool_names=archetype.allowed_tools,
     )
 
-    tools = _build_tool_declarations(agent)
+    tools = _build_openai_tools(agent)
 
-    contents = _history_to_contents(history or [])
-    contents.append(genai_types.Content(
-        role="user",
-        parts=[genai_types.Part.from_text(text=user_message)],
-    ))
-
-    config = genai_types.GenerateContentConfig(
-        system_instruction=system_prompt,
-        tools=tools or None,
-        thinking_config=genai_types.ThinkingConfig(
-            include_thoughts=True,
-        ),
-        temperature=0.8,
-        max_output_tokens=2048,
-    )
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend(_history_to_messages(history or []))
+    messages.append({"role": "user", "content": user_message})
 
     full_answer = ""
-    thought_buffer = ""
     evidence_updates: list[dict[str, Any]] = []
     tool_round = 0
     max_tool_rounds = 5
 
     try:
         while True:
-            response = client.models.generate_content_stream(
+            response = await client.chat.completions.create(
                 model=NIPS_MODEL_NAME,
-                contents=contents,
-                config=config,
+                messages=messages,
+                tools=tools if tools else None,
+                stream=True,
+                temperature=0.8,
             )
 
-            pending_tool_calls: list[dict[str, Any]] = []
+            current_tool_calls: dict[int, dict[str, Any]] = {}
+            assistant_content = ""
 
-            for chunk in response:
-                if not chunk.candidates:
-                    continue
-                candidate = chunk.candidates[0]
-                if not candidate.content or not candidate.content.parts:
-                    continue
+            async for chunk in response:
+                delta = chunk.choices[0].delta
+                
+                # Handle text streaming
+                if delta.content:
+                    text = delta.content
+                    assistant_content += text
+                    full_answer += text
+                    yield {"type": "assistant_chunk", "text": text}
 
-                for part in candidate.content.parts:
-                    if hasattr(part, "thought") and part.thought:
-                        text = part.text or ""
-                        if text:
-                            thought_buffer += text
-                            yield {"type": "thought_chunk", "text": text}
-                        continue
+                # Handle tool call streaming
+                if delta.tool_calls:
+                    for tc_delta in delta.tool_calls:
+                        index = tc_delta.index
+                        if index not in current_tool_calls:
+                            current_tool_calls[index] = {
+                                "id": tc_delta.id,
+                                "name": tc_delta.function.name,
+                                "arguments": ""
+                            }
+                        
+                        if tc_delta.function.arguments:
+                            current_tool_calls[index]["arguments"] += tc_delta.function.arguments
 
-                    if part.function_call:
-                        fc = part.function_call
-                        tool_name = fc.name
-                        tool_args = dict(fc.args) if fc.args else {}
-
-                        yield {
-                            "type": "tool_call_start",
-                            "tool": tool_name,
-                            "args": tool_args,
-                        }
-
-                        pending_tool_calls.append({
-                            "name": tool_name,
-                            "args": tool_args,
-                        })
-                        continue
-
-                    text = part.text or ""
-                    if text:
-                        full_answer += text
-                        yield {"type": "assistant_chunk", "text": text}
-
-            if not pending_tool_calls:
+            # If no tool calls, we are done with this turn
+            if not current_tool_calls:
                 break
 
             tool_round += 1
@@ -237,38 +187,63 @@ async def stream_agent_chat(
                 yield {"type": "assistant_chunk", "text": "\n\n[Maximum tool rounds reached]"}
                 break
 
-            model_parts: list[genai_types.Part] = []
-            for tc in pending_tool_calls:
-                model_parts.append(genai_types.Part.from_function_call(
-                    name=tc["name"],
-                    args=tc["args"],
-                ))
-            contents.append(genai_types.Content(role="model", parts=model_parts))
+            # Add assistant message with tool calls to history
+            assistant_msg = {
+                "role": "assistant",
+                "content": assistant_content or None,
+                "tool_calls": [
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": tc["arguments"]
+                        }
+                    }
+                    for tc in current_tool_calls.values()
+                ]
+            }
+            messages.append(assistant_msg)
 
-            tool_response_parts: list[genai_types.Part] = []
-            for tc in pending_tool_calls:
-                executor = TOOL_EXECUTORS.get(tc["name"])
+            # Execute tool calls
+            for tc in current_tool_calls.values():
+                tool_name = tc["name"]
+                tool_id = tc["id"]
+                
+                try:
+                    tool_args = json.loads(tc["arguments"])
+                except Exception:
+                    tool_args = {}
+
+                yield {
+                    "type": "tool_call_start",
+                    "tool": tool_name,
+                    "args": tool_args,
+                }
+
+                executor = TOOL_EXECUTORS.get(tool_name)
                 if not executor:
-                    result_text = f"Tool '{tc['name']}' not available."
+                    result_text = f"Tool '{tool_name}' not available."
                 else:
                     evidence_dicts = [e.model_dump() for e in (known_evidence or [])]
                     for eu in evidence_updates:
                         evidence_dicts.append(eu)
 
-                    kwargs = dict(tc["args"])
+                    kwargs = dict(tool_args)
                     kwargs["evidence"] = evidence_dicts
                     result_text = await executor(**kwargs)
 
                 scored: ScoredOutcome = score_tool_execution(
                     agent,
-                    tc["name"],
+                    tool_name,
                     result_text,
                     pressure=pressure,
                 )
 
                 yield {
                     "type": "tool_call_result",
-                    "tool": tc["name"],
+                    "tool": tool_name,
+                    "tool_call_id": tool_id,
                     "preview": result_text[:300],
                     "yield": scored.evidence_yield,
                     "quality": scored.quality,
@@ -279,7 +254,7 @@ async def stream_agent_chat(
 
                 if scored.evidence_yield > 0.3:
                     eu = {
-                        "node_id": tc["args"].get("node_id", "unknown"),
+                        "node_id": tool_args.get("node_id", "unknown"),
                         "summary": result_text[:200],
                         "details": result_text,
                         "severity": scored.severity,
@@ -293,14 +268,13 @@ async def stream_agent_chat(
                     evidence_updates.append(eu)
                     yield {"type": "evidence_update", **eu}
 
-                tool_response_parts.append(
-                    genai_types.Part.from_function_response(
-                        name=tc["name"],
-                        response={"result": result_text},
-                    )
-                )
-
-            contents.append(genai_types.Content(role="user", parts=tool_response_parts))
+                # Add tool response to history
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_id,
+                    "name": tool_name,
+                    "content": result_text
+                })
 
         yield {
             "type": "done",

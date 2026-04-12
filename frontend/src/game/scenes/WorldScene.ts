@@ -187,6 +187,7 @@ export class WorldScene extends Phaser.Scene {
     }
 
     this.npcManager?.refreshActiveBubblePositions();
+    this.npcManager?.updateAllPositions();
 
     // Camera spring bounce for citypack
     if (selectedMap === "citypack") {

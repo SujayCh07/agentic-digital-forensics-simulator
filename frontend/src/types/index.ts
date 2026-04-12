@@ -48,6 +48,8 @@ export interface NPCState {
   reputation?: number;
   x: number;
   y: number;
+  worldX: number;
+  worldY: number;
   direction: "up" | "down" | "left" | "right";
   state: "idle" | "walking" | "protesting";
   message?: string;

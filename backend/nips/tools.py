@@ -1,7 +1,7 @@
-"""NIPS investigation tools — Gemini function declarations + Python execution.
+"""NIPS investigation tools — OpenAI tool definitions + Python execution.
 
 Each tool has:
-1. A ``declaration`` dict suitable for ``google.genai.types.FunctionDeclaration``
+1. A ``declaration`` dict suitable for OpenAI tool definitions
 2. An ``execute`` async function that takes scored context and returns raw text
 """
 
