@@ -1,5 +1,6 @@
 "use client";
 
+import type { MouseEvent } from "react";
 import { getPrimaryCase } from "@/data/sectorCases";
 import { audioManager } from "@/lib/audioManager";
 import type { SectorId } from "@/types/investigation";
@@ -69,13 +70,29 @@ export function CaseModal({
     onClose();
   }
 
+  function handleCloseClick(
+    event:
+      | MouseEvent<HTMLButtonElement>
+      | MouseEvent<HTMLDivElement>,
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    handleClose();
+  }
+
+  function handleStartClick(event: MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    handleStart();
+  }
+
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: backdrop dismiss is supplemental to close button
     // biome-ignore lint/a11y/noStaticElementInteractions: intentional backdrop
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
       style={{ background: "rgba(0,0,0,0.72)" }}
-      onClick={handleClose}
+      onClick={handleCloseClick}
     >
       {/* biome-ignore lint/a11y/noStaticElementInteractions: stop propagation only */}
       {/* biome-ignore lint/a11y/useKeyWithClickEvents: intentional */}
@@ -86,6 +103,7 @@ export function CaseModal({
           borderColor: accentColor,
           boxShadow: `0 0 32px ${accentColor}33`,
         }}
+        onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -109,7 +127,8 @@ export function CaseModal({
           </div>
           <button
             type="button"
-            onClick={handleClose}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={handleCloseClick}
             className="text-slate-400 hover:text-white text-xl leading-none ml-4 flex-shrink-0"
           >
             ×
@@ -211,14 +230,16 @@ export function CaseModal({
         >
           <button
             type="button"
-            onClick={handleClose}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={handleCloseClick}
             className="px-4 py-1.5 text-sm font-mono text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 rounded transition-colors"
           >
             CANCEL
           </button>
           <button
             type="button"
-            onClick={handleStart}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={handleStartClick}
             className="px-5 py-1.5 text-sm font-mono font-bold rounded transition-all"
             style={{
               background: accentColor,

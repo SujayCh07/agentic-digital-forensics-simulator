@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import {
-  CYBER_CITY_LINKS,
+  PRIMARY_CYBER_CITY_SECTOR_SEEDS,
+  computeSectorThreatStatuses,
   DOMAIN_LABEL_BY_SECTOR,
 } from "@/data/cyberCitySectors";
 import { getPrimaryCase } from "@/data/sectorCases";
@@ -10,27 +11,11 @@ import { audioManager } from "@/lib/audioManager";
 import type { SectorId } from "@/types/investigation";
 import { SECTOR_COLORS } from "@/types/sectors";
 
-interface SectorStatus {
-  sectorId: SectorId;
-  threat: number; // 0–100
-}
-
 interface SectorStatusPanelProps {
   activeSectorId: SectorId | null;
   pressureLevel: number; // 0–10 from investigation hook
   onSectorClick: (sectorId: SectorId) => void;
 }
-
-const SECTOR_SEED: Record<SectorId, number> = {
-  "EDU-01": 0.17,
-  "MED-02": 0.43,
-  "FIN-03": 0.61,
-  "NET-04": 0.29,
-  "AUTH-05": 0.72,
-  "PWR-06": 0.38,
-  "CLOUD-07": 0.54,
-  "CIV-08": 0.11,
-};
 
 /** Short status blurbs shown in the hover tooltip, keyed by threat tier */
 const THREAT_BLURBS: Record<
@@ -38,113 +23,54 @@ const THREAT_BLURBS: Record<
   { secure: string; suspicious: string; alert: string; breached: string }
 > = {
   "EDU-01": {
-    secure: "All research systems nominal. No anomalous traffic detected.",
-    suspicious: "Unusual late-night access patterns on faculty VPN endpoints.",
-    alert:
-      "Outbound data spikes from the AI research cluster. CI pipeline flagged.",
-    breached:
-      "Unauthorized commit deployed. Build runner phoning home to external C2.",
-  },
-  "NET-04": {
-    secure: "ISP backbone routing cleanly. No packet anomalies.",
-    suspicious: "Minor BGP route fluctuations on upstream peers.",
-    alert:
-      "Abnormal traffic volumes on core switching fabric. Spoofed packets detected.",
-    breached:
-      "DNS poisoning confirmed. Backbone redirecting traffic to rogue endpoints.",
+    secure: "Research lab sensors are quiet. Build runners and glass-lab terminals are stable.",
+    suspicious: "Late-night lab access and unusual package pulls are showing up inside the research wing.",
+    alert: "The glass-lab build stack is leaking artifacts toward the security perimeter.",
+    breached: "Research workstations inside the glass lab are staging code and model data for theft.",
   },
   "AUTH-05": {
-    secure:
-      "Identity gateway fully operational. MFA enforced across all users.",
-    suspicious: "Elevated failed login attempts from off-campus IPs.",
-    alert:
-      "Credential stuffing underway. Multiple accounts temporarily suspended.",
-    breached:
-      "Admin tokens exfiltrated. Threat actor has lateral movement capability.",
+    secure: "Badge readers, identity brokers, and gate access are enforcing cleanly.",
+    suspicious: "Access failures are rising at the security bastion with unusual token reuse patterns.",
+    alert: "Credential replay is hitting the fortress gateway and forcing emergency policy checks.",
+    breached: "Security gateway trust has been broken. Admin credentials can move laterally across districts.",
   },
   "FIN-03": {
-    secure: "Core banking systems stable. All transactions validated.",
-    suspicious: "High-frequency micro-transactions flagged by fraud detection.",
-    alert:
-      "SWIFT bridge logs show unauthorized query patterns. Audit mode enabled.",
-    breached:
-      "Ransomware payload executing. Financial records being encrypted.",
-  },
-  "PWR-06": {
-    secure: "Grid control systems nominal. All substations responding.",
-    suspicious:
-      "HMI interface accessed from unrecognised maintenance terminal.",
-    alert: "SCADA commands being replayed from spoofed controller address.",
-    breached: "Cascading shutdowns initiated by malicious PLC instruction set.",
+    secure: "Finance tower transaction lanes are validating cleanly.",
+    suspicious: "Settlement queries and ledger reads are drifting above baseline inside the tower core.",
+    alert: "The neon tower is servicing unauthorized treasury queries and off-hours bulk exports.",
+    breached: "Transaction systems in the finance tower are compromised and preparing destructive actions.",
   },
   "CIV-08": {
-    secure: "Transit and civic operations running on schedule.",
-    suspicious:
-      "Civic database returning unexpected NULL fields on audit queries.",
-    alert: "Emergency dispatch routing compromised. Calls being redirected.",
-    breached:
-      "Mission control uplink severed. Manual override protocols engaged.",
-  },
-  "CLOUD-07": {
-    secure: "Cloud archive fully replicated. All backups verified.",
-    suspicious: "Storage bucket ACL drift detected on three archive nodes.",
-    alert:
-      "Large-scale data reads on cold storage. Exfiltration risk elevated.",
-    breached:
-      "Backup encryption keys exposed. Archive integrity cannot be guaranteed.",
+    secure: "Transit and civic orchestration queues are flowing normally through the central hub.",
+    suspicious: "Civic routing jobs are stalling and transit control messages are arriving out of order.",
+    alert: "The civic hub is misrouting approvals and dispatch traffic across the lower district.",
+    breached: "Core civic and transit processes are compromised inside the lower central hub.",
   },
   "MED-02": {
-    secure: "Patient systems and diagnostics operating normally.",
-    suspicious: "After-hours access to diagnostics DB from staff credentials.",
-    alert:
-      "Alert queue flooded with synthetic alarms masking privilege escalation.",
-    breached:
-      "Patient monitoring feeds compromised. Real alerts being suppressed.",
+    secure: "Clinical monitoring and diagnostics remain stable inside the medical block.",
+    suspicious: "After-hours access is appearing in diagnostics consoles and patient relay panels.",
+    alert: "Synthetic alarms are masking real events throughout the medical sector.",
+    breached: "Medical monitoring and diagnostics have been compromised across the hospital footprint.",
+  },
+  "PWR-06": {
+    secure: "Cooling towers and compute racks are balanced. Power draw is nominal.",
+    suspicious: "Cooling telemetry and compute hall loads are diverging in the shared infra yard.",
+    alert: "The power-plant/data-core zone is showing malicious process activity across servers and controls.",
+    breached: "Compute and plant control systems are compromised across the shared infrastructure block.",
+  },
+  "CLOUD-07": {
+    secure: "Telemetry dishes, uplink relays, and launch systems are synchronized.",
+    suspicious: "Launch telemetry and external relay packets are drifting at the comms square.",
+    alert: "The comms relay is forwarding anomalous uplink data toward the launch pad systems.",
+    breached: "Rocket square communications are compromised and leaking external telemetry.",
+  },
+  "NET-04": {
+    secure: "Peripheral habitat traffic remains low and non-operational.",
+    suspicious: "Minor utility chatter detected in the inactive top-right block.",
+    alert: "Unexpected relay activity spotted in the inactive perimeter block.",
+    breached: "Inactive top-right structures are being used as a staging relay.",
   },
 };
-
-const SECTOR_ORDER: SectorId[] = [
-  "EDU-01",
-  "NET-04",
-  "AUTH-05",
-  "FIN-03",
-  "PWR-06",
-  "CIV-08",
-  "CLOUD-07",
-  "MED-02",
-];
-
-function computeThreats(
-  activeSectorId: SectorId | null,
-  pressureLevel: number,
-): SectorStatus[] {
-  const suspiciousNeighbors = new Set<SectorId>();
-  if (activeSectorId) {
-    for (const link of CYBER_CITY_LINKS) {
-      if (!link.suspicious) continue;
-      if (link.sourceId === activeSectorId)
-        suspiciousNeighbors.add(link.targetId);
-      if (link.targetId === activeSectorId)
-        suspiciousNeighbors.add(link.sourceId);
-    }
-  }
-
-  return SECTOR_ORDER.map((sectorId) => {
-    const seed = SECTOR_SEED[sectorId] ?? 0.5;
-    const p = Math.min(pressureLevel / 10, 1);
-
-    let threat: number;
-    if (sectorId === activeSectorId) {
-      threat = 70 + p * 25;
-    } else if (suspiciousNeighbors.has(sectorId)) {
-      threat = 30 + seed * 15 + p * 20;
-    } else {
-      threat = 3 + seed * 12 + p * 15;
-    }
-
-    return { sectorId, threat: Math.min(Math.round(threat), 100) };
-  });
-}
 
 function threatTier(
   threat: number,
@@ -204,8 +130,8 @@ function HoverTooltip({ sectorId, threat, isActive }: HoverTooltipProps) {
   const fill = barColor(threat, color);
 
   // Use case title if sector has an active investigation
-  const caseData = isActive ? getPrimaryCase(sectorId) : null;
-  const title = caseData ? caseData.title : status.text;
+  const caseData = getPrimaryCase(sectorId);
+  const title = caseData?.title ?? status.text;
 
   return (
     <div
@@ -302,7 +228,7 @@ export function SectorStatusPanel({
   pressureLevel,
   onSectorClick,
 }: SectorStatusPanelProps) {
-  const statuses = computeThreats(activeSectorId, pressureLevel);
+  const statuses = computeSectorThreatStatuses(activeSectorId, pressureLevel);
   const [hoveredSector, setHoveredSector] = useState<SectorId | null>(null);
 
   return (
@@ -319,7 +245,7 @@ export function SectorStatusPanel({
           className="text-[10px] font-mono uppercase tracking-[0.16em]"
           style={{ color: "#00d4ff" }}
         >
-          Sector Integrity
+          Mapped Systems
         </h2>
         <p
           className="mt-1 text-[9px] font-mono leading-4"
@@ -336,6 +262,8 @@ export function SectorStatusPanel({
           const isActive = sectorId === activeSectorId;
           const isHovered = sectorId === hoveredSector;
           const status = statusLabel(threat);
+          const seed = PRIMARY_CYBER_CITY_SECTOR_SEEDS.find((entry) => entry.id === sectorId);
+          if (!seed) return null;
 
           return (
             <div key={sectorId} className="relative">
@@ -404,6 +332,13 @@ export function SectorStatusPanel({
                   className="text-[8px] font-mono mb-2 truncate"
                   style={{ color: "#4a6580" }}
                 >
+                  {seed.locationName}
+                </div>
+
+                <div
+                  className="text-[8px] font-mono mb-2 truncate"
+                  style={{ color: "#2a5070" }}
+                >
                   {DOMAIN_LABEL_BY_SECTOR[sectorId]}
                 </div>
 
@@ -464,6 +399,12 @@ export function SectorStatusPanel({
                     : "#34d399",
             }}
           />
+        </div>
+        <div
+          className="mt-2 text-[8px] font-mono leading-4"
+          style={{ color: "#2a5070" }}
+        >
+          Top-right habitat block is intentionally inactive and excluded from major-system routing.
         </div>
       </div>
     </div>

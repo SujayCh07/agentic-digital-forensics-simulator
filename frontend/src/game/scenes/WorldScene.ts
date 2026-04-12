@@ -1,5 +1,8 @@
 import * as Phaser from "phaser";
-import { CYBER_CITY_SECTOR_SEEDS } from "@/data/cyberCitySectors";
+import {
+  CYBER_CITY_SECTOR_SEEDS,
+  PRIMARY_CYBER_CITY_SECTOR_SEEDS,
+} from "@/data/cyberCitySectors";
 import type { BuildingPositions } from "@/types";
 import type { SectorId } from "@/types/investigation";
 import { eventBridge } from "../bridge/EventBridge";
@@ -280,7 +283,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private setupLandmarkZones() {
-    for (const seed of CYBER_CITY_SECTOR_SEEDS) {
+    for (const seed of PRIMARY_CYBER_CITY_SECTOR_SEEDS) {
       // Use full sector bounds as the click zone
       const bx = seed.bounds.x * TILE_SIZE;
       const by = seed.bounds.y * TILE_SIZE;
@@ -316,8 +319,14 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
-  private onCaseActivate(data: { sectorId: string }) {
-    this.sectorOverlay?.activateCase(data.sectorId as SectorId);
+  private onCaseActivate(data: {
+    sectorId: string;
+    tone?: "healthy" | "suspicious" | "compromised" | "isolated";
+  }) {
+    this.sectorOverlay?.activateCase(
+      data.sectorId as SectorId,
+      data.tone ?? "healthy",
+    );
   }
 
   private onCaseDeactivate() {

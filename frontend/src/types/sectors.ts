@@ -77,12 +77,12 @@ export const SECTOR_COLORS_HEX: Record<SectorId, number> = {
 };
 
 export const SECTOR_NAMES: Record<SectorId, string> = {
-  "EDU-01": "Lunar Research University",
-  "MED-02": "Lunar Medical Center",
-  "FIN-03": "Lunar Financial Tower",
-  "NET-04": "Telecom Signal Tower",
-  "AUTH-05": "Cybersecurity Gateway",
-  "PWR-06": "Grid Control Station",
-  "CLOUD-07": "Lunar Data Center",
-  "CIV-08": "Artemis II Mission Control",
+  "EDU-01": "Research Glass Labs",
+  "MED-02": "Medical Sector Block",
+  "FIN-03": "Neon Finance Tower",
+  "NET-04": "Peripheral Hab Block",
+  "AUTH-05": "Security Bastion",
+  "PWR-06": "Data Core + Power Plant",
+  "CLOUD-07": "Comms Relay + Rocket Square",
+  "CIV-08": "Civic Transit Hub",
 };

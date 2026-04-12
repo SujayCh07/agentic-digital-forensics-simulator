@@ -103,3 +103,43 @@ export function findPath(
 
   return null;
 }
+
+/**
+ * Collapse a tile-by-tile path into segment endpoints so callers can tween
+ * along straight road runs instead of visibly stepping every tile.
+ */
+export function compressPath(path: PathNode[]): PathNode[] {
+  if (path.length <= 1) return path;
+
+  const waypoints: PathNode[] = [];
+  let segmentStart = path[0];
+  let prev = path[0];
+  let prevDelta = {
+    dc: path[0].col,
+    dr: path[0].row,
+  };
+
+  for (let i = 1; i < path.length; i++) {
+    const current = path[i];
+    const delta = {
+      dc: current.col - prev.col,
+      dr: current.row - prev.row,
+    };
+
+    if (i === 1) {
+      prevDelta = {
+        dc: current.col - segmentStart.col,
+        dr: current.row - segmentStart.row,
+      };
+    } else if (delta.dc !== prevDelta.dc || delta.dr !== prevDelta.dr) {
+      waypoints.push(prev);
+      segmentStart = prev;
+      prevDelta = delta;
+    }
+
+    prev = current;
+  }
+
+  waypoints.push(path[path.length - 1]);
+  return waypoints;
+}

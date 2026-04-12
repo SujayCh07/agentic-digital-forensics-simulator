@@ -62,7 +62,6 @@ export function PauseOverlay({
             className="mt-3 text-[14px] leading-7"
             style={{ color: "#8aa3be" }}
           >
-            Investigation controls are suspended. Resume the case, restart this run, or return to the EchoLocate console.
           </div>
 
           <div className="mt-6 grid gap-3">

@@ -141,8 +141,11 @@ class EventBridge {
   }
 
   // React → Phaser: a case was started — highlight this sector
-  emitCaseActivate(sectorId: string) {
-    this.emit("sim:case-activate", { sectorId });
+  emitCaseActivate(
+    sectorId: string,
+    tone?: "healthy" | "suspicious" | "compromised" | "isolated",
+  ) {
+    this.emit("sim:case-activate", { sectorId, tone });
   }
 
   // React → Phaser: case closed/solved

@@ -16,7 +16,11 @@ import { SectorStatusPanel } from "@/components/SectorStatusPanel";
 import { NPCInteractionModal } from "@/components/NPCInteractionModal";
 import { PauseOverlay } from "@/components/PauseOverlay";
 import { UserBoard } from "@/components/UserBoard/UserBoard";
-import { CYBER_CITY_SECTOR_SEEDS, DOMAIN_LABEL_BY_SECTOR } from "@/data/cyberCitySectors";
+import {
+  CYBER_CITY_SECTOR_SEEDS,
+  DOMAIN_LABEL_BY_SECTOR,
+  computeSectorThreatStatuses,
+} from "@/data/cyberCitySectors";
 import { CASE_AGENTS_NPCS } from "@/data/case_midnight_exfil";
 
 import { useInvestigation } from "@/hooks/useInvestigation";
@@ -382,6 +386,7 @@ function InvestigateGame({
   const [npcPositions, setNpcPositions] = useState<Record<string, NPCState>>({});
   const [caseModalSector, setCaseModalSector] = useState<SectorId | null>(null);
   const [activeSectorId, setActiveSectorId] = useState<SectorId | null>(null);
+  const sectorSelectionCooldownUntilRef = useRef(0);
 
   const agentState = useMemo(
     () =>
@@ -545,6 +550,31 @@ function InvestigateGame({
     requestNipsMarketplaceRefresh();
   }, []);
 
+  const currentTimestamp = useCallback(
+    () => globalThis.performance?.now?.() ?? Date.now(),
+    [],
+  );
+
+  const suppressSectorSelection = useCallback((durationMs = 220) => {
+    sectorSelectionCooldownUntilRef.current = currentTimestamp() + durationMs;
+  }, [currentTimestamp]);
+
+  const canOpenSectorSelection = useCallback(
+    () => currentTimestamp() >= sectorSelectionCooldownUntilRef.current,
+    [currentTimestamp],
+  );
+
+  const openSectorSelection = useCallback((sectorId: SectorId) => {
+    if (!canOpenSectorSelection()) return;
+    audioManager.playButtonClick();
+    setCaseModalSector(sectorId);
+  }, [canOpenSectorSelection]);
+
+  const closeSectorSelection = useCallback(() => {
+    suppressSectorSelection();
+    setCaseModalSector(null);
+  }, [suppressSectorSelection]);
+
   const showBoard = activeOverlay === "board";
   const showMarketplace = activeOverlay === "market";
 
@@ -615,29 +645,40 @@ function InvestigateGame({
     let cleanup: (() => void) | undefined;
     import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
       const handler = (data: { sectorId: string }) => {
-        audioManager.playButtonClick();
-        setCaseModalSector(data.sectorId as SectorId);
+        openSectorSelection(data.sectorId as SectorId);
       };
       eventBridge.on("sim:landmark-click", handler);
       cleanup = () => eventBridge.off("sim:landmark-click", handler);
     });
     return () => cleanup?.();
-  }, []);
+  }, [openSectorSelection]);
 
   const handleStartInvestigation = useCallback((sectorCase: SectorCase) => {
     setActiveSectorId(sectorCase.sectorId);
+    suppressSectorSelection(120);
     setCaseModalSector(null);
-    import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
-      eventBridge.emitCaseActivate(sectorCase.sectorId);
-    });
-  }, []);
+  }, [suppressSectorSelection]);
 
   const handleDeactivateCase = useCallback(() => {
     setActiveSectorId(null);
-    import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
-      eventBridge.emitCaseDeactivate();
-    });
   }, []);
+
+  useEffect(() => {
+    const previewSectorId = caseModalSector ?? activeSectorId;
+    const threatStatuses = computeSectorThreatStatuses(activeSectorId, inv.pressureLevel);
+    const tone =
+      (previewSectorId
+        ? threatStatuses.find((entry) => entry.sectorId === previewSectorId)?.tone
+        : undefined) ?? "healthy";
+
+    import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+      if (previewSectorId) {
+        eventBridge.emitCaseActivate(previewSectorId, tone);
+      } else {
+        eventBridge.emitCaseDeactivate();
+      }
+    });
+  }, [caseModalSector, activeSectorId, inv.pressureLevel]);
 
   useEffect(() => {
     const container = canvasContainerRef.current;
@@ -948,10 +989,10 @@ function InvestigateGame({
         {/* Right: Sector integrity panel */}
         <div className="panel-slide-right shrink-0 h-full">
           <SectorStatusPanel
-            activeSectorId={activeSectorId}
+            activeSectorId={caseModalSector ?? activeSectorId}
             pressureLevel={inv.pressureLevel}
             onSectorClick={(sectorId) => {
-              setCaseModalSector(sectorId);
+              openSectorSelection(sectorId);
             }}
           />
         </div>
@@ -1156,7 +1197,7 @@ function InvestigateGame({
         <CaseModal
           sectorId={caseModalSector}
           onStartInvestigation={handleStartInvestigation}
-          onClose={() => setCaseModalSector(null)}
+          onClose={closeSectorSelection}
         />
       )}
     </div>

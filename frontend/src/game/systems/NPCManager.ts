@@ -11,14 +11,14 @@ import { WorldChatBubble } from "../entities/WorldChatBubble";
 import { CAR_TEMPLATES, type CarTemplate } from "../map/CarRegistry";
 import { ALL_CHARACTERS, roleToCharacter } from "../map/NPCCharacterRegistry";
 import {
-  getEdgeSteps,
   getNearestGraphNode,
+  getRoadNode,
   pickNextNode,
   ROAD_GRAPH_NODES,
 } from "../map/RoadGraph";
 import { MovementSystem } from "./MovementSystem";
 import { OccupancyGrid } from "./OccupancyGrid";
-import { findPath } from "./Pathfinder";
+import { compressPath, findPath } from "./Pathfinder";
 
 function roleToZone(role: string): string {
   switch (role) {
@@ -750,8 +750,10 @@ export class NPCManager {
     );
     if (!path || path.length === 0) return;
 
-    for (let i = 0; i < Math.min(maxSteps, path.length); i++) {
-      const next = path[i];
+    const limitedPath = path.slice(0, Math.min(maxSteps, path.length));
+    const waypoints = compressPath(limitedPath);
+
+    for (const next of waypoints) {
       // Re-check occupancy at step time — another NPC may have moved here
       if (this.occupancy.isOccupiedByOther(npc.npcId, next.col, next.row))
         break;
@@ -846,14 +848,13 @@ export class NPCManager {
     prevNodeId?: string,
   ) {
     const nextNodeId = pickNextNode(fromNodeId, prevNodeId);
-    const steps = getEdgeSteps(fromNodeId, nextNodeId);
-    if (steps.length === 0) return;
+    const nextNode = getRoadNode(nextNodeId);
+    if (!nextNode) return;
 
     const walkSteps = async () => {
-      for (const step of steps) {
-        if (!this.npcs.has(entity.npcId)) return;
-        await entity.walkTo(step.col, step.row);
-      }
+      if (!this.npcs.has(entity.npcId)) return;
+      this.occupancy.occupy(entity.npcId, nextNode.col, nextNode.row);
+      await entity.walkTo(nextNode.col, nextNode.row);
       if (!this.npcs.has(entity.npcId)) return;
       const delay = 200 + Math.random() * 600;
       const timer = this.scene.time.delayedCall(delay, () => {

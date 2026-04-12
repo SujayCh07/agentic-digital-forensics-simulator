@@ -12,7 +12,7 @@
  */
 
 import type * as Phaser from "phaser";
-import { CYBER_CITY_SECTOR_SEEDS } from "@/data/cyberCitySectors";
+import { PRIMARY_CYBER_CITY_SECTOR_SEEDS } from "@/data/cyberCitySectors";
 import type { SectorId } from "@/types/investigation";
 import { SECTOR_COLORS_HEX } from "@/types/sectors";
 import { TILE_SIZE } from "../config";
@@ -33,12 +33,20 @@ const HOVER_DEPTH = 3;
 const GLOW_DEPTH = 2; // just above ground, below NPCs (depth 10)
 const HIGHLIGHT_DEPTH = 3;
 
+const STATUS_HIGHLIGHT_HEX = {
+  healthy: 0x22d3ee,
+  suspicious: 0xf59e0b,
+  compromised: 0xff4d4f,
+  isolated: 0x14b8a6,
+};
+
 export class SectorOverlay {
   private scene: Phaser.Scene;
   private markers: Map<SectorId, GlowMarker> = new Map();
   private activeSectorHighlight: SectorHighlight | null = null;
   private hoverHighlight: SectorHighlight | null = null;
   private activeSectorId: SectorId | null = null;
+  private activeTone: keyof typeof STATUS_HIGHLIGHT_HEX | null = null;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -48,7 +56,7 @@ export class SectorOverlay {
   // ── Build static landmark glow indicators ──────────────────────────────────
 
   private buildMarkers() {
-    for (const seed of CYBER_CITY_SECTOR_SEEDS) {
+    for (const seed of PRIMARY_CYBER_CITY_SECTOR_SEEDS) {
       const sectorId = seed.id as SectorId;
       const color = SECTOR_COLORS_HEX[sectorId] ?? 0x00d4ff;
 
@@ -83,18 +91,23 @@ export class SectorOverlay {
 
   // ── Case activation ────────────────────────────────────────────────────────
 
-  activateCase(sectorId: SectorId) {
-    if (this.activeSectorId === sectorId) return;
+  activateCase(
+    sectorId: SectorId,
+    tone: keyof typeof STATUS_HIGHLIGHT_HEX = "healthy",
+  ) {
+    if (this.activeSectorId === sectorId && this.activeTone === tone) return;
     this.activeSectorId = sectorId;
+    this.activeTone = tone;
 
     // Dim all markers, brighten the active one
     for (const [id, marker] of this.markers) {
       marker.pulseTween.stop();
       if (id === sectorId) {
-        marker.rect.setFillStyle(SECTOR_COLORS_HEX[sectorId] ?? 0x00d4ff, 0.28);
+        const activeColor = STATUS_HIGHLIGHT_HEX[tone] ?? (SECTOR_COLORS_HEX[sectorId] ?? 0x00d4ff);
+        marker.rect.setFillStyle(activeColor, 0.2);
         marker.rect.setStrokeStyle(
           2,
-          SECTOR_COLORS_HEX[sectorId] ?? 0x00d4ff,
+          activeColor,
           0.8,
         );
         // Fast pulse for active sector
@@ -114,9 +127,9 @@ export class SectorOverlay {
 
     // Draw sector bounds highlight
     this.clearHighlight();
-    const seed = CYBER_CITY_SECTOR_SEEDS.find((s) => s.id === sectorId);
+    const seed = PRIMARY_CYBER_CITY_SECTOR_SEEDS.find((s) => s.id === sectorId);
     if (seed) {
-      const color = SECTOR_COLORS_HEX[sectorId] ?? 0x00d4ff;
+      const color = STATUS_HIGHLIGHT_HEX[tone] ?? (SECTOR_COLORS_HEX[sectorId] ?? 0x00d4ff);
       const x = seed.bounds.x * TILE_SIZE;
       const y = seed.bounds.y * TILE_SIZE;
       const w = seed.bounds.width * TILE_SIZE;
@@ -157,6 +170,7 @@ export class SectorOverlay {
 
   deactivateCase() {
     this.activeSectorId = null;
+    this.activeTone = null;
     this.clearHighlight();
 
     // Restore all markers to normal pulse
@@ -184,7 +198,7 @@ export class SectorOverlay {
     if (this.activeSectorId === sectorId) return;
     this.clearHoverHighlight();
 
-    const seed = CYBER_CITY_SECTOR_SEEDS.find((s) => s.id === sectorId);
+    const seed = PRIMARY_CYBER_CITY_SECTOR_SEEDS.find((s) => s.id === sectorId);
     if (!seed) return;
 
     const color = SECTOR_COLORS_HEX[sectorId] ?? 0x00d4ff;
