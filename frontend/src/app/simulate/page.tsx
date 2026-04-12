@@ -4,6 +4,9 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { AgentCommandModal, type MessageEntry } from "@/components/AgentCommandModal";
+import { AgentDirectory } from "@/components/AgentDirectory";
+import { AgentMarketplace } from "@/components/AgentMarketplace";
 import { AgentStatusBar } from "@/components/AgentStatusBar";
 import { Dashboard } from "@/components/Dashboard";
 import { EconomicReportModal } from "@/components/EconomicReportModal";
@@ -13,11 +16,19 @@ import { NodeListPanel } from "@/components/NodeListPanel";
 import { NPCInteractionModal } from "@/components/NPCInteractionModal";
 import { TaskAssignmentModal } from "@/components/TaskAssignmentModal";
 import { UserBoard } from "@/components/UserBoard/UserBoard";
+
 import { useInvestigation } from "@/hooks/useInvestigation";
 import { useBoardState } from "@/hooks/useBoardState";
 import { useSimulation } from "@/hooks/useSimulation";
-import type { ActiveHelpers, AgentId } from "@/types/investigation";
+import type { ActiveHelpers, AgentId, NipsAgentInstance, NipsMarketplaceOffer, NipsEvidenceUpdate } from "@/types/investigation";
 import { clearReplayData, getReplayData } from "@/lib/replayStore";
+import {
+  initNipsSession,
+  buyNipsAgent,
+  requestNipsMarketplaceRefresh,
+  setMarketplaceCallbacks,
+  disconnectNips,
+} from "@/lib/investigationAgentClient";
 import {
   applyCaseRewards,
   computeCaseRewards,
@@ -227,6 +238,85 @@ function InvestigateGame({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [focusScale, setFocusScale] = useState(1);
 
+  // --- NIPS Gemini agent system state ---
+  const [nipsAgents, setNipsAgents] = useState<NipsAgentInstance[]>([]);
+  const [nipsOffers, setNipsOffers] = useState<NipsMarketplaceOffer[]>([]);
+  const [nipsFunds, setNipsFunds] = useState(1500);
+  const [nipsNextRefresh, setNipsNextRefresh] = useState(0);
+  const [chatAgent, setChatAgent] = useState<NipsAgentInstance | null>(null);
+  const [chatHistories, setChatHistories] = useState<Record<string, MessageEntry[]>>({});
+  const [showDirectory, setShowDirectory] = useState(false);
+  const [showMarketplace, setShowMarketplace] = useState(false);
+
+  // Init NIPS backend session
+  useEffect(() => {
+    const cleanupSession = initNipsSession({
+      onSessionReady: (data) => {
+        setNipsAgents(data.agents);
+        setNipsOffers(data.marketplace);
+        setNipsFunds(data.funds);
+        setNipsNextRefresh(data.next_refresh);
+      },
+      onError: (msg) => console.error("[NIPS]", msg),
+    });
+
+    setMarketplaceCallbacks({
+      onAgentPurchased: (data) => {
+        setNipsAgents((prev) => [...prev, data.agent]);
+        setNipsFunds(data.funds);
+      },
+      onMarketplaceRefreshed: (data) => {
+        setNipsOffers(data.marketplace);
+        setNipsNextRefresh(data.next_refresh);
+      },
+      onAgentsList: (data) => {
+        setNipsAgents(data.agents);
+        setNipsFunds(data.funds);
+      },
+      onError: (msg) => console.error("[NIPS marketplace]", msg),
+    });
+
+    return () => {
+      cleanupSession();
+      disconnectNips();
+    };
+  }, []);
+
+  // Handle sprite clicks → open agent chat
+  // Sprite npcIds are lowercase archetype prefixes like "logis", "nexus", etc.
+  // Match by archetype (case-insensitive), or by instance_id/codename for marketplace agents.
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+      const handler = (data: { npcId: string }) => {
+        const id = data.npcId.toLowerCase();
+        const agent = nipsAgents.find(
+          (a) =>
+            a.archetype.toLowerCase() === id ||
+            a.archetype.toLowerCase().startsWith(id) ||
+            a.instance_id === data.npcId ||
+            a.codename === data.npcId,
+        );
+        if (agent) setChatAgent(agent);
+      };
+      eventBridge.on("sim:npc-click", handler);
+      cleanup = () => eventBridge.off("sim:npc-click", handler);
+    });
+    return () => cleanup?.();
+  }, [nipsAgents]);
+
+  const handleBuyAgent = useCallback((offerId: string) => {
+    buyNipsAgent(offerId);
+  }, []);
+
+  const handleRefreshMarketplace = useCallback(() => {
+    requestNipsMarketplaceRefresh();
+  }, []);
+
+  const nodeContextStr = inv.selectedNodeId
+    ? `Selected node: ${inv.systemNodes.find((n) => n.id === inv.selectedNodeId)?.name ?? inv.selectedNodeId} (${inv.selectedNodeId})`
+    : "";
+
   // Reuse the same canvas event plumbing from SimulateContent
   useEffect(() => {
     if (focusMode) {
@@ -433,15 +523,25 @@ function InvestigateGame({
 
         {/* Agent status bar */}
         <div className="flex-1 h-full py-1.5 overflow-x-auto">
-          <AgentStatusBar agents={inv.agents} activeTasks={inv.activeTasks} lockedAgents={inv.lockedAgents} />
+          <AgentStatusBar
+            agents={inv.agents}
+            activeTasks={inv.activeTasks}
+            lockedAgents={inv.lockedAgents}
+            onAgentClick={(agentId) => {
+              const nipsAgent = nipsAgents.find(
+                (a) => a.archetype.toLowerCase() === agentId || a.codename.toLowerCase() === agentId,
+              );
+              if (nipsAgent) setChatAgent(nipsAgent);
+            }}
+          />
         </div>
 
-        <div className="flex items-center gap-3 shrink-0 ml-3">
+        <div className="flex items-center gap-2 shrink-0 ml-3">
           {/* Funds display */}
           <div className="flex items-center gap-1.5 rpg-panel px-2 py-1">
             <span className="text-[8px] font-mono" style={{ color: "#2a5070" }}>₡</span>
             <span className="text-[9px] font-mono tabular-nums" style={{ color: "#00ff88" }}>
-              {inv.funds.toLocaleString()}
+              {nipsFunds.toLocaleString()}
             </span>
           </div>
           {inv.isComplete && (
@@ -461,6 +561,22 @@ function InvestigateGame({
             style={{ color: showBoard ? "#b06fff" : "#b06fff80", border: `1px solid ${showBoard ? "#b06fff" : "#1e3d5a"}`, boxShadow: showBoard ? "0 0 8px rgba(176,111,255,0.2)" : undefined }}
           >
             BOARD
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowMarketplace((p) => !p)}
+            className="rpg-panel px-2 py-1 text-[8px] font-mono uppercase tracking-widest transition-opacity hover:opacity-70"
+            style={{ color: showMarketplace ? "#f59e0b" : "#4a6580", border: `1px solid ${showMarketplace ? "#f59e0b" : "#1e3d5a"}` }}
+          >
+            MARKET
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowDirectory(true)}
+            className="rpg-panel px-2 py-1 text-[8px] font-mono uppercase tracking-widest transition-opacity hover:opacity-70"
+            style={{ color: "#4a6580" }}
+          >
+            AGENTS ({nipsAgents.length})
           </button>
           <button
             type="button"
@@ -564,21 +680,7 @@ function InvestigateGame({
         </button>
       )}
 
-      {/* Task assignment modal */}
-      {selectedNode && (
-        <TaskAssignmentModal
-          node={selectedNode}
-          agents={inv.agents}
-          lockedAgents={inv.lockedAgents}
-          funds={inv.funds}
-          onSubmitInstruction={(agentId: AgentId, rawInstruction: string) => {
-            inv.submitInstruction(agentId, selectedNode.id, rawInstruction);
-            inv.setSelectedNodeId(null);
-          }}
-          onUnlockAgent={(agentId: AgentId) => inv.unlockAgent(agentId)}
-          onClose={() => inv.setSelectedNodeId(null)}
-        />
-      )}
+      {/* Task assignment modal removed — agents now use chat-based commands */}
 
       {/* Attack Graph Modal */}
       {showGraph && (
@@ -602,6 +704,55 @@ function InvestigateGame({
           completedFindings={inv.completedFindings}
           lockedAgents={inv.lockedAgents}
           onClose={() => setShowBoard(false)}
+        />
+      )}
+
+      {/* Marketplace overlay */}
+      {showMarketplace && (
+        <div className="fixed inset-x-0 top-14 z-[80] mx-auto max-w-4xl px-4 py-3">
+          <div className="rpg-panel p-4">
+            <AgentMarketplace
+              offers={nipsOffers}
+              funds={nipsFunds}
+              nextRefresh={nipsNextRefresh}
+              onBuy={handleBuyAgent}
+              onRefresh={handleRefreshMarketplace}
+            />
+            <div className="mt-2 text-center">
+              <button
+                type="button"
+                onClick={() => setShowMarketplace(false)}
+                className="text-[9px] font-mono uppercase text-[var(--muted)] hover:text-[var(--foreground)]"
+              >
+                Close Marketplace
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Agent directory modal */}
+      {showDirectory && (
+        <AgentDirectory
+          agents={nipsAgents}
+          onOpenChat={(agent) => {
+            setShowDirectory(false);
+            setChatAgent(agent);
+          }}
+          onClose={() => setShowDirectory(false)}
+        />
+      )}
+
+      {/* Agent chat modal */}
+      {chatAgent && (
+        <AgentCommandModal
+          agent={chatAgent}
+          nodeContext={nodeContextStr}
+          initialMessages={chatHistories[chatAgent.instance_id]}
+          onClose={(msgs) => {
+            setChatHistories((prev) => ({ ...prev, [chatAgent.instance_id]: msgs }));
+            setChatAgent(null);
+          }}
         />
       )}
 

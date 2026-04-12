@@ -115,6 +115,7 @@ export function GameCanvas() {
 
       const config = createGameConfig(containerRef.current!, scenes);
       gameRef.current = new Phaser.Game(config);
+      (globalThis as Record<string, unknown>).__PHASER_GAME__ = gameRef.current;
     }
 
     initGame();
@@ -124,6 +125,7 @@ export function GameCanvas() {
       if (gameRef.current) {
         (gameRef.current as { destroy: (b: boolean) => void }).destroy(true);
         gameRef.current = null;
+        delete (globalThis as Record<string, unknown>).__PHASER_GAME__;
       }
     };
   }, []);

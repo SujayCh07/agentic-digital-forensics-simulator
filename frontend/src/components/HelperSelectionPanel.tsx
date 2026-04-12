@@ -105,9 +105,11 @@ function StarterAgentCard({
   const canAffordUpgrade = upgradedHelper ? credits >= upgradedHelper.cost : false;
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(); } }}
       className="w-full text-left flex flex-col gap-2 p-4 rounded transition-all"
       style={{
         background: isSelected ? `${roleColor}10` : "#080c12",
@@ -186,7 +188,7 @@ function StarterAgentCard({
           ✓ UPGRADED
         </div>
       )}
-    </button>
+    </div>
   );
 }
 

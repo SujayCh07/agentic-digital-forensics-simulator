@@ -34,8 +34,11 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 FEATHERLESS_API_KEY = os.environ.get("FEATHERLESS_API_KEY", "")
 XAI_API_KEY = os.environ.get("XAI_API_KEY", "")
 K2_API_KEY = os.environ.get("K2_API_KEY", "")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "") or os.environ.get("GOOGLE_API_KEY", "")
 MODEL_NAME = os.environ.get("MODEL_NAME", "gemini-2.5-flash")
+
+# NIPS agent chat model (uses native google-genai SDK, not OpenAI compat)
+NIPS_MODEL_NAME = os.environ.get("NIPS_MODEL_NAME", "gemini-2.5-flash")
 
 if "gemini" in MODEL_NAME.lower():
     LLM_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
