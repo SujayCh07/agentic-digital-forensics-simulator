@@ -332,13 +332,49 @@ export default function Home() {
             </FuzzyText>
           </motion.button>
 
+          {/* TUTORIAL button */}
+          <motion.button
+            type="button"
+            onClick={() => router.push("/tutorial")}
+            initial={{ y: 15, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ delay: 1.3, duration: 0.5 }}
+            whileHover={{ y: -2, boxShadow: "0 0 20px rgba(0,212,255,0.12)" }}
+            whileTap={{ y: 1 }}
+            className="flex min-h-[44px] flex-1 basis-0 cursor-pointer items-center justify-center px-5 py-2 max-[500px]:w-full"
+            style={{
+              background: "rgba(0,212,255,0.05)",
+              border: "1px solid rgba(0,212,255,0.3)",
+              borderRadius: "3px",
+              boxShadow: "0 0 8px rgba(0,0,0,0.5)",
+            }}
+          >
+            <FuzzyText
+              fontSize={10}
+              fontFamily="'Press Start 2P', monospace"
+              fontWeight={700}
+              color="#00d4ff"
+              baseIntensity={isTransitioning ? 0.85 : 0}
+              hoverIntensity={0}
+              enableHover={false}
+              glitchMode={isTransitioning}
+              glitchInterval={90}
+              glitchDuration={220}
+              fuzzRange={8}
+              direction="both"
+              clickEffect={false}
+            >
+              TUTORIAL
+            </FuzzyText>
+          </motion.button>
+
           {/* LOAD button */}
           <motion.button
             type="button"
             onClick={() => fileInputRef.current?.click()}
             initial={{ y: 15, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            transition={{ delay: 1.35, duration: 0.5 }}
+            transition={{ delay: 1.45, duration: 0.5 }}
             whileHover={{ y: -2, boxShadow: "0 0 20px rgba(0,212,255,0.15)" }}
             whileTap={{ y: 1 }}
             className="flex min-h-[44px] flex-1 basis-0 cursor-pointer items-center justify-center px-5 py-2 max-[500px]:w-full"

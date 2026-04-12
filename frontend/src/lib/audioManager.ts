@@ -139,6 +139,20 @@ class AudioManager {
   }
 
   getCurrentTrack() { return this.currentTrack; }
+
+  /** Temporarily lower music volume (0 = mute, 1 = full MUSIC_VOLUME). */
+  setMusicVolume(fraction: number) {
+    if (this.musicEl) {
+      this.musicEl.volume = Math.max(0, Math.min(1, fraction)) * MUSIC_VOLUME;
+    }
+  }
+
+  /** Restore music to default MUSIC_VOLUME. */
+  restoreMusicVolume() {
+    if (this.musicEl) {
+      this.musicEl.volume = MUSIC_VOLUME;
+    }
+  }
 }
 
 export const audioManager = AudioManager.getInstance();
