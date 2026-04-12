@@ -1866,34 +1866,74 @@ function GameMiniMap({
 }) {
   const MAP_W = 1600;
   const MAP_H = 1280;
-  const MINI_W = 170;
-  const MINI_H = 122;
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isStowed, setIsStowed] = useState(false);
+  const miniWidth = isExpanded ? 280 : 170;
+  const miniHeight = isExpanded ? 196 : 122;
+  const frameWidth = miniWidth + 8;
+  const frameHeight = miniHeight + 30;
+  const stowedPeek = 28;
 
-  const toMiniX = (wx: number) => (wx / MAP_W) * MINI_W;
-  const toMiniY = (wy: number) => (wy / MAP_H) * MINI_H;
+  const toMiniX = (wx: number) => (wx / MAP_W) * miniWidth;
+  const toMiniY = (wy: number) => (wy / MAP_H) * miniHeight;
 
   return (
     <div
-      className="fixed bottom-4 left-4 z-40 rpg-panel p-1 animate-[panelSlideLeft_0.4s_ease-out]"
+      className="fixed bottom-4 left-4 z-40 rpg-panel p-1 transition-transform duration-300 ease-out"
       style={{
-        width: MINI_W + 8,
-        height: MINI_H + 24,
+        width: frameWidth,
+        height: frameHeight,
         background: "rgba(8,12,18,0.95)",
         border: "1px solid #1e3d5a",
+        transform: isStowed ? `translateX(-${frameWidth - stowedPeek}px)` : "translateX(0)",
       }}
     >
-      <div className="flex items-center justify-between px-1 mb-1 border-b border-[#1e3d5a] pb-0.5">
-        <span className="text-[8px] font-mono uppercase tracking-[0.16em] text-[#4a6580]">
-          Tactical Map
-        </span>
-        <span className="text-[8px] font-mono text-[#1e3d5a]">
-          {markers.length} AGENTS
-        </span>
+      <div className="relative flex items-center justify-between px-1 mb-1 border-b border-[#1e3d5a] pb-0.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-[8px] font-mono uppercase tracking-[0.16em] text-[#4a6580]">
+            Tactical Map
+          </span>
+          <span className="text-[8px] font-mono text-[#1e3d5a]">
+            {markers.length} AGENTS
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => {
+              setIsExpanded((prev) => !prev);
+              if (isStowed) setIsStowed(false);
+            }}
+            className="rounded border border-[#1e3d5a] px-1.5 py-0.5 text-[8px] font-mono uppercase tracking-[0.12em] text-[#4a6580] transition-colors hover:border-[#2a5070] hover:text-[#c9d8e8]"
+            title={isExpanded ? "Collapse map" : "Expand map"}
+          >
+            {isExpanded ? "−" : "+"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsStowed((prev) => !prev)}
+            className="rounded border border-[#1e3d5a] px-1.5 py-0.5 text-[8px] font-mono uppercase tracking-[0.12em] text-[#4a6580] transition-colors hover:border-[#2a5070] hover:text-[#c9d8e8]"
+            title={isStowed ? "Bring map back" : "Stow map to the side"}
+          >
+            {isStowed ? ">" : "<"}
+          </button>
+        </div>
+        {isStowed && (
+          <button
+            type="button"
+            onClick={() => setIsStowed(false)}
+            className="absolute -right-1 top-8 flex h-20 w-6 items-center justify-center rounded-r border border-[#1e3d5a] bg-[#08111b] text-[8px] font-mono uppercase tracking-[0.18em] text-[#4a6580] transition-colors hover:border-[#2a5070] hover:text-[#c9d8e8]"
+            style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
+            title="Bring tactical map back"
+          >
+            MAP
+          </button>
+        )}
       </div>
 
       <div
         className="relative overflow-hidden rounded bg-[#0d1520]"
-        style={{ width: MINI_W, height: MINI_H }}
+        style={{ width: miniWidth, height: miniHeight }}
       >
         <div
           className="absolute inset-0 opacity-20"
