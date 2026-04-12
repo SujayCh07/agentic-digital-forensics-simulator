@@ -180,4 +180,9 @@ export class Car extends Phaser.GameObjects.Container {
   private onClick() {
     eventBridge.emitNPCClick(this.npcId);
   }
+
+  refreshHover() {
+    if (!this.isHovered) return;
+    this.emitHoverEvent();
+  }
 }

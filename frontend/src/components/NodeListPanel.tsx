@@ -52,15 +52,6 @@ export function NodeListPanel({
         </span>
       </div>
 
-      {summary && (
-        <div
-          className="shrink-0"
-          style={{ borderBottom: "1px solid #1e3d5a" }}
-        >
-          {summary}
-        </div>
-      )}
-
       {/* Node list */}
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         {nodes.map((node) => {
@@ -141,6 +132,15 @@ export function NodeListPanel({
           );
         })}
       </div>
+
+      {summary && (
+        <div
+          className="shrink-0"
+          style={{ borderTop: "1px solid #1e3d5a" }}
+        >
+          {summary}
+        </div>
+      )}
 
       {/* Footer hint */}
       <div

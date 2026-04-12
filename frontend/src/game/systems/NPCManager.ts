@@ -530,6 +530,8 @@ export class NPCManager {
   /** Re-emit positions for NPCs with active bubbles so camera pan/zoom stays in sync. */
   refreshActiveBubblePositions() {
     for (const npc of this.npcs.values()) {
+      this.emitNPCPosition(npc);
+      npc.refreshHover?.();
       if (!npc.message) {
         this.upsertChatBubble(npc);
         continue;

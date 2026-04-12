@@ -197,6 +197,11 @@ export class NPC extends Phaser.GameObjects.Sprite {
     eventBridge.emitNPCClick(this.npcId);
   }
 
+  refreshHover() {
+    if (!this.isHovered) return;
+    this.emitHoverEvent();
+  }
+
   /** Snapshot for EventBridge → React chat bubbles (camera-relative screen coords) */
   toState(): NPCState | null {
     const cam = this.getMainCamera();
