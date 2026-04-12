@@ -836,7 +836,12 @@ function InvestigateGame({
           nipsAgents={nipsAgents}
           lockedAgents={inv.lockedAgents}
           onAgentClick={(agent) => {
-            setChatAgent(agent);
+            const isLocked = inv.lockedAgents.includes(agent.archetype.toLowerCase() as AgentId);
+            if (isLocked) {
+              setLockedAgentInfo(agent);
+            } else {
+              setChatAgent(agent);
+            }
           }}
         />
       )}

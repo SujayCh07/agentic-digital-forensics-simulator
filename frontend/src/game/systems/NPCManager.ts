@@ -175,7 +175,7 @@ export class NPCManager {
     this.movement.startRoaming(entity, zone);
   }
 
-  private onInitNPCs(backendNPCs: unknown[]) {
+  private onInitNPCs(backendNPCs: unknown[], starterId?: string) {
     // If NPCs were already streamed individually, skip batch creation
     if (this.npcs.size > 0) return;
 
@@ -227,17 +227,34 @@ export class NPCManager {
 
     for (let i = 0; i < npcs.length; i++) {
       const bn = npcs[i];
+      const isStarter = starterId && bn.id === starterId;
 
       // Find a road tile with adequate spacing from other NPCs
       let tileX = -1;
       let tileY = -1;
 
-      for (const candidate of roadTiles) {
-        if (this.occupancy.isOccupied(candidate.x, candidate.y)) continue;
-        if (this.hasMinSpacing(candidate.x, candidate.y, MIN_SPAWN_SPACING)) {
-          tileX = candidate.x;
-          tileY = candidate.y;
-          break;
+      if (isStarter) {
+        // Find road tile closest to map center (10, 7)
+        let minD = Infinity;
+        for (const candidate of roadTiles) {
+          if (this.occupancy.isOccupied(candidate.x, candidate.y)) continue;
+          const d = Math.pow(candidate.x - 10, 2) + Math.pow(candidate.y - 7, 2);
+          if (d < minD) {
+            minD = d;
+            tileX = candidate.x;
+            tileY = candidate.y;
+          }
+        }
+      }
+
+      if (tileX === -1) {
+        for (const candidate of roadTiles) {
+          if (this.occupancy.isOccupied(candidate.x, candidate.y)) continue;
+          if (this.hasMinSpacing(candidate.x, candidate.y, MIN_SPAWN_SPACING)) {
+            tileX = candidate.x;
+            tileY = candidate.y;
+            break;
+          }
         }
       }
 

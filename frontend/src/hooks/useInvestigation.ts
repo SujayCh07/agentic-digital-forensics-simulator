@@ -319,8 +319,11 @@ export function useInvestigation(
 
   // ── Initialize agents on Phaser map ──────────────────────────────────────
   useEffect(() => {
+    // Determine the starter agent ID (everyone except lockedAgents at start)
+    const starterId = ALL_AGENT_IDS.find(id => !lockedAgents.includes(id));
+
     getBridge().then(({ eventBridge }) => {
-      eventBridge.emitInitNPCs(CASE_AGENTS_NPCS);
+      eventBridge.emitInitNPCs(CASE_AGENTS_NPCS, starterId);
     });
     setGraphData({
       relationships: CASE_RELATIONSHIPS,

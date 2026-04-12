@@ -81,9 +81,9 @@ class EventBridge {
   }
 
   // React → Phaser: initialize NPCs from backend (sticky — replays for late listeners)
-  emitInitNPCs(npcs: unknown[]) {
-    this.sticky.set("sim:init-npcs", [npcs]);
-    this.emit("sim:init-npcs", npcs);
+  emitInitNPCs(npcs: unknown[], starterId?: string) {
+    this.sticky.set("sim:init-npcs", [npcs, starterId]);
+    this.emit("sim:init-npcs", npcs, starterId);
   }
 
   // React → Phaser: clear all NPC sprites before a new simulation
