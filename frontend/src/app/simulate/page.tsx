@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { AgentCommandModal, type MessageEntry } from "@/components/AgentCommandModal";
 import { AgentDirectory } from "@/components/AgentDirectory";
@@ -14,7 +14,7 @@ import { EventFeed } from "@/components/EventFeed";
 import { HelperSelectionPanel } from "@/components/HelperSelectionPanel";
 import { NodeListPanel } from "@/components/NodeListPanel";
 import { NPCInteractionModal } from "@/components/NPCInteractionModal";
-import { TaskAssignmentModal } from "@/components/TaskAssignmentModal";
+import { PauseOverlay } from "@/components/PauseOverlay";
 import { UserBoard } from "@/components/UserBoard/UserBoard";
 
 import { useInvestigation } from "@/hooks/useInvestigation";
@@ -37,24 +37,6 @@ import {
   type PlayerProgress,
 } from "@/lib/playerProgress";
 import type { NPCHoverInfo, NPCState, SimEvent } from "@/types";
-
-const SocialGraph = dynamic(
-  () =>
-    import("@/components/SocialGraph").then((m) => ({
-      default: m.SocialGraph,
-    })),
-  {
-    ssr: false,
-    loading: () => (
-      <div
-        className="flex h-full items-center justify-center text-[8px] font-mono uppercase tracking-widest"
-        style={{ color: "#2a5070" }}
-      >
-        Loading network...
-      </div>
-    ),
-  },
-);
 
 // Mirror game/constants values here to avoid importing Phaser during SSR.
 const GAME_WIDTH = 1280;
@@ -160,6 +142,34 @@ const DEFAULT_OVERLAY_METRICS: OverlayMetrics = {
   scaleY: SCALE_FACTOR,
 };
 
+function setWorldPaused(paused: boolean) {
+  const game = (globalThis as Record<string, unknown>).__PHASER_GAME__ as
+    | {
+        scene?: {
+          pause?: (sceneKey: string) => void;
+          resume?: (sceneKey: string) => void;
+          isPaused?: (sceneKey: string) => boolean;
+        };
+      }
+    | undefined;
+
+  const sceneManager = game?.scene;
+  if (!sceneManager) return;
+
+  if (paused) {
+    if (!sceneManager.isPaused?.("WorldScene")) {
+      sceneManager.pause?.("WorldScene");
+    }
+    return;
+  }
+
+  if (sceneManager.isPaused?.("WorldScene")) {
+    sceneManager.resume?.("WorldScene");
+  } else {
+    sceneManager.resume?.("WorldScene");
+  }
+}
+
 export default function SimulatePage() {
   return (
     <Suspense fallback={<GameCanvasPlaceholder />}>
@@ -226,17 +236,17 @@ function InvestigateGame({
   progress: PlayerProgress;
   onProgressChange: (p: PlayerProgress) => void;
 }) {
+  const router = useRouter();
   const inv = useInvestigation(activeHelpers);
-  const [showGraph, setShowGraph] = useState(false);
   const [showBoard, setShowBoard] = useState(false);
   const [rewardsShown, setRewardsShown] = useState(false);
   const board = useBoardState();
   const [focusMode, setFocusMode] = useState(false);
+  const [paused, setPaused] = useState(false);
   const [hoverInfo, setHoverInfo] = useState<NPCHoverInfo | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const [overlayMetrics, setOverlayMetrics] = useState<OverlayMetrics>(DEFAULT_OVERLAY_METRICS);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [focusScale, setFocusScale] = useState(1);
 
   // --- NIPS Gemini agent system state ---
   const [nipsAgents, setNipsAgents] = useState<NipsAgentInstance[]>([]);
@@ -334,15 +344,6 @@ function InvestigateGame({
     ? `Selected node: ${inv.systemNodes.find((n) => n.id === inv.selectedNodeId)?.name ?? inv.selectedNodeId} (${inv.selectedNodeId})`
     : "";
 
-  // Reuse the same canvas event plumbing from SimulateContent
-  useEffect(() => {
-    if (focusMode) {
-      setFocusScale(Math.max(window.innerWidth / GAME_WIDTH, window.innerHeight / GAME_HEIGHT));
-    } else {
-      setFocusScale(1);
-    }
-  }, [focusMode]);
-
   useEffect(() => {
     let cleanup: (() => void) | undefined;
     import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
@@ -408,6 +409,7 @@ function InvestigateGame({
     let lastX = 0;
     let lastY = 0;
     const onDown = (e: PointerEvent) => {
+      if (paused) return;
       if (e.button !== 0) return;
       dragging = true;
       lastX = e.clientX;
@@ -433,35 +435,32 @@ function InvestigateGame({
     el.addEventListener("pointerdown", onDown);
     el.addEventListener("pointermove", onMove);
     el.addEventListener("pointerup", onUp);
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const delta = e.deltaY < 0 ? 1 : -1;
-      const zoomTarget = el.querySelector("canvas") ?? el.querySelector("[data-testid='game-canvas']");
-      const rect = zoomTarget instanceof HTMLElement ? zoomTarget.getBoundingClientRect() : el.getBoundingClientRect();
-      const scaleX = rect.width > 0 ? GAME_WIDTH / rect.width : 1;
-      const scaleY = rect.height > 0 ? GAME_HEIGHT / rect.height : 1;
-      const mouseX = (e.clientX - rect.left) * scaleX;
-      const mouseY = (e.clientY - rect.top) * scaleY;
-      import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
-        eventBridge.emitCameraZoom(delta, mouseX, mouseY);
-      });
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       el.removeEventListener("pointerdown", onDown);
       el.removeEventListener("pointermove", onMove);
       el.removeEventListener("pointerup", onUp);
-      el.removeEventListener("wheel", onWheel);
     };
-  }, []);
+  }, [paused]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { setFocusMode(false); setShowGraph(false); setShowBoard(false); inv.setSelectedNodeId(null); }
+      if (e.key.toLowerCase() === "q" && !e.repeat) {
+        e.preventDefault();
+        if (!paused) setFocusMode((value) => !value);
+      }
+      if (e.key === "Escape" && !e.repeat) {
+        e.preventDefault();
+        setPaused((value) => !value);
+      }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [inv]);
+  }, [paused]);
+
+  useEffect(() => {
+    setWorldPaused(paused);
+    return () => setWorldPaused(false);
+  }, [paused]);
 
   useEffect(() => {
     const handler = () => setIsFullscreen(!!document.fullscreenElement);
@@ -475,10 +474,6 @@ function InvestigateGame({
     if (document.fullscreenElement) document.exitFullscreen();
     else el.requestFullscreen();
   }, []);
-
-  const selectedNode = inv.selectedNodeId
-    ? inv.systemNodes.find((n) => n.id === inv.selectedNodeId) ?? null
-    : null;
 
   return (
     <div
@@ -496,46 +491,9 @@ function InvestigateGame({
             ◈ NIPS
           </span>
           <span className="text-[10px] font-mono" style={{ color: "#1e3d5a" }}>|</span>
-          {/* Stage dots */}
-          <div className="flex gap-1">
-            {[1, 2, 3].map((s) => (
-              <div
-                key={s}
-                className="h-2 w-10 rounded-sm transition-colors duration-500"
-                style={{
-                  border: "1px solid #1e3d5a",
-                  background: inv.stage >= s ? (s === 3 ? "#ff3a3a" : s === 2 ? "#f59e0b" : "#00d4ff") : "#0d1520",
-                  boxShadow: inv.stage >= s ? (s === 3 ? "0 0 6px rgba(255,58,58,0.5)" : s === 2 ? "0 0 6px rgba(245,158,11,0.5)" : "0 0 6px rgba(0,212,255,0.5)") : "none",
-                }}
-              />
-            ))}
-          </div>
           <span className="text-[8px] font-mono uppercase tracking-widest" style={{ color: "#2a5070" }}>
-            C{inv.currentCycle}
+            moon-city investigation board
           </span>
-          {/* Pressure indicator */}
-          {inv.pressureLevel > 0 && (
-            <div className="flex items-center gap-1 ml-1">
-              <div
-                className="h-1.5 w-16 rounded-sm overflow-hidden"
-                style={{ background: "#1e3d5a" }}
-                title={`Incident pressure: ${inv.pressureLevel}/10`}
-              >
-                <div
-                  className="h-full rounded-sm transition-all duration-500"
-                  style={{
-                    width: `${inv.pressureLevel * 10}%`,
-                    background: inv.pressureLevel >= 7 ? "#ff3a3a"
-                             : inv.pressureLevel >= 4 ? "#f59e0b"
-                             : "#00ff88",
-                  }}
-                />
-              </div>
-              <span className="text-[7px] font-mono" style={{ color: inv.pressureLevel >= 7 ? "#ff3a3a" : "#4a6580" }}>
-                P{inv.pressureLevel}
-              </span>
-            </div>
-          )}
         </div>
 
         {/* Agent status bar */}
@@ -604,19 +562,11 @@ function InvestigateGame({
           </button>
           <button
             type="button"
-            onClick={() => setShowGraph(true)}
-            className="rpg-panel px-2 py-1 text-[8px] font-mono uppercase tracking-widest transition-opacity hover:opacity-70"
-            style={{ color: "#4a6580" }}
-          >
-            ATTACK MAP
-          </button>
-          <button
-            type="button"
             onClick={() => setFocusMode((f) => !f)}
             className="rpg-panel px-2 py-1 text-[8px] font-mono uppercase tracking-widest transition-opacity hover:opacity-70"
             style={{ color: focusMode ? "#00d4ff" : "#4a6580", border: `1px solid ${focusMode ? "#00d4ff" : "#1e3d5a"}` }}
           >
-            {focusMode ? "[ EXIT FOCUS ]" : "[ FOCUS ]"}
+            {focusMode ? "[ Q • RESET VIEW ]" : "[ Q • ZOOM IN ]"}
           </button>
         </div>
       </div>
@@ -656,29 +606,44 @@ function InvestigateGame({
 
         {/* Center: Game canvas */}
         <div
-          className={focusMode ? "fixed inset-0 z-50 flex items-center justify-center overflow-hidden" : "relative flex min-w-0 flex-1 items-center justify-center overflow-hidden"}
-          style={focusMode ? { background: "#080c12" } : undefined}
+          className={focusMode ? "fixed inset-0 z-50 flex items-center justify-center overflow-hidden p-5" : "relative flex min-w-0 flex-1 items-center justify-center overflow-hidden"}
+          style={focusMode ? { background: "#050911" } : undefined}
         >
           <div
             ref={canvasContainerRef}
-            className="relative shrink-0 canvas-glow canvas-expand"
+            className="relative shrink-0 overflow-hidden"
             style={{
-              border: "1px solid #1e3d5a",
-              borderRadius: 4,
-              ...(focusMode ? { transform: `scale(${focusScale})`, transformOrigin: "center center", border: "none", padding: 0, boxShadow: "none" } : {}),
+              width: focusMode ? "min(96vw, 1480px)" : "min(100%, 1180px)",
+              border: "1px solid rgba(255,255,255,0.04)",
+              borderRadius: focusMode ? 18 : 12,
+              background: "#050911",
+              boxShadow: focusMode
+                ? "0 36px 120px rgba(0,0,0,0.82)"
+                : "0 28px 72px rgba(0,0,0,0.72)",
             }}
           >
             <GameCanvas />
-            {/* Zoom / Fullscreen controls */}
+            {/* View controls */}
             <div className="absolute top-2 right-2 z-40 flex gap-1">
-              <button type="button" onClick={() => { import("@/game/bridge/EventBridge").then(({ eventBridge }) => eventBridge.emitCameraZoom(1)); }} className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70" style={{ color: "#4a6580" }}>ZOOM+</button>
-              <button type="button" onClick={() => { import("@/game/bridge/EventBridge").then(({ eventBridge }) => eventBridge.emitCameraZoom(-1)); }} className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70" style={{ color: "#4a6580" }}>ZOOM-</button>
+              <button type="button" onClick={() => setFocusMode((value) => !value)} className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70" style={{ color: focusMode ? "#00d4ff" : "#4a6580" }}>{focusMode ? "RESET" : "ZOOM IN"}</button>
               <button type="button" onClick={toggleFullscreen} className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70" style={{ color: "#4a6580" }}>{isFullscreen ? "EXIT" : "FULL"}</button>
             </div>
             {/* NPC hover tooltip */}
             {hoverInfo && (
               <div className="pointer-events-none absolute z-30 overflow-hidden" style={{ left: overlayMetrics.offsetX, top: overlayMetrics.offsetY, width: overlayMetrics.width, height: overlayMetrics.height }}>
                 <NPCTooltip info={hoverInfo} scaleX={overlayMetrics.scaleX} scaleY={overlayMetrics.scaleY} />
+              </div>
+            )}
+
+            {!focusMode && (
+              <div className="absolute bottom-3 right-3 z-40">
+                <Dashboard
+                  metrics={inv.metrics}
+                  metricsHistory={inv.metricsHistory}
+                  phase={inv.stage}
+                  round={inv.currentCycle}
+                  maxRounds={99}
+                />
               </div>
             )}
           </div>
@@ -694,39 +659,11 @@ function InvestigateGame({
         </div>
       </div>
 
-      {/* Viewport-fixed dashboard */}
-      <div className={`fixed bottom-3 right-60 z-40 pointer-events-auto ${focusMode ? "opacity-0 pointer-events-none" : ""}`}>
-        <Dashboard
-          metrics={inv.metrics}
-          metricsHistory={inv.metricsHistory}
-          phase={inv.stage}
-          round={inv.currentCycle}
-          maxRounds={99}
-        />
-      </div>
-
       {/* Focus mode exit button */}
       {focusMode && (
         <button type="button" className="fixed top-4 right-4 z-[60] rpg-panel px-3 py-1.5 text-[9px] font-mono transition-opacity hover:opacity-70" style={{ color: "#4a6580", border: "1px solid #1e3d5a" }} onClick={() => setFocusMode(false)}>
-          [ESC] exit focus
+          [Q] reset view
         </button>
-      )}
-
-      {/* Task assignment modal removed — agents now use chat-based commands */}
-
-      {/* Attack Graph Modal */}
-      {showGraph && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={(e) => { if (e.target === e.currentTarget) setShowGraph(false); }}>
-          <div className="relative flex flex-col animate-[modalIn_200ms_ease-out] rpg-panel" style={{ width: 700, height: 560 }}>
-            <div className="flex items-center justify-between px-4 py-2" style={{ borderBottom: "1px solid #1e3d5a" }}>
-              <h2 className="text-[10px] font-mono uppercase tracking-widest" style={{ color: "#00d4ff" }}>◈ Attack Graph</h2>
-              <button type="button" onClick={() => setShowGraph(false)} className="text-[10px] font-mono uppercase tracking-widest transition-opacity hover:opacity-60" style={{ color: "#4a6580" }}>[ESC]</button>
-            </div>
-            <div className="flex-1 overflow-hidden">
-              <SocialGraph npcs={inv.graphData.npcs} relationships={inv.graphData.relationships} influenceEvents={inv.graphData.influenceEvents} version={inv.graphData.version} />
-            </div>
-          </div>
-        </div>
       )}
 
       {/* Investigation Board */}
@@ -868,6 +805,14 @@ function InvestigateGame({
         />
       )}
 
+      <PauseOverlay
+        isVisible={paused}
+        onResume={() => setPaused(false)}
+        onRestart={() => router.replace("/simulate?mode=investigate&map=moonCity")}
+        onReturnToLanding={() => router.push("/")}
+        zoomedIn={focusMode}
+      />
+
       {/* Case Complete — Rewards Modal */}
       {rewardsShown && inv.isComplete && (
         <CaseRewardsModal
@@ -973,6 +918,7 @@ function CaseRewardsModal({
 }
 
 function SimulateContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const isMock = process.env.NEXT_PUBLIC_MOCK_BACKEND === "true";
   const simulationId = searchParams.get("id") || "";
@@ -988,28 +934,14 @@ function SimulateContent() {
   const selectedNpc = selectedNpcId ? sim.getNpc(selectedNpcId) : undefined;
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
+  const [paused, setPaused] = useState(false);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
-  const [focusScale, setFocusScale] = useState(1);
   const [hoverInfo, setHoverInfo] = useState<NPCHoverInfo | null>(null);
-  const [showGraph, setShowGraph] = useState(false);
   const [overlayMetrics, setOverlayMetrics] = useState<OverlayMetrics>(
     DEFAULT_OVERLAY_METRICS,
   );
   const [showReport, setShowReport] = useState(false);
   const reportShownRef = useRef(false);
-
-  useEffect(() => {
-    if (focusMode) {
-      setFocusScale(
-        Math.max(
-          window.innerWidth / GAME_WIDTH,
-          window.innerHeight / GAME_HEIGHT,
-        ),
-      );
-    } else {
-      setFocusScale(1);
-    }
-  }, [focusMode]);
 
   const hasStartedRef = useRef(false);
   useEffect(() => {
@@ -1151,6 +1083,7 @@ function SimulateContent() {
     let lastY = 0;
 
     const onDown = (e: PointerEvent) => {
+      if (paused) return;
       if (e.button !== 0) return;
       dragging = true;
       lastX = e.clientX;
@@ -1182,47 +1115,32 @@ function SimulateContent() {
     el.addEventListener("pointermove", onMove);
     el.addEventListener("pointerup", onUp);
 
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const delta = e.deltaY < 0 ? 1 : -1;
-
-      const zoomTarget =
-        el.querySelector("canvas") ??
-        el.querySelector("[data-testid='game-canvas']");
-      const rect =
-        zoomTarget instanceof HTMLElement
-          ? zoomTarget.getBoundingClientRect()
-          : el.getBoundingClientRect();
-      const scaleX = rect.width > 0 ? GAME_WIDTH / rect.width : 1;
-      const scaleY = rect.height > 0 ? GAME_HEIGHT / rect.height : 1;
-      const mouseX = (e.clientX - rect.left) * scaleX;
-      const mouseY = (e.clientY - rect.top) * scaleY;
-
-      import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
-        eventBridge.emitCameraZoom(delta, mouseX, mouseY);
-      });
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-
     return () => {
       el.removeEventListener("pointerdown", onDown);
       el.removeEventListener("pointermove", onMove);
       el.removeEventListener("pointerup", onUp);
-      el.removeEventListener("wheel", onWheel);
     };
-  }, []);
+  }, [paused]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setFocusMode(false);
-        setShowGraph(false);
-        setShowReport(false);
+      if (e.key.toLowerCase() === "q" && !e.repeat) {
+        e.preventDefault();
+        if (!paused) setFocusMode((value) => !value);
+      }
+      if (e.key === "Escape" && !e.repeat) {
+        e.preventDefault();
+        setPaused((value) => !value);
       }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, []);
+  }, [paused]);
+
+  useEffect(() => {
+    setWorldPaused(paused);
+    return () => setWorldPaused(false);
+  }, [paused]);
 
   useEffect(() => {
     if (!sim.isComplete) {
@@ -1407,9 +1325,9 @@ function SimulateContent() {
               border: `1px solid ${focusMode ? "#00d4ff" : "#1e3d5a"}`,
               boxShadow: focusMode ? "0 0 10px rgba(0,212,255,0.2)" : "none",
             }}
-            title="Toggle focus mode (hides panels)"
+            title="Toggle zoomed investigation view"
           >
-            {focusMode ? "[ EXIT FOCUS ]" : "[ FOCUS ]"}
+            {focusMode ? "[ Q • RESET VIEW ]" : "[ Q • ZOOM IN ]"}
           </button>
         </div>
       </div>
@@ -1430,15 +1348,6 @@ function SimulateContent() {
             >
               Evidence Feed
             </h2>
-            <button
-              type="button"
-              onClick={() => setShowGraph(true)}
-              className="text-[9px] font-mono uppercase tracking-widest transition-opacity hover:opacity-60"
-              style={{ color: "#4a6580" }}
-              title="Open Attack Graph"
-            >
-              ATTACK MAP
-            </button>
           </div>
           <div className="flex-1 overflow-hidden">
             <EventFeed events={sim.events} onEventClick={handleEventClick} />
@@ -1449,57 +1358,36 @@ function SimulateContent() {
         <div
           className={
             focusMode
-              ? "fixed inset-0 z-50 flex items-center justify-center overflow-hidden"
+              ? "fixed inset-0 z-50 flex items-center justify-center overflow-hidden p-5"
               : "relative flex min-w-0 flex-1 items-center justify-center overflow-hidden"
           }
-          style={focusMode ? { background: "#080c12" } : undefined}
+          style={focusMode ? { background: "#050911" } : undefined}
         >
           <div
             ref={canvasContainerRef}
-            className="relative shrink-0 canvas-glow canvas-expand"
+            className="relative shrink-0 overflow-hidden"
             style={{
-              border: "1px solid #1e3d5a",
-              borderRadius: 4,
-              ...(focusMode
-                ? {
-                    transform: `scale(${focusScale})`,
-                    transformOrigin: "center center",
-                    border: "none",
-                    padding: 0,
-                    boxShadow: "none",
-                  }
-                : {}),
+              width: focusMode ? "min(96vw, 1480px)" : "min(100%, 1180px)",
+              border: "1px solid rgba(255,255,255,0.04)",
+              borderRadius: focusMode ? 18 : 12,
+              background: "#050911",
+              boxShadow: focusMode
+                ? "0 36px 120px rgba(0,0,0,0.82)"
+                : "0 28px 72px rgba(0,0,0,0.72)",
             }}
           >
             <GameCanvas />
 
-            {/* Zoom / Fullscreen controls */}
+            {/* View controls */}
             <div className="absolute top-2 right-2 z-40 flex gap-1">
               <button
                 type="button"
-                onClick={() => {
-                  import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
-                    eventBridge.emitCameraZoom(1);
-                  });
-                }}
+                onClick={() => setFocusMode((value) => !value)}
                 className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70"
-                style={{ color: "#4a6580" }}
-                title="Zoom in"
+                style={{ color: focusMode ? "#00d4ff" : "#4a6580" }}
+                title={focusMode ? "Reset view" : "Zoom in"}
               >
-                ZOOM+
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
-                    eventBridge.emitCameraZoom(-1);
-                  });
-                }}
-                className="rpg-panel px-1.5 py-1 text-[9px] font-mono transition-opacity hover:opacity-70"
-                style={{ color: "#4a6580" }}
-                title="Zoom out"
-              >
-                ZOOM-
+                {focusMode ? "RESET" : "ZOOM IN"}
               </button>
               <button
                 type="button"
@@ -1530,21 +1418,20 @@ function SimulateContent() {
                 />
               </div>
             )}
+
+            {!focusMode && (
+              <div className="absolute bottom-3 right-3 z-40">
+                <Dashboard
+                  metrics={sim.metrics}
+                  metricsHistory={sim.metricsHistory}
+                  phase={sim.phase}
+                  round={sim.round}
+                  maxRounds={sim.maxRounds}
+                />
+              </div>
+            )}
           </div>
         </div>
-      </div>
-
-      {/* Viewport-fixed dashboard */}
-      <div
-        className={`fixed bottom-3 right-3 z-40 pointer-events-auto ${focusMode ? "opacity-0 pointer-events-none" : ""}`}
-      >
-        <Dashboard
-          metrics={sim.metrics}
-          metricsHistory={sim.metricsHistory}
-          phase={sim.phase}
-          round={sim.round}
-          maxRounds={sim.maxRounds}
-        />
       </div>
 
       {/* Focus mode exit button */}
@@ -1555,7 +1442,7 @@ function SimulateContent() {
           style={{ color: "#4a6580", border: "1px solid #1e3d5a" }}
           onClick={() => setFocusMode(false)}
         >
-          [ESC] exit focus
+          [Q] reset view
         </button>
       )}
 
@@ -1568,54 +1455,6 @@ function SimulateContent() {
         />
       )}
 
-      {/* Attack Graph Modal */}
-      {showGraph && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setShowGraph(false);
-          }}
-        >
-          <div
-            className="relative flex flex-col animate-[modalIn_200ms_ease-out] rpg-panel"
-            style={{
-              width: 700,
-              height: 560,
-            }}
-          >
-            <div
-              className="flex items-center justify-between px-4 py-2"
-              style={{
-                borderBottom: "1px solid #1e3d5a",
-              }}
-            >
-              <h2
-                className="text-[10px] font-mono uppercase tracking-widest"
-                style={{ color: "#00d4ff" }}
-              >
-                ◈ Attack Graph
-              </h2>
-              <button
-                type="button"
-                onClick={() => setShowGraph(false)}
-                className="text-[10px] font-mono uppercase tracking-widest transition-opacity hover:opacity-60"
-                style={{ color: "#4a6580" }}
-              >
-                [ESC]
-              </button>
-            </div>
-            <div className="flex-1 overflow-hidden">
-              <SocialGraph
-                npcs={sim.graphData.npcs}
-                relationships={sim.graphData.relationships}
-                influenceEvents={sim.graphData.influenceEvents}
-                version={sim.graphData.version}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
       {showReport && (
         <EconomicReportModal
           report={sim.report}
@@ -1624,6 +1463,20 @@ function SimulateContent() {
           onClose={() => setShowReport(false)}
         />
       )}
+
+      <PauseOverlay
+        isVisible={paused}
+        onResume={() => setPaused(false)}
+        onRestart={() => {
+          if (simulationId) {
+            router.replace(`/simulate?id=${simulationId}&map=moonCity${isRecording ? "&record=true" : ""}`);
+            return;
+          }
+          router.push("/");
+        }}
+        onReturnToLanding={() => router.push("/")}
+        zoomedIn={focusMode}
+      />
 
       {/* Connection error overlay */}
       {sim.error && (

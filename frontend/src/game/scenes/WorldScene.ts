@@ -1,29 +1,13 @@
 import * as Phaser from "phaser";
+import { CYBER_CITY_SECTOR_SEEDS } from "@/data/cyberCitySectors";
 import type { BuildingPositions } from "@/types";
 import { eventBridge } from "../bridge/EventBridge";
 import {
-  CENTER_BOUNDS,
   GAME_HEIGHT,
   GAME_WIDTH,
   TILE_SIZE,
-  getMapConfig,
-  proceduralMap,
-  selectedMap,
 } from "../config";
 import { SimEventHandler } from "../events/SimEventHandler";
-import { ChunkManager } from "../map/ChunkManager";
-import { CitypackChunkManager } from "../map/CitypackChunkManager";
-import {
-  isRoad as citypackIsRoad,
-  isVRoadCol as citypackIsVRoadCol,
-  isHRoadRow as citypackIsHRoadRow,
-} from "../map/CitypackProceduralCity";
-import {
-  isRoad as ccityIsRoad,
-  isVRoadCol as ccityIsVRoadCol,
-  isHRoadRow as ccityIsHRoadRow,
-} from "../map/ProceduralCity";
-import { ROAD_TILES as CITYPACK_ROAD_TILES } from "../map/CitypackRegistry";
 import {
   ALL_CHARACTERS,
   ALL_DIRECTIONS,
@@ -32,25 +16,57 @@ import {
 } from "../map/NPCCharacterRegistry";
 import { NPCManager } from "../systems/NPCManager";
 
+const VISIBLE_MIN_COL = 2;
+const VISIBLE_MAX_COL = 37;
+const VISIBLE_MIN_ROW = 2;
+const VISIBLE_MAX_ROW = 29;
+
+const DEFAULT_ZOOM = 1.12;
+const MAX_ZOOM = 1.22;
+
+interface RoadSegment {
+  x1: number;
+  x2: number;
+  y1: number;
+  y2: number;
+}
+
+const ROAD_SEGMENTS: RoadSegment[] = [
+  { x1: 8, x2: 35, y1: 10, y2: 11 },
+  { x1: 8, x2: 35, y1: 21, y2: 22 },
+  { x1: 8, x2: 9, y1: 10, y2: 22 },
+  { x1: 19, x2: 20, y1: 10, y2: 22 },
+  { x1: 28, x2: 29, y1: 10, y2: 22 },
+  { x1: 35, x2: 36, y1: 11, y2: 22 },
+];
+
+function isRoadTile(col: number, row: number) {
+  return ROAD_SEGMENTS.some(
+    (segment) =>
+      col >= segment.x1 &&
+      col <= segment.x2 &&
+      row >= segment.y1 &&
+      row <= segment.y2,
+  );
+}
+
+function anchorFor(id: string, fallback: { x: number; y: number }) {
+  const seed = CYBER_CITY_SECTOR_SEEDS.find((entry) => entry.id === id);
+  return seed ? { x: seed.anchor.tileX, y: seed.anchor.tileY } : fallback;
+}
+
 export class WorldScene extends Phaser.Scene {
-  // Static map (fallback)
-  private staticGroundLayer?: Phaser.Tilemaps.TilemapLayer;
-  private staticBuildingLayer?: Phaser.Tilemaps.TilemapLayer;
-
-  // Infinite procedural map
-  private chunkManager?: ChunkManager;
-  private useChunks = false;
-
-  // Citypack procedural map
-  private citypackChunkManager?: CitypackChunkManager;
-  private useCitypackChunks = false;
-
+  private groundLayer?: Phaser.Tilemaps.TilemapLayer;
   private phaseOverlay?: Phaser.GameObjects.Rectangle;
   private npcManager?: NPCManager;
   private simEventHandler?: SimEventHandler;
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
   private sceneReady = false;
   private cleanedUp = false;
+  private mapPixelLeft = VISIBLE_MIN_COL * TILE_SIZE;
+  private mapPixelTop = VISIBLE_MIN_ROW * TILE_SIZE;
+  private mapPixelWidth = (VISIBLE_MAX_COL - VISIBLE_MIN_COL + 1) * TILE_SIZE;
+  private mapPixelHeight = (VISIBLE_MAX_ROW - VISIBLE_MIN_ROW + 1) * TILE_SIZE;
 
   constructor() {
     super({ key: "WorldScene" });
@@ -59,103 +75,57 @@ export class WorldScene extends Phaser.Scene {
   create() {
     this.sceneReady = false;
     this.cleanedUp = false;
-    this.staticGroundLayer = undefined;
-    this.staticBuildingLayer = undefined;
-    this.chunkManager = undefined;
-    this.citypackChunkManager = undefined;
-    this.phaseOverlay = undefined;
-    this.npcManager = undefined;
-    this.simEventHandler = undefined;
-    this.useChunks = false;
-    this.useCitypackChunks = false;
-
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.cleanupScene, this);
     this.events.once(Phaser.Scenes.Events.DESTROY, this.cleanupScene, this);
 
-    if (selectedMap === "citypack") {
-      if (proceduralMap) {
-        try {
-          this.citypackChunkManager = new CitypackChunkManager(this);
-          if (this.citypackChunkManager.isReady()) {
-            this.useCitypackChunks = true;
-            this.citypackChunkManager.update(this.cameras.main);
-          }
-        } catch (e) {
-          console.warn("CitypackChunkManager failed:", e);
-        }
-      }
-      // If !proceduralMap, fall through to initStaticMap()
-    } else if (selectedMap !== "pico8") {
-      try {
-        this.chunkManager = new ChunkManager(this);
-        if (this.chunkManager.isReady()) {
-          this.useChunks = true;
-          this.chunkManager.update(this.cameras.main);
-        }
-      } catch (e) {
-        console.warn("ChunkManager failed, falling back to static map:", e);
-        this.useChunks = false;
-      }
+    const map = this.make.tilemap({ key: "moonCity" });
+    const tileset = map.addTilesetImage("moon-city-tileset", "moonTiles");
+    if (!tileset) {
+      throw new Error("Missing moon-city tileset binding");
     }
 
-    // Fallback or pico8: load static Tiled JSON map
-    if (!this.useChunks && !this.useCitypackChunks) {
-      this.initStaticMap();
+    const layerName = map.layers[0]?.name ?? "Tile Layer 1";
+    const groundLayer = map.createLayer(layerName, tileset, 0, 0);
+    if (!groundLayer) {
+      throw new Error("Failed to create moon-city tile layer");
     }
 
-    // Pico-8 map is 440×240px — zoom and center it to fill the canvas
-    if (!this.useChunks && selectedMap === "pico8") {
-      const mc = getMapConfig(); // { tileSize: 8, cols: 55, rows: 30 }
-      const mapPixelW = mc.cols * mc.tileSize; // 440
-      const mapPixelH = mc.rows * mc.tileSize; // 240
-      const zoom = Math.min(GAME_WIDTH / mapPixelW, GAME_HEIGHT / mapPixelH);
-      this.cameras.main.setZoom(zoom);
-      this.cameras.main.centerOn(mapPixelW / 2, mapPixelH / 2);
-    }
+    this.groundLayer = groundLayer;
+    this.groundLayer.setDepth(0);
 
-    // Citypack static map is 100×80 at 16px = 1600×1280px — center camera on map
-    if (
-      !this.useChunks &&
-      !this.useCitypackChunks &&
-      selectedMap === "citypack"
-    ) {
-      this.cameras.main.centerOn((100 * 16) / 2, (80 * 16) / 2);
-    }
+    const cam = this.cameras.main;
+    cam.setBackgroundColor("#050911");
+    cam.setBounds(
+      this.mapPixelLeft,
+      this.mapPixelTop,
+      this.mapPixelWidth,
+      this.mapPixelHeight,
+      true,
+    );
+    cam.setZoom(DEFAULT_ZOOM);
+    cam.centerOn(
+      this.mapPixelLeft + this.mapPixelWidth / 2,
+      this.mapPixelTop + this.mapPixelHeight / 2,
+    );
+    cam.roundPixels = true;
+    this.clampCamera();
 
-    if (selectedMap === "citypack") {
-      const MAP_PX_W = 100 * TILE_SIZE; // 1600
-      const MAP_PX_H = 80 * TILE_SIZE; // 1280
-      const minZoom = Math.max(GAME_WIDTH / MAP_PX_W, GAME_HEIGHT / MAP_PX_H);
-      this.cameras.main.setZoom(Math.max(this.cameras.main.zoom, minZoom));
-      this.cameras.main.setBounds(0, 0, MAP_PX_W, MAP_PX_H, true);
-      (this as any)._minZoom = minZoom;
-      (this as any)._mapPxW = MAP_PX_W;
-      (this as any)._mapPxH = MAP_PX_H;
-    }
-
-    // Snap camera to integer pixels to prevent tile seams during pan/zoom
-    this.cameras.main.roundPixels = true;
-
-    // Phase-change color overlay (sits above buildings, below NPCs)
     this.phaseOverlay = this.add.rectangle(
       GAME_WIDTH / 2,
       GAME_HEIGHT / 2,
-      GAME_WIDTH * 4, // larger to cover zoom-out
-      GAME_HEIGHT * 4,
+      GAME_WIDTH * 2,
+      GAME_HEIGHT * 2,
       0x000000,
       0,
     );
-    this.phaseOverlay.setDepth(5);
-    this.phaseOverlay.setScrollFactor(0); // stays fixed on screen
+    this.phaseOverlay.setDepth(8);
+    this.phaseOverlay.setScrollFactor(0);
 
-    // Listen for simulation events via the bridge
     eventBridge.on("sim:phase-change", this.onPhaseChange, this);
     eventBridge.on("sim:camera-pan", this.onCameraPan, this);
     eventBridge.on("sim:camera-zoom", this.onCameraZoom, this);
-
     eventBridge.on("sim:camera-snap-npc", this.onCameraSnapNPC, this);
 
-    // ─── NPC Animations & System ───
     this.registerNPCAnimations();
     this.npcManager = new NPCManager(
       this,
@@ -166,12 +136,10 @@ export class WorldScene extends Phaser.Scene {
     );
     this.simEventHandler = new SimEventHandler(this, this.npcManager);
 
-    // Keyboard controls
-    if (this.input?.keyboard) {
+    if (this.input.keyboard) {
       this.cursors = this.input.keyboard.createCursorKeys();
     }
 
-    // Emit ready state
     this.sceneReady = true;
     this.events.emit("world-ready");
   }
@@ -179,42 +147,6 @@ export class WorldScene extends Phaser.Scene {
   update() {
     if (!this.sceneReady || this.cleanedUp) return;
 
-    if (this.useChunks && this.chunkManager) {
-      this.chunkManager.update(this.cameras.main);
-    }
-    if (this.useCitypackChunks && this.citypackChunkManager) {
-      this.citypackChunkManager.update(this.cameras.main);
-    }
-
-    this.npcManager?.refreshActiveBubblePositions();
-    this.npcManager?.updateAllPositions();
-
-    // Camera spring bounce for citypack
-    if (selectedMap === "citypack") {
-      const cam = this.cameras.main;
-      const SOFT_X_MIN = 160;
-      const SOFT_X_MAX = 1440;
-      const SOFT_Y_MIN = 80;
-      const SOFT_Y_MAX = 1200;
-      const SPRING = 0.08;
-
-      const cx = cam.scrollX + cam.width / (2 * cam.zoom);
-      const cy = cam.scrollY + cam.height / (2 * cam.zoom);
-
-      let tx = cx;
-      let ty = cy;
-      if (cx < SOFT_X_MIN) tx = cx + (SOFT_X_MIN - cx) * SPRING;
-      else if (cx > SOFT_X_MAX) tx = cx + (SOFT_X_MAX - cx) * SPRING;
-      if (cy < SOFT_Y_MIN) ty = cy + (SOFT_Y_MIN - cy) * SPRING;
-      else if (cy > SOFT_Y_MAX) ty = cy + (SOFT_Y_MAX - cy) * SPRING;
-
-      if (tx !== cx || ty !== cy) {
-        cam.scrollX = Math.round(tx - cam.width / (2 * cam.zoom));
-        cam.scrollY = Math.round(ty - cam.height / (2 * cam.zoom));
-      }
-    }
-
-    // Keyboard panning
     if (this.cursors) {
       const cam = this.cameras.main;
       const speed = 10 / cam.zoom;
@@ -222,7 +154,10 @@ export class WorldScene extends Phaser.Scene {
       if (this.cursors.right.isDown) cam.scrollX += speed;
       if (this.cursors.up.isDown) cam.scrollY -= speed;
       if (this.cursors.down.isDown) cam.scrollY += speed;
+      this.clampCamera();
     }
+
+    this.npcManager?.refreshActiveBubblePositions();
   }
 
   private registerNPCAnimations() {
@@ -244,250 +179,83 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
-  // ─── Static map initialization (fallback) ───
-
-  private initStaticMap() {
-    let mapKey: string;
-    let tilesetKey: string;
-    let tilesetName: string;
-    let groundLayerName: string;
-    let buildingLayerName: string;
-
-    if (selectedMap === "citypack") {
-      mapKey = "citypack-city";
-      tilesetKey = "citypack";
-      tilesetName = "citypack";
-      groundLayerName = "Terrain";
-      buildingLayerName = "Objects";
-    } else if (selectedMap === "pico8") {
-      mapKey = "city";
-      tilesetKey = "pico8";
-      tilesetName = "city-tileset";
-      groundLayerName = "Terrain";
-      buildingLayerName = "Objects";
-    } else {
-      mapKey = "city";
-      tilesetKey = "urban";
-      tilesetName = "urban";
-      groundLayerName = "ground";
-      buildingLayerName = "buildings";
-    }
-
-    const mc = getMapConfig();
-    const map = this.make.tilemap({ key: mapKey });
-
-    const tileset = map.addTilesetImage(
-      tilesetName,
-      tilesetKey,
-      mc.tileSize,
-      mc.tileSize,
-      0,
-      mc.spacing,
-    );
-    if (!tileset) {
-      console.error("Failed to load tileset");
-      return;
-    }
-
-    const groundLayer = map.createLayer(groundLayerName, tileset);
-    if (!groundLayer) {
-      console.error("Failed to create ground layer");
-      return;
-    }
-    this.staticGroundLayer = groundLayer;
-
-    const buildingLayer = map.createLayer(buildingLayerName, tileset);
-    if (!buildingLayer) {
-      console.error("Failed to create building layer");
-      return;
-    }
-    this.staticBuildingLayer = buildingLayer;
-    this.staticBuildingLayer.setDepth(1);
-  }
-
-  // ─── Shared tile queries (delegate to chunks or static) ───
-
   getBuildingPositions(): BuildingPositions {
-    if (this.useCitypackChunks && this.citypackChunkManager) {
-      return this.citypackChunkManager.getBuildingPositions(
-        CENTER_BOUNDS.minCol,
-        CENTER_BOUNDS.minRow,
-        CENTER_BOUNDS.maxCol,
-        CENTER_BOUNDS.maxRow,
-      );
-    }
-
-    if (this.useChunks && this.chunkManager) {
-      return this.chunkManager.getBuildingPositions(
-        CENTER_BOUNDS.minCol,
-        CENTER_BOUNDS.minRow,
-        CENTER_BOUNDS.maxCol,
-        CENTER_BOUNDS.maxRow,
-      );
-    }
-
-    // Static map scan
-    const positions: BuildingPositions = {
-      government: { x: 9, y: 5 },
-      shops: [],
-      factories: [],
-      houses: [],
+    return {
+      government: anchorFor("AUTH-05", { x: 25, y: 7 }),
+      shops: [
+        { id: "edu", ...anchorFor("EDU-01", { x: 8, y: 7 }) },
+        { id: "med", ...anchorFor("MED-02", { x: 35, y: 20 }) },
+        { id: "civ", ...anchorFor("CIV-08", { x: 20, y: 18 }) },
+      ],
+      factories: [
+        { id: "fin", ...anchorFor("FIN-03", { x: 34, y: 8 }) },
+        { id: "net", ...anchorFor("NET-04", { x: 17, y: 7 }) },
+        { id: "pwr", ...anchorFor("PWR-06", { x: 8, y: 25 }) },
+        { id: "cloud", ...anchorFor("CLOUD-07", { x: 26, y: 25 }) },
+      ],
+      houses: [
+        { id: "auth", ...anchorFor("AUTH-05", { x: 25, y: 7 }) },
+        { id: "south-1", x: 12, y: 26 },
+        { id: "south-2", x: 30, y: 26 },
+      ],
     };
-
-    if (!this.staticBuildingLayer) return positions;
-
-    const SHOP1_TL = 177;
-    const SHOP2_TL = 249;
-    const LONG_SHOP_TL = 253;
-    const FACTORY_TL = 227;
-    const HOUSE_TL = 271;
-
-    let shopIdx = 0;
-    let factoryIdx = 0;
-    let houseIdx = 0;
-
-    const mc = getMapConfig();
-    for (let r = 0; r < mc.rows; r++) {
-      for (let c = 0; c < mc.cols; c++) {
-        const tile = this.staticBuildingLayer.getTileAt(c, r);
-        if (!tile) continue;
-        const g = tile.index;
-
-        if (g === FACTORY_TL) {
-          positions.factories.push({
-            id: `factory-${factoryIdx++}`,
-            x: c,
-            y: r,
-          });
-        } else if (g === SHOP1_TL || g === SHOP2_TL || g === LONG_SHOP_TL) {
-          positions.shops.push({ id: `shop-${shopIdx++}`, x: c, y: r });
-        } else if (g === HOUSE_TL) {
-          positions.houses.push({ id: `house-${houseIdx++}`, x: c, y: r });
-        }
-      }
-    }
-
-    return positions;
   }
 
-  /** Returns road orientation at a tile: "v"=vertical, "h"=horizontal, "none"=not a road */
   private getRoadTypeFn(): (col: number, row: number) => "v" | "h" | "none" {
-    const ROAD_V_GID = 2440; // ROAD_DASH_V + 1
-    const ROAD_H_GID = 2438; // ROAD_DASH_H + 1
-    const ROAD_INT_GID = 2436; // ROAD_BLANK + 1
-
-    if (this.useCitypackChunks) {
-      return (col, row) => {
-        if (citypackIsVRoadCol(col) && citypackIsHRoadRow(row)) return "none"; // intersection
-        if (citypackIsVRoadCol(col)) return "v";
-        if (citypackIsHRoadRow(row)) return "h";
-        return "none";
-      };
-    }
-    if (this.useChunks) {
-      return (col, row) => {
-        if (ccityIsVRoadCol(col) && ccityIsHRoadRow(row)) return "none"; // intersection
-        if (ccityIsVRoadCol(col)) return "v";
-        if (ccityIsHRoadRow(row)) return "h";
-        return "none";
-      };
-    }
-    // Static citypack: read tile GID
-    if (selectedMap === "citypack" && this.staticGroundLayer) {
-      return (col, row) => {
-        const tile = this.staticGroundLayer!.getTileAt(col, row);
-        if (!tile) return "none";
-        if (tile.index === ROAD_V_GID) return "v";
-        if (tile.index === ROAD_H_GID) return "h";
-        // ROAD_INT (intersection) falls through to "none" — cars should not spawn at crossroads
-        return "none";
-      };
-    }
-    return () => "none";
+    return (col, row) => {
+      const vertical = ROAD_SEGMENTS.some(
+        (segment) =>
+          col >= segment.x1 &&
+          col <= segment.x2 &&
+          row >= segment.y1 &&
+          row <= segment.y2 &&
+          segment.x1 === segment.x2 - 1,
+      );
+      const horizontal = ROAD_SEGMENTS.some(
+        (segment) =>
+          col >= segment.x1 &&
+          col <= segment.x2 &&
+          row >= segment.y1 &&
+          row <= segment.y2 &&
+          segment.y1 === segment.y2 - 1,
+      );
+      if (vertical && !horizontal) return "v";
+      if (horizontal && !vertical) return "h";
+      return "none";
+    };
   }
 
-  /** Returns a road-check function based on the active map type */
   private getIsRoad(): (col: number, row: number) => boolean {
-    if (this.useCitypackChunks) {
-      // CitypackProceduralCity.isRoad takes (worldRow, worldCol) — swap
-      return (col, row) => citypackIsRoad(row, col);
-    }
-    if (this.useChunks) {
-      // ProceduralCity.isRoad takes (worldRow, worldCol) — swap
-      return (col, row) => ccityIsRoad(row, col);
-    }
-    // Static citypack: check ground tile GID against known road GIDs
-    if (selectedMap === "citypack" && this.staticGroundLayer) {
-      return (col, row) => {
-        const tile = this.staticGroundLayer!.getTileAt(col, row);
-        return tile !== null && CITYPACK_ROAD_TILES.has(tile.index);
-      };
-    }
-    // pico8 / ccity static fallback: any non-building tile is walkable-as-road
-    return (col, row) => this.isWalkable(col, row);
+    return (col, row) => isRoadTile(col, row);
   }
 
   isWalkable(col: number, row: number): boolean {
-    if (this.useCitypackChunks && this.citypackChunkManager) {
-      return this.citypackChunkManager.isWalkable(col, row);
-    }
-
-    if (this.useChunks && this.chunkManager) {
-      return this.chunkManager.isWalkable(col, row);
-    }
-
-    // Static JSON map — fail closed until the tile layer exists.
-    const mc = getMapConfig();
-    if (col < 0 || col >= mc.cols || row < 0 || row >= mc.rows) return false;
-    const layer = this.staticBuildingLayer;
-    if (!layer) return false;
-    return !layer.getTileAt(col, row);
+    if (col < VISIBLE_MIN_COL || col > VISIBLE_MAX_COL) return false;
+    if (row < VISIBLE_MIN_ROW || row > VISIBLE_MAX_ROW) return false;
+    return isRoadTile(col, row);
   }
-
-  // ─── Internal event handlers ───
 
   private onCameraPan(data: { dx: number; dy: number }) {
     const cam = this.getMainCamera();
     if (!cam) return;
 
-    cam.scrollX = Math.round(cam.scrollX + data.dx);
-    cam.scrollY = Math.round(cam.scrollY + data.dy);
+    cam.scrollX = Math.round(cam.scrollX + data.dx / cam.zoom);
+    cam.scrollY = Math.round(cam.scrollY + data.dy / cam.zoom);
+    this.clampCamera();
     this.npcManager?.refreshActiveBubblePositions();
   }
 
-  private onCameraZoom(data: { delta: number; x?: number; y?: number }) {
+  private onCameraZoom(data: { delta: number }) {
     const cam = this.getMainCamera();
     if (!cam) return;
 
-    const zoomStep = 0.2;
-    const minZoom = (this as any)._minZoom ?? 0.5;
-    const maxZoom = 5.0;
-
-    const oldZoom = cam.zoom;
     const nextZoom = Phaser.Math.Clamp(
-      oldZoom + data.delta * zoomStep,
-      minZoom,
-      maxZoom,
+      cam.zoom + data.delta * 0.08,
+      DEFAULT_ZOOM,
+      MAX_ZOOM,
     );
-
-    if (oldZoom === nextZoom) return;
-
-    if (data.x !== undefined && data.y !== undefined) {
-      // Zoom to mouse: adjust scroll so the point under the mouse stays fixed
-      // pointWorld = (pointScreen / zoom) + scroll
-      // We want pointWorldBefore == pointWorldAfter
-      // (mouseX / oldZoom) + oldScrollX == (mouseX / nextZoom) + nextScrollX
-      // nextScrollX = oldScrollX + mouseX * (1/oldZoom - 1/nextZoom)
-
-      const mouseX = data.x;
-      const mouseY = data.y;
-
-      cam.setZoom(nextZoom);
-      cam.scrollX += mouseX * (1 / oldZoom - 1 / nextZoom);
-      cam.scrollY += mouseY * (1 / oldZoom - 1 / nextZoom);
-    } else {
-      cam.setZoom(nextZoom);
-    }
+    cam.setZoom(nextZoom);
+    this.clampCamera();
     this.npcManager?.refreshActiveBubblePositions();
   }
 
@@ -496,23 +264,42 @@ export class WorldScene extends Phaser.Scene {
     if (!npc) return;
     const targetX = npc.tileX * TILE_SIZE + TILE_SIZE / 2;
     const targetY = npc.tileY * TILE_SIZE + TILE_SIZE / 2;
-    this.cameras.main.pan(targetX, targetY, 400, "Power2");
+    this.cameras.main.pan(targetX, targetY, 260, "Sine.easeOut");
+    this.time.delayedCall(270, () => this.clampCamera());
     this.npcManager?.refreshActiveBubblePositions();
   }
 
-  private onPhaseChange(data: { phase: number; round: number; sentiment?: number }) {
-    const overlay = this.phaseOverlay;
-    if (!this.sceneReady || this.cleanedUp || !overlay) return;
+  private onPhaseChange(data: { phase: number; sentiment?: number }) {
+    if (!this.phaseOverlay) return;
 
     const sentiment = data.sentiment ?? 0.5;
     if (data.phase <= 1) {
-      overlay.setFillStyle(0x000000, 0);
-    } else {
-      const color =
-        sentiment >= 0.6 ? 0x00ff44 : sentiment <= 0.35 ? 0xff2200 : 0xff8800;
-      const alpha = 0.08 + (1 - sentiment) * 0.1;
-      overlay.setFillStyle(color, alpha);
+      this.phaseOverlay.setFillStyle(0x000000, 0);
+      return;
     }
+
+    const color =
+      sentiment >= 0.6 ? 0x1dd1a1 : sentiment <= 0.35 ? 0xff3a3a : 0xffb347;
+    const alpha = sentiment <= 0.35 ? 0.12 : 0.08;
+    this.phaseOverlay.setFillStyle(color, alpha);
+  }
+
+  private clampCamera() {
+    const cam = this.cameras.main;
+    const visibleWidth = cam.width / cam.zoom;
+    const visibleHeight = cam.height / cam.zoom;
+    const minScrollX = this.mapPixelLeft;
+    const minScrollY = this.mapPixelTop;
+    const maxScrollX = Math.max(
+      minScrollX,
+      this.mapPixelLeft + this.mapPixelWidth - visibleWidth,
+    );
+    const maxScrollY = Math.max(
+      minScrollY,
+      this.mapPixelTop + this.mapPixelHeight - visibleHeight,
+    );
+    cam.scrollX = Phaser.Math.Clamp(cam.scrollX, minScrollX, maxScrollX);
+    cam.scrollY = Phaser.Math.Clamp(cam.scrollY, minScrollY, maxScrollY);
   }
 
   private getMainCamera(): Phaser.Cameras.Scene2D.Camera | null {
@@ -525,26 +312,17 @@ export class WorldScene extends Phaser.Scene {
 
     this.cleanedUp = true;
     this.sceneReady = false;
-
     eventBridge.off("sim:phase-change", this.onPhaseChange, this);
     eventBridge.off("sim:camera-pan", this.onCameraPan, this);
     eventBridge.off("sim:camera-zoom", this.onCameraZoom, this);
-
     eventBridge.off("sim:camera-snap-npc", this.onCameraSnapNPC, this);
     this.simEventHandler?.destroy();
     this.simEventHandler = undefined;
-    this.cursors = undefined;
     this.npcManager?.destroy();
     this.npcManager = undefined;
-    this.chunkManager?.destroy();
-    this.chunkManager = undefined;
-    this.citypackChunkManager?.destroy();
-    this.citypackChunkManager = undefined;
-    this.staticGroundLayer = undefined;
-    this.staticBuildingLayer = undefined;
+    this.cursors = undefined;
     this.phaseOverlay = undefined;
-    this.useChunks = false;
-    this.useCitypackChunks = false;
+    this.groundLayer = undefined;
   }
 
   shutdown() {

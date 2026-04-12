@@ -233,6 +233,8 @@ export interface EconomicReport {
   notable_events: string[];
 }
 
+export type IncidentReport = EconomicReport;
+
 export type WSMessage =
   | WSPolicyAnalysisMsg
   | WSInitMsg

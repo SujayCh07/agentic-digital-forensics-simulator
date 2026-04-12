@@ -49,6 +49,6 @@ export function createGameConfig(
       autoCenter: Phaser.Scale.CENTER_BOTH,
     },
     scene: scenes,
-    backgroundColor: "#1a1510",
+    backgroundColor: "#080c12",
   };
 }

@@ -28,7 +28,7 @@ export function PolicyInput() {
 
   function loadReplay(data: SavedSimulation) {
     setReplayData(data);
-    router.push("/simulate?mode=replay&map=citypack");
+    router.push("/simulate?mode=replay&map=moonCity");
   }
 
   function handleLoadFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -73,7 +73,7 @@ export function PolicyInput() {
     if (text.trim().length < MIN_NOTES_CHARS_FOR_TEXT_ONLY || loading) return;
     const recordParam = record ? "&record=true" : "";
     if (process.env.NEXT_PUBLIC_MOCK_BACKEND === "true") {
-      router.push(`/simulate?map=citypack${recordParam}`);
+      router.push(`/simulate?map=moonCity${recordParam}`);
       return;
     }
     setLoading(true);
@@ -83,9 +83,9 @@ export function PolicyInput() {
         policy_source_ids: [],
         primary_policy_source_id: null,
         trend_source_ids: [],
-        map_id: "citypack",
+        map_id: "moonCity",
       });
-      router.push(`/simulate?id=${simId}&map=citypack${recordParam}`);
+      router.push(`/simulate?id=${simId}&map=moonCity${recordParam}`);
     } catch (err) {
       console.error("Failed to start simulation:", err);
       setLoading(false);

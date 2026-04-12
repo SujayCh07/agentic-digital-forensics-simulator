@@ -1,19 +1,12 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 import FuzzyText from "@/components/FuzzyText/FuzzyText";
 import { Particles } from "@/components/Particles/Particles";
-import { SimLoadingScreen } from "@/components/SimLoadingScreen";
 import { setReplayData } from "@/lib/replayStore";
 import type { SavedSimulation } from "@/types/backend";
-
-const NodeCanvasClient = dynamic(
-  () => import("@/components/NodeCanvas/NodeCanvasClient"),
-  { ssr: false },
-);
 
 function isSavedSimulation(data: unknown): data is SavedSimulation {
   if (!data || typeof data !== "object") return false;
@@ -58,21 +51,19 @@ function CornerBracket({
 }
 
 export default function Home() {
-  const [showLoading, setShowLoading] = useState(false);
-  const [showEditor, setShowEditor] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [showCurtain, setShowCurtain] = useState(false);
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handlePlay = useCallback(() => {
+  const handleInvestigate = useCallback(() => {
     if (isTransitioning) return;
     setIsTransitioning(true);
-    setTimeout(() => {
-      setShowCurtain(true);
-      setShowEditor(true);
-    }, 500);
-  }, [isTransitioning]);
+    setShowCurtain(true);
+    window.setTimeout(() => {
+      router.push("/simulate?mode=investigate&map=moonCity");
+    }, 180);
+  }, [isTransitioning, router]);
 
   const handleLoadFile = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -87,7 +78,7 @@ export default function Home() {
             return;
           }
           setReplayData(parsed);
-          router.push("/simulate?mode=replay&map=citypack");
+          router.push("/simulate?mode=replay&map=moonCity");
         } catch (err) {
           console.error("Failed to parse simulation file:", err);
         }
@@ -190,7 +181,7 @@ export default function Home() {
         >
           <div
             role="button"
-            onClick={handlePlay}
+            onClick={handleInvestigate}
             className="relative px-16 py-10 text-center cursor-pointer"
             style={{
               background: "rgba(8, 12, 18, 0.96)",
@@ -292,40 +283,40 @@ export default function Home() {
               className="relative z-10 text-[7px] font-mono tracking-widest"
               style={{ color: "#1e5a6a" }}
             >
-              [ CLICK TO LOAD INCIDENT ]
+              [ CLICK TO INVESTIGATE ]
             </motion.p>
           </div>
         </motion.div>
 
-        {/* ── Menu Buttons (Begin + Load) ──────────────────────── */}
+        {/* ── Menu Buttons (Investigate + Load) ────────────────── */}
         <motion.div
           initial={{ y: 30, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ delay: 1.0, duration: 0.8 }}
-          className="relative z-[10] flex w-full max-w-[480px] justify-center gap-3 px-4 max-[500px]:max-w-[180px] max-[500px]:flex-col"
+          className="relative z-[10] flex w-full max-w-[360px] justify-center gap-3 px-4 max-[500px]:max-w-[180px] max-[500px]:flex-col"
         >
-          {/* BEGIN button */}
+          {/* INVESTIGATE button */}
           <motion.button
             type="button"
-            onClick={handlePlay}
+            onClick={handleInvestigate}
             initial={{ y: 15, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ delay: 1.2, duration: 0.5 }}
-            whileHover={{ y: -2, boxShadow: "0 0 20px rgba(0,212,255,0.3)" }}
+            whileHover={{ y: -2, boxShadow: "0 0 20px rgba(0,255,136,0.2)" }}
             whileTap={{ y: 1 }}
             className="flex min-h-[34px] flex-1 basis-0 items-center justify-center px-4 py-1.5 cursor-pointer max-[500px]:w-full"
             style={{
-              background: "rgba(0,212,255,0.08)",
-              border: "1px solid #00d4ff",
+              background: "rgba(0,255,136,0.06)",
+              border: "1px solid #00ff88",
               borderRadius: "3px",
-              boxShadow: "0 0 12px rgba(0,212,255,0.12), inset 0 0 20px rgba(0,212,255,0.04)",
+              boxShadow: "0 0 10px rgba(0,255,136,0.1), inset 0 0 16px rgba(0,255,136,0.03)",
             }}
           >
             <FuzzyText
-              fontSize={11}
+              fontSize={8}
               fontFamily="'Press Start 2P', monospace"
               fontWeight={700}
-              color="#00d4ff"
+              color="#00ff88"
               baseIntensity={isTransitioning ? 0.85 : 0}
               hoverIntensity={0}
               enableHover={false}
@@ -336,7 +327,7 @@ export default function Home() {
               direction="both"
               clickEffect={false}
             >
-              BEGIN
+              INVESTIGATE
             </FuzzyText>
           </motion.button>
 
@@ -376,41 +367,6 @@ export default function Home() {
             </FuzzyText>
           </motion.button>
 
-          {/* INVESTIGATE button */}
-          <motion.button
-            type="button"
-            onClick={() => router.push("/simulate?mode=investigate")}
-            initial={{ y: 15, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ delay: 1.5, duration: 0.5 }}
-            whileHover={{ y: -2, boxShadow: "0 0 20px rgba(0,255,136,0.2)" }}
-            whileTap={{ y: 1 }}
-            className="flex min-h-[34px] flex-1 basis-0 items-center justify-center px-4 py-1.5 cursor-pointer max-[500px]:w-full"
-            style={{
-              background: "rgba(0,255,136,0.06)",
-              border: "1px solid #00ff88",
-              borderRadius: "3px",
-              boxShadow: "0 0 10px rgba(0,255,136,0.1), inset 0 0 16px rgba(0,255,136,0.03)",
-            }}
-          >
-            <FuzzyText
-              fontSize={8}
-              fontFamily="'Press Start 2P', monospace"
-              fontWeight={700}
-              color="#00ff88"
-              baseIntensity={isTransitioning ? 0.85 : 0}
-              hoverIntensity={0}
-              enableHover={false}
-              glitchMode={isTransitioning}
-              glitchInterval={90}
-              glitchDuration={220}
-              fuzzRange={8}
-              direction="both"
-              clickEffect={false}
-            >
-              INVESTIGATE
-            </FuzzyText>
-          </motion.button>
         </motion.div>
 
         {/* Hidden file input */}
@@ -422,69 +378,6 @@ export default function Home() {
           className="hidden"
         />
 
-        {/* ── Incident editor overlay ──────────────────────────── */}
-        <AnimatePresence>
-          {showEditor && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="fixed inset-0 z-[50] flex flex-col"
-              style={{ background: "#080c12" }}
-            >
-              <div
-                className="absolute inset-0 z-[1] pointer-events-none"
-                style={{
-                  backgroundImage:
-                    "linear-gradient(rgba(0,212,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(0,212,255,0.025) 1px, transparent 1px)",
-                  backgroundSize: "48px 48px",
-                }}
-              />
-              <div
-                className="absolute inset-0 z-[2] pointer-events-none"
-                style={{
-                  background:
-                    "radial-gradient(circle at 50% 24%, rgba(0,212,255,0.12), transparent 26%), linear-gradient(180deg, rgba(8,12,18,0.08) 0%, rgba(8,12,18,0.28) 100%)",
-                }}
-              />
-              <div
-                className="relative z-[20] flex h-10 shrink-0 items-center justify-between px-5"
-                style={{
-                  background: "rgba(15, 25, 39, 0.98)",
-                  borderBottom: "1px solid #1e3d5a",
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => setShowEditor(false)}
-                  className="text-[9px] font-mono uppercase tracking-wide transition-opacity hover:opacity-70"
-                  style={{ color: "#4a6580" }}
-                >
-                  {"\u2190"} Back
-                </button>
-                <span
-                  className="text-[9px] font-mono tracking-wide"
-                  style={{ color: "#00d4ff" }}
-                >
-                  ◈ New Investigation
-                </span>
-                <span
-                  className="text-[8px] font-mono"
-                  style={{ color: "#00ff88" }}
-                >
-                  ● READY
-                </span>
-              </div>
-              <div className="relative z-[10] min-h-0 flex-1 flex items-center justify-center pt-20">
-                <NodeCanvasClient onSimulateStart={() => setShowLoading(true)} />
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* ── Loading screen ───────────────────────────────────── */}
-        <SimLoadingScreen isVisible={showLoading} />
       </motion.div>
 
       {/* ── Slide curtain transition ─────────────────────────── */}

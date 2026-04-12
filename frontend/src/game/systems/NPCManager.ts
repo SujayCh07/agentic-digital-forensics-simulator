@@ -3,7 +3,7 @@ import { getCoordScale, moodToSentiment } from "@/lib/adapter";
 import type { BuildingPositions } from "@/types";
 import type { BackendNPC } from "@/types/backend";
 import { eventBridge } from "../bridge/EventBridge";
-import { CENTER_BOUNDS, TILE_SIZE, getMapConfig } from "../config";
+import { CENTER_BOUNDS, TILE_SIZE, getMapConfig, selectedMap } from "../config";
 import { spawnEmotionBubble } from "../effects/EconomicEffects";
 import { Car } from "../entities/Car";
 import { NPC } from "../entities/NPC";
@@ -365,7 +365,7 @@ export class NPCManager {
     index: number,
     roadTiles: { x: number; y: number }[],
   ): NPC {
-    if (bn.role === "driver") {
+    if (bn.role === "driver" && selectedMap !== "moonCity") {
       const template = CAR_TEMPLATES[index % CAR_TEMPLATES.length];
 
       // Try to find a road tile where the car template fits

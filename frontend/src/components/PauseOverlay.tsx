@@ -4,7 +4,7 @@ interface PauseOverlayProps {
   isVisible: boolean;
   onResume: () => void;
   onRestart: () => void;
-  onReturnToLevels: () => void;
+  onReturnToLanding: () => void;
   zoomedIn: boolean;
 }
 
@@ -12,7 +12,7 @@ export function PauseOverlay({
   isVisible,
   onResume,
   onRestart,
-  onReturnToLevels,
+  onReturnToLanding,
   zoomedIn,
 }: PauseOverlayProps) {
   if (!isVisible) return null;
@@ -64,7 +64,7 @@ export function PauseOverlay({
             className="mt-3 text-[13px] leading-6"
             style={{ color: "#8aa3be" }}
           >
-            Mission playback is suspended. Resume the moon-city board, restart the current level, or return to level select.
+            Investigation controls are suspended. Resume the moon-city board, restart this run, or return to the NIPS console.
           </div>
 
           <div className="mt-6 grid gap-3">
@@ -94,7 +94,7 @@ export function PauseOverlay({
             </button>
             <button
               type="button"
-              onClick={onReturnToLevels}
+              onClick={onReturnToLanding}
               className="rounded-md border px-4 py-3 text-left text-[12px] font-mono uppercase tracking-[0.18em] transition-opacity hover:opacity-80"
               style={{
                 borderColor: "#315271",
@@ -102,7 +102,7 @@ export function PauseOverlay({
                 color: "#c8d6e5",
               }}
             >
-              Return To Level Select
+              Return To Console
             </button>
           </div>
 

@@ -1,4 +1,4 @@
-// Shared types for SIMULACRA frontend
+// Shared frontend event types for the NIPS investigation UI.
 
 export type SimEventType =
   | "reaction"
@@ -8,6 +8,7 @@ export type SimEventType =
   | "closure"
   | "strike"
   | "policy_response"
+  | "system_response"
   | "phase_change"
   | "mood_shift";
 

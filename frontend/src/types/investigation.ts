@@ -124,6 +124,73 @@ export interface CaseNetworkEdge {
   isSuspicious: boolean;
 }
 
+export type SectorId =
+  | "EDU-01"
+  | "MED-02"
+  | "FIN-03"
+  | "NET-04"
+  | "AUTH-05"
+  | "PWR-06"
+  | "CLOUD-07"
+  | "CIV-08";
+
+export type CyberNodeStatus =
+  | "healthy"
+  | "suspicious"
+  | "compromised"
+  | "isolated";
+
+export interface SectorBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface SystemNodeModel {
+  id: string;
+  label: string;
+  type: SystemNodeType;
+  sectorId: SectorId;
+  x?: number;
+  y?: number;
+  mapPosition?: {
+    tileX: number;
+    tileY: number;
+  };
+  status: CyberNodeStatus;
+  threatLevel: number;
+  logs: string[];
+  evidence: EvidenceArtifact[] | string[];
+  sourceNodeId?: string;
+}
+
+export interface SectorModel {
+  id: SectorId;
+  label: string;
+  domain?: string;
+  bounds: SectorBounds;
+  nodeId: string;
+  status: CyberNodeStatus;
+}
+
+export interface SystemLinkModel {
+  sourceId: SectorId;
+  targetId: SectorId;
+  active: boolean;
+  suspicious: boolean;
+  compromisedFlow: boolean;
+}
+
+export interface CityFrameState {
+  timestamp: number;
+  sectors: SectorModel[];
+  nodes: SystemNodeModel[];
+  links: SystemLinkModel[];
+  selectedNodeId: string | null;
+  alerts: string[];
+}
+
 // ---------------------------------------------------------------------------
 // Evidence artifacts
 // ---------------------------------------------------------------------------

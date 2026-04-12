@@ -14,9 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SIMULACRA - Economic Policy Simulator",
+  title: "NIPS - Moon City Investigation",
   description:
-    "Watch 20 AI agents react to your economic policies in a simulated city.",
+    "Investigate incidents across the moon-city grid in the NIPS cyber-forensics board.",
 };
 
 export default function RootLayout({

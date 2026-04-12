@@ -20,7 +20,7 @@ export default function ASCIITextHero() {
         }}
       >
         <ASCIIText
-          text="SIMULACRA"
+          text="NIPS"
           enableWaves
           asciiFontSize={8}
           textFontSize={288}
