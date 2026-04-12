@@ -39,6 +39,8 @@ export interface AgentStateModel {
   ownedAgents: NipsAgentInstance[];
   ownedRoleIds: AgentId[];
   slotAgentsByRole: Partial<Record<AgentId, NipsAgentInstance>>;
+  ownedAgentsByRole: Partial<Record<AgentId, NipsAgentInstance>>;
+  offersByRole: Partial<Record<AgentId, NipsMarketplaceOffer>>;
   deployedAgents: NipsAgentInstance[];
   lockedRoles: AgentId[];
 }
@@ -71,6 +73,15 @@ export function buildAgentStateModel({
     }
   });
 
+  // Map marketplace offers by role
+  const offersByRole: Partial<Record<AgentId, NipsMarketplaceOffer>> = {};
+  marketplaceOffers.forEach((offer) => {
+    const roleId = toAgentId(offer.agent.archetype);
+    if (roleId) {
+      offersByRole[roleId] = offer;
+    }
+  });
+
   // Locked roles are those in baseLockedRoles that we don't own yet
   const lockedRoles = baseLockedRoles.filter((roleId) => !ownedRoleIds.includes(roleId));
 
@@ -83,6 +94,8 @@ export function buildAgentStateModel({
     ownedAgents,
     ownedRoleIds,
     slotAgentsByRole,
+    ownedAgentsByRole: slotAgentsByRole,
+    offersByRole,
     deployedAgents,
     lockedRoles,
   };
