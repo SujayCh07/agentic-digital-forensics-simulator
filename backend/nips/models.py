@@ -133,6 +133,7 @@ class ChatMessage(BaseModel):
     tool_name: str | None = None
     tool_args: dict[str, Any] | None = None
     tool_result: str | None = None
+    tool_call_id: str | None = None
 
 
 class AgentChatSession(BaseModel):

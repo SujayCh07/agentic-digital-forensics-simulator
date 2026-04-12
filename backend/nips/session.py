@@ -198,12 +198,14 @@ def append_tool_message(
     chat: AgentChatSession,
     tool_name: str,
     result: str,
+    tool_call_id: str | None = None,
 ) -> ChatMessage:
     msg = ChatMessage(
         id=str(uuid.uuid4()),
         role="tool",
         content=result,
         tool_name=tool_name,
+        tool_call_id=tool_call_id,
     )
     chat.messages.append(msg)
     return msg
