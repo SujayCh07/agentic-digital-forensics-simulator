@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sendNipsChat, setChatCallbacks } from "@/lib/investigationAgentClient";
+import { audioManager } from "@/lib/audioManager";
 import type {
   NipsAgentInstance,
   NipsChatMessage,
@@ -127,6 +128,7 @@ export function AgentCommandModal({
         onEvidenceUpdate?.(ev);
       },
       onChatDone: (data) => {
+        audioManager.playAgentResponse();
         const finalText = data.full_answer || "";
         setHistory((prev) => [
           ...prev,
@@ -189,6 +191,7 @@ export function AgentCommandModal({
     setPendingText("");
     setToolActivities([]);
 
+    audioManager.playPlayerChat();
     sendNipsChat(agent.instance_id, value, nodeContext);
   }, [input, isStreaming, agent.instance_id, nodeContext]);
 

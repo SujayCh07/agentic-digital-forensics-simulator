@@ -37,6 +37,7 @@ import {
   saveProgress,
   type PlayerProgress,
 } from "@/lib/playerProgress";
+import { audioManager } from "@/lib/audioManager";
 import type { NPCHoverInfo, NPCState, SimEvent } from "@/types";
 
 // Mirror game/constants values here to avoid importing Phaser during SSR.
@@ -345,6 +346,27 @@ function InvestigateGame({
   const [lockedAgentInfo, setLockedAgentInfo] = useState<NipsAgentInstance | null>(null);
   const [npcPositions, setNpcPositions] = useState<Record<string, NPCState>>({});
 
+  // ── Audio: stop music when leaving the game view ────────────────────────────
+  useEffect(() => {
+    return () => { audioManager.stopMusic(); };
+  }, []);
+
+  // ── Audio: switch music tracks based on investigation pressure ──────────────
+  useEffect(() => {
+    if (inv.pressureLevel >= 8) {
+      audioManager.switchToCorruptMusic();
+    } else if (inv.pressureLevel >= 4) {
+      audioManager.switchToIncidentMusic();
+    }
+  }, [inv.pressureLevel]);
+
+  // ── Audio: play sound when new evidence is found ────────────────────────────
+  useEffect(() => {
+    if (inv.events.length > 0) {
+      audioManager.playEvidenceAdded();
+    }
+  }, [inv.events.length]);
+
   // Init NIPS backend session
   useEffect(() => {
     const cleanupSession = initNipsSession({
@@ -407,7 +429,10 @@ function InvestigateGame({
         setNpcPositions((prev) => ({ ...prev, [npc.id]: npc }));
       };
 
-      eventBridge.on("sim:npc-click", handler);
+      eventBridge.on("sim:npc-click", (data: { npcId: string }) => {
+        audioManager.playButtonClick();
+        handler(data);
+      });
       eventBridge.on("sim:npc-position", posHandler);
       cleanup = () => {
         eventBridge.off("sim:npc-click", handler);
@@ -415,7 +440,7 @@ function InvestigateGame({
       };
     });
     return () => cleanup?.();
-  }, [nipsAgents]);
+  }, [nipsAgents, inv.lockedAgents]); // Added dependencies for correct audio/popup logic
 
   const handleBuyAgent = useCallback((offerId: string) => {
     buyNipsAgent(offerId);
@@ -429,6 +454,7 @@ function InvestigateGame({
   const showMarketplace = activeOverlay === "market";
 
   const toggleBoard = useCallback(() => {
+    audioManager.playPauseMenu();
     setActiveOverlay((prev) => (prev === "board" ? null : "board"));
   }, []);
 
@@ -437,6 +463,7 @@ function InvestigateGame({
   }, []);
 
   const toggleMarketplace = useCallback(() => {
+    audioManager.playPauseMenu();
     setActiveOverlay((prev) => (prev === "market" ? null : "market"));
   }, []);
 
@@ -628,7 +655,7 @@ function InvestigateGame({
           {inv.isComplete && (
             <button
               type="button"
-              onClick={() => setRewardsShown(true)}
+              onClick={() => { audioManager.playButtonClick(); setRewardsShown(true); }}
               className="text-[10px] font-mono transition-opacity hover:opacity-70"
               style={{ color: "#00ff88", textShadow: "0 0 8px rgba(0,255,136,0.5)" }}
             >
@@ -653,7 +680,7 @@ function InvestigateGame({
           </button>
           <button
             type="button"
-            onClick={() => setShowDirectory(true)}
+            onClick={() => { audioManager.playPauseMenu(); setShowDirectory(true); }}
             className="rpg-panel px-3 py-1.5 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-70"
             style={{ color: "#4a6580" }}
           >

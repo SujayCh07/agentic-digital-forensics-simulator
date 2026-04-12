@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import type { SimEvent } from "@/types";
+import { audioManager } from "@/lib/audioManager";
 
 interface EventFeedProps {
   events: SimEvent[];
@@ -154,7 +155,11 @@ export function EventFeed({ events, onEventClick, onPinEvent, onOpenBoard }: Eve
                 {onPinEvent && (
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); onPinEvent(event); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      audioManager.playButtonClick();
+                      onPinEvent(event);
+                    }}
                     className="text-[9px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-60"
                     style={{ color: "#b06fff" }}
                   >
@@ -164,7 +169,11 @@ export function EventFeed({ events, onEventClick, onPinEvent, onOpenBoard }: Eve
                 {onOpenBoard && (
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); onOpenBoard(event); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      audioManager.playButtonClick();
+                      onOpenBoard(event);
+                    }}
                     className="text-[9px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-100"
                     style={{ color: "#00ff88", opacity: 0.6 }}
                   >

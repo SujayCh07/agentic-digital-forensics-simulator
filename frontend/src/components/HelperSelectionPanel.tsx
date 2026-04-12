@@ -7,13 +7,14 @@
  * The other three are locked and can be unlocked mid-case with credits.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   getHelperRoster,
   type PlayerProgress,
   purchaseHelper,
   saveProgress,
 } from "@/lib/playerProgress";
+import { audioManager } from "@/lib/audioManager";
 import type { ActiveHelpers, AgentId, Helper } from "@/types/investigation";
 
 interface HelperSelectionPanelProps {
@@ -196,7 +197,21 @@ export function HelperSelectionPanel({
   // Default starter = logis, but player can switch before confirming
   const [starterRole, setStarterRole] = useState<AgentId>("logis");
 
-  const handleUpgrade = (helperId: string) => {
+  // Start selection music and unlock audio on first interaction
+  useEffect(() => {
+    const unlock = () => audioManager.unlock();
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("keydown", unlock, { once: true });
+    audioManager.startSelectionMusic();
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
+
+  const handleUpgrade = (helperId: string, canAfford: boolean) => {
+    if (!canAfford) { audioManager.playLockedClick(); return; }
+    audioManager.playButtonClick();
     const updated = purchaseHelper(progress, helperId);
     if (!updated) return;
     saveProgress(updated);
@@ -204,6 +219,7 @@ export function HelperSelectionPanel({
   };
 
   const handleConfirm = () => {
+    audioManager.startGameplayMusic();
     const freshRoster = getHelperRoster(progress);
     // Build ActiveHelpers with best available helper per role
     const helpers = Object.fromEntries(
@@ -273,8 +289,8 @@ export function HelperSelectionPanel({
                   role={role}
                   helper={lv1}
                   isSelected={starterRole === role}
-                  onSelect={() => setStarterRole(role)}
-                  onUpgrade={() => lv2 && handleUpgrade(lv2.id)}
+                  onSelect={() => { audioManager.playButtonClick(); setStarterRole(role); }}
+                  onUpgrade={() => lv2 && handleUpgrade(lv2.id, progress.credits >= lv2.cost)}
                   credits={progress.credits}
                   canUpgrade={lv2Unlocked}
                   upgradedHelper={lv2}
@@ -307,7 +323,7 @@ export function HelperSelectionPanel({
           </div>
           <button
             type="button"
-            onClick={handleConfirm}
+            onClick={() => { audioManager.playButtonClick(); handleConfirm(); }}
             className="px-6 py-3 text-[11px] font-mono rounded transition-all"
             style={{
               background: "rgba(0,212,255,0.12)",
