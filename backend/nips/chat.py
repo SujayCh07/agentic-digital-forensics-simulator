@@ -1,4 +1,4 @@
-"""OpenAI-backed chat orchestration for NIPS agents.
+"""OpenAI-backed chat orchestration for EchoLocate investigator agents.
 
 Yields typed event dicts that the Socket.IO router forwards to the client:
   - thought_chunk   : ephemeral reasoning text (emulated or empty for OpenAI)
@@ -295,7 +295,7 @@ async def stream_agent_chat(
         }
 
     except Exception as exc:
-        logger.exception("NIPS chat error for agent %s", agent.instance_id)
+        logger.exception("EchoLocate chat error for agent %s", agent.instance_id)
         yield {
             "type": "error",
             "message": f"Agent chat failed: {type(exc).__name__}: {str(exc)[:200]}",

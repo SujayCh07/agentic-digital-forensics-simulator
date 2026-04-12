@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * NIPS — Agent Consultation Panel
+ * EchoLocate agent consultation panel.
  *
- * Right sidebar for the User Board. Shows:
+ * Right sidebar for the case board. Shows:
  * - Selected items summary
  * - Agent selector for consultation
  * - Consultation history

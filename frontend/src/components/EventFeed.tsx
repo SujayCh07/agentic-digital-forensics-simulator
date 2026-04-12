@@ -26,6 +26,7 @@ function eventIcon(type: SimEvent["type"]): string {
     case "strike":
       return "⚠";
     case "policy_response":
+    case "system_response":
       return "◆";
     case "phase_change":
       return "◉";
@@ -49,6 +50,7 @@ function eventColor(type: SimEvent["type"]): string {
     case "strike":
       return "#f59e0b";
     case "policy_response":
+    case "system_response":
       return "#00ff88";
     case "phase_change":
       return "#b06fff";

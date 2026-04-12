@@ -1,4 +1,4 @@
-// Shared frontend event types for the NIPS investigation UI.
+// Shared frontend event types for the EchoLocate investigation UI.
 
 export type SimEventType =
   | "reaction"

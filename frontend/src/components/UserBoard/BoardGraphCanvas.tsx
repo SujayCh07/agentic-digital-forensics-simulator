@@ -1,15 +1,15 @@
 "use client";
 
 /**
- * NIPS — Board Graph Canvas
+ * EchoLocate board graph canvas.
  *
- * Pure D3 canvas force simulation, ported directly from SocialGraph.tsx.
+ * Pure D3 canvas force simulation.
  * Same architecture: RAF draw loop reads nodesRef/edgesRef, mousedown/move/up
  * drive D3 drag (alphaTarget(0.3).restart on down, alphaTarget(0) on up).
  *
  * Responsibilities:
  * - Render board nodes (system, unknown, outcome, hypothesis, evidence)
- * - Render edges between them  
+ * - Render edges between them
  * - Force simulation for smooth interaction
  * - Expose callback when a node is right-clicked (for edge creation UI)
  * - Accept externally added nodes (evidence drops, hypotheses)

@@ -1,5 +1,5 @@
 /**
- * NIPS — Helper roster
+ * EchoLocate — Helper roster
  *
  * Two helpers per role: a rookie (unlocked by default) and a veteran
  * (unlocked with player credits). Stats affect task speed + result quality.

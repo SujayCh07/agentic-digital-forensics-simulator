@@ -37,7 +37,7 @@ echo "Starting frontend on :3000…"
 FRONTEND_PID=$!
 
 echo ""
-echo "SIMULACRA running:"
+echo "EchoLocate running:"
 echo "  Frontend: http://localhost:3000"
 echo "  Backend:  http://localhost:8000"
 echo ""

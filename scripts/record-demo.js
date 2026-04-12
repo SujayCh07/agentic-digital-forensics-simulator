@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * record-demo.js — records a 60s video of SIMULACRA running.
+ * record-demo.js — records a 60s video of EchoLocate running.
  * Usage: node scripts/record-demo.js [output.webm]
  * Requires the app to be running at http://localhost:3000
  */
@@ -32,18 +32,10 @@ async function record() {
   await page.goto("http://localhost:3000", { waitUntil: "networkidle" });
   await page.waitForTimeout(2000);
 
-  // Click first preset policy button
-  const presetBtn = page.locator('[data-testid^="preset-"]').first();
-  if ((await presetBtn.count()) > 0) {
-    await presetBtn.click();
-    await page.waitForTimeout(500);
-  }
-
-  // Click simulate button
-  const simBtn = page.locator('[data-testid="simulate-button"]');
-  if ((await simBtn.count()) > 0) {
-    await simBtn.click();
-    console.log("Simulation started.");
+  const investigateButton = page.getByRole("button", { name: /investigate/i }).first();
+  if ((await investigateButton.count()) > 0) {
+    await investigateButton.click();
+    console.log("EchoLocate investigation started.");
   }
 
   console.log(`Recording for ${RECORD_DURATION_MS / 1000}s...`);

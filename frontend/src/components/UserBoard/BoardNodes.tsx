@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * NIPS — Board custom React Flow node components
+ * EchoLocate board custom React Flow node components.
  *
  * All nodes have 4 handles (top, bottom, left, right) for flexible connections.
  * Nodes are fully draggable via React Flow's built-in drag system.

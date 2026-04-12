@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * NIPS — Evidence Card component
+ * EchoLocate evidence card component.
  *
  * Compact card showing evidence metadata. Used in:
  * - Board left panel (pinned evidence list)

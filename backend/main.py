@@ -20,10 +20,10 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("openai").setLevel(logging.WARNING)
 
-logger = logging.getLogger("policysim")
+logger = logging.getLogger("echolocate")
 
 # ── App ──────────────────────────────────────────────────────────────
-app = FastAPI(title="PolicySim", version="0.1.0")
+app = FastAPI(title="EchoLocate Backend", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,14 +37,14 @@ app.include_router(router)
 app.include_router(extract_router)
 app.include_router(radio_router)
 
-# Register NIPS Socket.IO event handlers on the shared sio instance
+# Register EchoLocate investigator Socket.IO handlers on the shared sio instance
 register_nips_events(sio)
 
 # Mount Socket.IO as ASGI sub-application
 sio_asgi = socketio.ASGIApp(sio, other_asgi_app=app)
 app = sio_asgi  # type: ignore[assignment]
 
-logger.info("PolicySim ready — model=%s base_url=%s", LLM_MODEL, LLM_BASE_URL)
+logger.info("EchoLocate backend ready — model=%s base_url=%s", LLM_MODEL, LLM_BASE_URL)
 
 if __name__ == "__main__":
     import uvicorn

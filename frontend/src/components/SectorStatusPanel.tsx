@@ -31,7 +31,7 @@ const THREAT_BLURBS: Record<
   "AUTH-05": {
     secure: "Badge readers, identity brokers, and gate access are enforcing cleanly.",
     suspicious: "Access failures are rising at the security bastion with unusual token reuse patterns.",
-    alert: "Credential replay is hitting the fortress gateway and forcing emergency policy checks.",
+    alert: "Credential replay is hitting the fortress gateway and forcing emergency access review.",
     breached: "Security gateway trust has been broken. Admin credentials can move laterally across districts.",
   },
   "FIN-03": {

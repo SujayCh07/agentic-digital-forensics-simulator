@@ -1,4 +1,4 @@
-"""Socket.IO event handlers for the NIPS agent system.
+"""Socket.IO event handlers for the EchoLocate investigator system.
 
 All events use the ``nips_`` prefix to avoid collisions with the existing
 policy-sim ``start_sim`` / ``chat_with_npc`` handlers.
@@ -46,7 +46,7 @@ def _reward_for_severity(severity: str) -> int:
 
 
 def register_nips_events(sio: Any) -> None:
-    """Register all NIPS Socket.IO event handlers on *sio*."""
+    """Register all investigator Socket.IO event handlers on *sio*."""
 
     # ------------------------------------------------------------------
     # Session init
@@ -85,7 +85,7 @@ def register_nips_events(sio: Any) -> None:
     async def on_chat(sid: str, data: dict[str, Any]) -> None:
         session = get_session(sid)
         if not session:
-            await sio.emit("nips_error", {"message": "No active NIPS session."}, to=sid)
+            await sio.emit("nips_error", {"message": "No active EchoLocate session."}, to=sid)
             return
 
         agent_id = data.get("agent_instance_id", "")
@@ -190,7 +190,7 @@ def register_nips_events(sio: Any) -> None:
                     await sio.emit("nips_error", event, to=sid)
 
         except Exception as exc:
-            logger.exception("nips_chat handler error: sid=%s agent=%s", sid, agent_id)
+            logger.exception("EchoLocate chat handler error: sid=%s agent=%s", sid, agent_id)
             await sio.emit("nips_error", {
                 "message": f"Chat failed: {type(exc).__name__}: {str(exc)[:200]}",
             }, to=sid)
@@ -203,7 +203,7 @@ def register_nips_events(sio: Any) -> None:
     async def on_buy(sid: str, data: dict[str, Any]) -> None:
         session = get_session(sid)
         if not session:
-            await sio.emit("nips_error", {"message": "No active NIPS session."}, to=sid)
+            await sio.emit("nips_error", {"message": "No active EchoLocate session."}, to=sid)
             return
 
         offer_id = data.get("offer_id", "")
@@ -223,7 +223,7 @@ def register_nips_events(sio: Any) -> None:
     async def on_refresh(sid: str, data: dict[str, Any] | None = None) -> None:
         session = get_session(sid)
         if not session:
-            await sio.emit("nips_error", {"message": "No active NIPS session."}, to=sid)
+            await sio.emit("nips_error", {"message": "No active EchoLocate session."}, to=sid)
             return
 
         offers = refresh_marketplace(session)
@@ -247,7 +247,7 @@ def register_nips_events(sio: Any) -> None:
     async def on_list_agents(sid: str, data: dict[str, Any] | None = None) -> None:
         session = get_session(sid)
         if not session:
-            await sio.emit("nips_error", {"message": "No active NIPS session."}, to=sid)
+            await sio.emit("nips_error", {"message": "No active EchoLocate session."}, to=sid)
             return
 
         maybe_refresh_marketplace(session)
@@ -261,7 +261,7 @@ def register_nips_events(sio: Any) -> None:
     async def on_get_agent(sid: str, data: dict[str, Any]) -> None:
         session = get_session(sid)
         if not session:
-            await sio.emit("nips_error", {"message": "No active NIPS session."}, to=sid)
+            await sio.emit("nips_error", {"message": "No active EchoLocate session."}, to=sid)
             return
 
         instance_id = data.get("instance_id", "")

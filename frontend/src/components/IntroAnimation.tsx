@@ -76,7 +76,7 @@ export default function IntroAnimation({ onComplete }: IntroAnimationProps) {
               >
                 <span className="font-normal">{"\u00A9"}2025</span>
                 <span className="font-bold" style={{ color: "#D4A520" }}>
-                  NIPS.
+                  EchoLocate.
                 </span>
               </motion.div>
 

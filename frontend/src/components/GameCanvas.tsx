@@ -4,9 +4,9 @@ import { useEffect, useRef } from "react";
 import { GAME_HEIGHT, GAME_WIDTH, SCALE_FACTOR } from "@/game/config";
 
 /**
- * GameCanvas wraps the Phaser game instance.
- * Agent A builds the real scenes (BootScene, WorldScene) in a separate worktree.
- * This component uses a fallback placeholder scene until those are available.
+ * GameCanvas wraps the Phaser game instance for the active EchoLocate board.
+ * It bootstraps the real moon-city scenes and falls back to a minimal loading
+ * scene if the dynamic imports are not yet ready.
  */
 export function GameCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -30,8 +30,7 @@ export function GameCanvas() {
         setSelectedMap(mapParam);
       }
 
-      // Try to load the real scenes from Agent A's build
-      // turbopackOptional suppresses build errors when these files don't exist yet
+      // Load the active moon-city scenes; keep a lightweight placeholder fallback.
       let scenes: Phaser.Types.Scenes.SceneType[];
       try {
         const { BootScene } = await import(

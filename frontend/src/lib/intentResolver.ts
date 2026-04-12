@@ -1,5 +1,5 @@
 /**
- * NIPS — Intent Resolver
+ * EchoLocate — Intent Resolver
  *
  * Converts a player's natural-language instruction into a structured TaskType.
  * Uses weighted keyword/regex pattern matching — no LLM required for MVP.

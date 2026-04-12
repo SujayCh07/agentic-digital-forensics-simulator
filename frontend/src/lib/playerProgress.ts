@@ -1,5 +1,5 @@
 /**
- * NIPS — Player progress
+ * EchoLocate — Player progress
  *
  * Persisted to localStorage. Tracks credits (cross-case currency) and
  * which helpers have been unlocked. Credits are earned by completing cases
@@ -15,7 +15,8 @@ export interface PlayerProgress {
   unlockedHelperIds: string[];
 }
 
-const STORAGE_KEY = "nips_player_progress_v1";
+const STORAGE_KEY = "echolocate_player_progress_v1";
+const LEGACY_STORAGE_KEYS = ["nips_player_progress_v1"];
 
 const DEFAULT: PlayerProgress = {
   credits: 0,
@@ -26,7 +27,10 @@ const DEFAULT: PlayerProgress = {
 export function loadProgress(): PlayerProgress {
   if (typeof window === "undefined") return { ...DEFAULT };
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw =
+      localStorage.getItem(STORAGE_KEY) ??
+      LEGACY_STORAGE_KEYS.map((key) => localStorage.getItem(key)).find(Boolean) ??
+      null;
     if (!raw) return { ...DEFAULT };
     return JSON.parse(raw) as PlayerProgress;
   } catch {

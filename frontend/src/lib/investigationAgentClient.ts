@@ -1,6 +1,9 @@
 /**
- * NIPS agent client — wraps Socket.IO communication with the backend
- * for Gemini-backed agent chat, marketplace, and session management.
+ * EchoLocate investigator client — wraps Socket.IO communication with the backend
+ * for streamed agent chat, recruiting, and session management.
+ *
+ * Note: the underlying Socket.IO event names still use the historical `nips_`
+ * prefix for compatibility with the existing backend transport layer.
  */
 
 import { io, type Socket } from "socket.io-client";

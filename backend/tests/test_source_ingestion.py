@@ -58,7 +58,7 @@ class TestSourceIngestion:
                 num_rounds=10,
                 num_npcs=20,
                 objective="Measure pressure on consumer prices.",
-                map_id="ccity",
+                map_id="moonCity",
             )
         )
 

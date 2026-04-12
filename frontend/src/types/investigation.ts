@@ -1,4 +1,4 @@
-// NIPS — Investigation domain types
+// EchoLocate — Investigation domain types
 
 // ---------------------------------------------------------------------------
 // Helper / progression system
@@ -369,7 +369,7 @@ export interface BoardState {
 }
 
 // ---------------------------------------------------------------------------
-// NIPS Gemini-backed agent instance types
+// EchoLocate investigator roster types
 // ---------------------------------------------------------------------------
 
 export type NipsArchetype = "LOGIS" | "NEXUS" | "FILER" | "CHRONO";

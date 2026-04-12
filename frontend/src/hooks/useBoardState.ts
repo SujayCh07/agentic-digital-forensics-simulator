@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * NIPS — User Board state hook
+ * EchoLocate — User Board state hook
  *
  * Manages the investigation board: problem graph, pinned evidence,
  * hypothesis nodes, connections, and agent consultation.

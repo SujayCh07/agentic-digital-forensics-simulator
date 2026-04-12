@@ -374,7 +374,7 @@ function InvestigateGame({
   const [overlayMetrics, setOverlayMetrics] = useState<OverlayMetrics>(DEFAULT_OVERLAY_METRICS);
   const radio = useRadio();
 
-  // --- NIPS Gemini agent system state ---
+  // --- EchoLocate investigator agent state ---
   const [nipsAgents, setNipsAgents] = useState<NipsAgentInstance[]>([]);
   const [nipsOffers, setNipsOffers] = useState<NipsMarketplaceOffer[]>([]);
   const [nipsFunds, setNipsFunds] = useState(1500);
@@ -424,7 +424,7 @@ function InvestigateGame({
     }
   }, [inv.events.length]);
 
-  // Init NIPS backend session
+  // Init backend investigator session
   useEffect(() => {
     const cleanupSession = initNipsSession({
       onSessionReady: (data) => {
@@ -433,7 +433,7 @@ function InvestigateGame({
         setNipsFunds(data.funds);
         setNipsNextRefresh(data.next_refresh);
       },
-      onError: (msg) => console.error("[NIPS]", msg),
+      onError: (msg) => console.error("[EchoLocate agents]", msg),
     }, inv.caseId, starterRole.toUpperCase());
 
     setMarketplaceCallbacks({
@@ -455,7 +455,7 @@ function InvestigateGame({
         setNipsAgents(normalizeOwnedAgents(data.agents));
         setNipsFunds(data.funds);
       },
-      onError: (msg) => console.error("[NIPS marketplace]", msg),
+      onError: (msg) => console.error("[EchoLocate recruiting]", msg),
     });
 
     return () => {

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * NIPS — Board custom React Flow edge component
+ * EchoLocate board custom React Flow edge component.
  *
  * Click on any edge to delete it.
  * Uses getSmoothStepPath for better routing around nodes.

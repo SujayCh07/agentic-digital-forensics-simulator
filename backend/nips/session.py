@@ -1,4 +1,4 @@
-"""In-memory session manager for NIPS investigations.
+"""In-memory session manager for EchoLocate investigations.
 
 Stores per-Socket.IO-sid state: deployed agents, marketplace, funds, chat
 histories, and evidence. Marketplace auto-refreshes every 3 minutes.
@@ -68,7 +68,7 @@ def create_session(
     case_id: str = "midnight_exfil",
     starter_archetype: str = "LOGIS",
 ) -> NipsSession:
-    """Create a fresh NIPS session with starter agents and marketplace offers."""
+    """Create a fresh EchoLocate session with starter agents and marketplace offers."""
     now = time.time()
     starters = _generate_starter_agents(starter_archetype)
     offers = _generate_offers(
@@ -88,7 +88,7 @@ def create_session(
         pressure=0.0,
     )
     _sessions[sid] = session
-    logger.info("NIPS session created: sid=%s, case=%s, starters=%d", sid, case_id, len(starters))
+    logger.info("EchoLocate session created: sid=%s, case=%s, starters=%d", sid, case_id, len(starters))
     return session
 
 
@@ -98,7 +98,7 @@ def get_session(sid: str) -> NipsSession | None:
 
 def destroy_session(sid: str) -> None:
     _sessions.pop(sid, None)
-    logger.info("NIPS session destroyed: sid=%s", sid)
+    logger.info("EchoLocate session destroyed: sid=%s", sid)
 
 
 # ---------------------------------------------------------------------------

@@ -39,7 +39,7 @@ ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY", "")
 MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4o")
 
-# NIPS agent chat model
+# EchoLocate investigator chat model
 NIPS_MODEL_NAME = os.environ.get("NIPS_MODEL_NAME", "gpt-4o")
 
 if "gpt" in MODEL_NAME.lower():

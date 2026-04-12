@@ -107,7 +107,7 @@ class PolicyContextBundle(BaseModel):
 
 
 class PolicyInput(BaseModel):
-    """Simulation input: a single uploaded PDF source."""
+    """Legacy replay input for the archived simulation pipeline."""
 
     primary_policy_source_id: str | None = None
     policy_source_ids: list[str] = Field(default_factory=list)
@@ -115,7 +115,7 @@ class PolicyInput(BaseModel):
     num_rounds: int = 3
     num_npcs: int = 5
     objective: str = Field(default="", max_length=500)
-    map_id: str = Field(default="ccity")
+    map_id: str = Field(default="moonCity")
 
     @model_validator(mode="after")
     def require_policy_source(self) -> PolicyInput:

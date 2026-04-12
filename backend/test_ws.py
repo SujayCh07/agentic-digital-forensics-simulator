@@ -15,7 +15,7 @@ async def connect():
         "num_rounds": 1,
         "num_npcs": 2,
         "objective": "",
-        "map_id": "citypack"
+        "map_id": "moonCity"
     })
     sim_id = res.json()["simulation_id"]
     print(f"Starting sim: {sim_id}")

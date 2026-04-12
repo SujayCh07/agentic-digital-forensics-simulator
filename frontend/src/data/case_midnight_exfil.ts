@@ -1,5 +1,5 @@
 /**
- * NIPS — Case: The Midnight Exfiltration
+ * EchoLocate — Case: The Midnight Exfiltration
  *
  * A prebuilt, static forensics scenario. No procedural generation.
  * All evidence is pre-placed; findings are deterministic.
@@ -120,7 +120,7 @@ export const CASE_AGENTS_NPCS: BackendNPC[] = [
     mbti: "ISTJ",
     profession: "Log Analyst",
     role: "worker",
-    country: "NIPS",
+    country: "Moon Colony",
     income_level: "high",
     political_leaning: 0,
     reputation: 0.9,
@@ -143,7 +143,7 @@ export const CASE_AGENTS_NPCS: BackendNPC[] = [
     mbti: "ENTP",
     profession: "Network Analyst",
     role: "worker",
-    country: "NIPS",
+    country: "Moon Colony",
     income_level: "high",
     political_leaning: 0,
     reputation: 0.88,
@@ -166,7 +166,7 @@ export const CASE_AGENTS_NPCS: BackendNPC[] = [
     mbti: "INFJ",
     profession: "File Analyst",
     role: "worker",
-    country: "NIPS",
+    country: "Moon Colony",
     income_level: "high",
     political_leaning: 0,
     reputation: 0.85,
@@ -189,7 +189,7 @@ export const CASE_AGENTS_NPCS: BackendNPC[] = [
     mbti: "INTJ",
     profession: "Timeline Analyst",
     role: "worker",
-    country: "NIPS",
+    country: "Moon Colony",
     income_level: "high",
     political_leaning: 0,
     reputation: 0.92,

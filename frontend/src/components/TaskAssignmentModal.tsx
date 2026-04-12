@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * NIPS — Task Assignment Modal
+ * EchoLocate task assignment modal.
  *
  * Player selects an agent, types a natural-language instruction,
- * and the system interprets it into a task. Wrong agent = hard fail.
- * Locked agents are gated through the marketplace, not unlocked here directly.
+ * and the system interprets it into a task. Locked agents are gated
+ * through the recruiting flow, not unlocked here directly.
  */
 
 import { useEffect, useRef, useState } from "react";

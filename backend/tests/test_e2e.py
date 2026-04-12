@@ -66,7 +66,7 @@ async def test_full_pipeline():
         "objective": "measure economic impact on workers",
         "max_rounds": 1,
         "num_npcs": 3,
-        "map_id": "ccity",
+        "map_id": "moonCity",
         "entities": [],
         "npcs": [],
         "relationships": [],

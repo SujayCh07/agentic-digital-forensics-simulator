@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * NIPS — useInvestigation hook
+ * EchoLocate — useInvestigation hook
  *
  * Orchestrates the investigation gameplay loop:
  *
@@ -18,7 +18,7 @@
  * Funds earned based on finding severity
  *
  * Other mechanics:
- * - Funds: start at 1500₡, earn from findings, and support marketplace recruitment
+ * - Funds: start at 1500₡, earn from findings, and support specialist recruitment
  * - Pressure: escalation timer fires every 45s, worsens incident state
  * - Agent personality: short in-character commentary appended to findings
  */
@@ -423,7 +423,7 @@ export function useInvestigation(
       setLockedAgents(prev => prev.filter(id => id !== agentId));
       pushEvent({
         id: `unlock-${agentId}-${Date.now()}`,
-        type: "policy_response",
+        type: "system_response",
         agentId,
         agentName: agentId.toUpperCase(),
         message: waiveCost
@@ -673,7 +673,7 @@ export function useInvestigation(
         // Funds earned notification
         pushEvent({
           id: `${taskId}-funds`,
-          type: "policy_response",
+          type: "system_response",
           agentId: "system", agentName: "SYSTEM",
           message: `+${earned}₡ earned for ${result.severity} finding`,
           phase: stageRef.current, round: cycle, maxRounds: 99,
@@ -754,7 +754,7 @@ export function useInvestigation(
     incidentBrief: CASE_META.brief,
     objective:    CASE_META.objective,
     addExternalEvidence: (eu: NipsEvidenceUpdate) => {
-      // 1. Convert NIPS discovery to AgentResult
+      // 1. Convert streamed investigator evidence into AgentResult
       const result: AgentResult = {
         agentId: eu.agent_instance_id as any, // or map archetype
         agentName: eu.agent_display_name,
@@ -796,7 +796,7 @@ export function useInvestigation(
         ...prev,
         {
           id: `ev-nips-funds-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          type: "policy_response",
+          type: "system_response",
           agentId: "system",
           agentName: "SYSTEM",
           agentCategory: "REWARD",

@@ -365,13 +365,13 @@ export function EconomicReportModal({
               className="text-[10px] font-pixel uppercase tracking-[0.35em]"
               style={{ color: "#5B3A1E" }}
             >
-              {"\u2605"} Economic Report {"\u2605"}
+              {"\u2605"} Case Summary {"\u2605"}
             </div>
             <div
               className="mt-1 text-[8px] font-mono uppercase tracking-widest"
               style={{ color: "#8B7355" }}
             >
-              End-of-season summary
+              Incident wrap-up
             </div>
           </div>
           <button
@@ -627,7 +627,7 @@ export function EconomicReportModal({
             className="text-[8px] font-mono uppercase tracking-widest"
             style={{ color: "#8B7355" }}
           >
-            {"\u2605"} Pelican Town Economic Bureau {"\u2605"}
+            {"\u2605"} EchoLocate Incident Desk {"\u2605"}
           </span>
           <span
             className="text-[8px] font-mono uppercase"

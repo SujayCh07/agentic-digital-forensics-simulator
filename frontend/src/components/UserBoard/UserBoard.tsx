@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * NIPS — User Board (v5, D3 canvas + React sidebar)
+ * EchoLocate case board (D3 canvas + React sidebar).
  *
- * The graph canvas uses pure D3 (BoardGraphCanvas, same as SocialGraph).
- * React handles only the sidebar panels and connector drawing overlay.
+ * The graph canvas uses pure D3.
+ * React handles the sidebar panels and connector drawing overlay.
  *
  * Connection drawing: click a node to start a connection, click another to finish.
  * Evidence drag: drag a card from the left panel onto the canvas.
@@ -18,7 +18,7 @@ import { AgentConsultPanel } from "./AgentConsultPanel";
 import type { AgentId, AgentResult } from "@/types/investigation";
 import type { BoardHookReturn } from "@/hooks/useBoardState";
 
-const DRAG_TYPE = "application/nips-evidence";
+const DRAG_TYPE = "application/echolocate-evidence";
 let _uid = 0;
 
 // ---------------------------------------------------------------------------

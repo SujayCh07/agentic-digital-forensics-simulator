@@ -1,5 +1,5 @@
 /**
- * NIPS — User Board: Initial problem graph & evidence placement rules
+ * EchoLocate case board: initial problem graph and evidence placement rules.
  *
  * Defines the starting state of the investigation board for the
  * Midnight Exfiltration case. Some nodes start revealed, some hidden.
