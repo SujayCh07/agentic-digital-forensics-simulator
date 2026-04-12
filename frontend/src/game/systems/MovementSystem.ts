@@ -16,7 +16,6 @@ const ZONE_NODE_PREFERENCES: Record<string, string[]> = {
   industrial: ["E", "F", "G", "H"],
   residential: ROAD_GRAPH_NODES.map((node) => node.id),
 };
-
 /**
  * Handles NPC roaming with natural movement behavior.
  * - NPCs prefer roads and sidewalks over grass
