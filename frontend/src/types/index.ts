@@ -1,4 +1,4 @@
-// Shared types for SIMULACRA frontend
+// Shared frontend event types for the EchoLocate investigation UI.
 
 export type SimEventType =
   | "reaction"
@@ -8,6 +8,7 @@ export type SimEventType =
   | "closure"
   | "strike"
   | "policy_response"
+  | "system_response"
   | "phase_change"
   | "mood_shift";
 
@@ -48,6 +49,8 @@ export interface NPCState {
   reputation?: number;
   x: number;
   y: number;
+  worldX: number;
+  worldY: number;
   direction: "up" | "down" | "left" | "right";
   state: "idle" | "walking" | "protesting";
   message?: string;

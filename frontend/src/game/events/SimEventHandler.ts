@@ -1,3 +1,9 @@
+/**
+ * Legacy replay-mode effect bridge.
+ *
+ * The active EchoLocate investigate flow does not use these protest / price /
+ * closure effects. They remain only for archived replay recordings.
+ */
 import type { SimEvent } from "@/types";
 import { eventBridge } from "../bridge/EventBridge";
 import { GAME_HEIGHT, GAME_WIDTH, TILE_SIZE } from "../config";
@@ -73,6 +79,7 @@ export class SimEventHandler {
         this.handleLayoff(event.agentId);
         break;
       case "policy_response":
+      case "system_response":
       case "reaction":
       case "mood_shift":
         // No additional visual effect — chat bubble already shown above

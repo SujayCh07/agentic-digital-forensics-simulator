@@ -9,6 +9,9 @@ import {
   getIdleFrame,
 } from "../map/NPCCharacterRegistry";
 
+const ROAD_RENDER_OFFSET_X = 90;
+const ROAD_RENDER_OFFSET_Y = 195;
+
 function dirToNPCDir(dir: NPCState["direction"]): NPCDirection {
   switch (dir) {
     case "up":
@@ -24,7 +27,7 @@ function dirToNPCDir(dir: NPCState["direction"]): NPCDirection {
 
 export class NPC extends Phaser.GameObjects.Sprite {
   readonly npcId: string;
-  readonly npcName: string;
+  npcName: string;
   readonly charIndex: number;
   readonly characterType: CharacterType;
   profession = "";
@@ -54,6 +57,14 @@ export class NPC extends Phaser.GameObjects.Sprite {
     return this.scene?.cameras?.main ?? null;
   }
 
+  private toWorldX(col: number) {
+    return col * TILE_SIZE + TILE_SIZE / 2 + ROAD_RENDER_OFFSET_X;
+  }
+
+  private toWorldY(row: number) {
+    return row * TILE_SIZE + TILE_SIZE / 2 + ROAD_RENDER_OFFSET_Y;
+  }
+
   constructor(
     scene: Phaser.Scene,
     id: string,
@@ -66,8 +77,8 @@ export class NPC extends Phaser.GameObjects.Sprite {
     const idleFrame = getIdleFrame(characterType, "south");
     super(
       scene,
-      tileX * TILE_SIZE + TILE_SIZE / 2,
-      tileY * TILE_SIZE + TILE_SIZE / 2,
+      tileX * TILE_SIZE + TILE_SIZE / 2 + ROAD_RENDER_OFFSET_X,
+      tileY * TILE_SIZE + TILE_SIZE / 2 + ROAD_RENDER_OFFSET_Y,
       "city-tiles",
       idleFrame,
     );
@@ -99,7 +110,7 @@ export class NPC extends Phaser.GameObjects.Sprite {
     }
   }
 
-  /** Tween-move to an adjacent tile with bob animation. Rejects moves > 2 tiles to prevent teleporting. */
+  /** Tween-move along a straight road segment with bob animation. */
   walkTo(col: number, row: number): Promise<void> {
     if (this.isMoving) return Promise.resolve();
 
@@ -107,8 +118,9 @@ export class NPC extends Phaser.GameObjects.Sprite {
     const dx = col - this.tileX;
     const dy = row - this.tileY;
 
-    // Guard: reject long-distance moves to prevent teleporting
-    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) return Promise.resolve();
+    if (dx === 0 && dy === 0) return Promise.resolve();
+    // Only allow lane-aligned movement segments.
+    if (dx !== 0 && dy !== 0) return Promise.resolve();
 
     let dir: NPCState["direction"];
     if (dx > 0) dir = "right";
@@ -125,7 +137,10 @@ export class NPC extends Phaser.GameObjects.Sprite {
 
     this.play(getAnimKey(this.characterType, npcDir));
 
-    const targetY = row * TILE_SIZE + TILE_SIZE / 2;
+    const targetX = this.toWorldX(col);
+    const targetY = this.toWorldY(row);
+    const distance = Math.abs(dx) + Math.abs(dy);
+    const duration = Math.max(220, distance * 180);
 
     // Bob animation: squash-stretch + sway to simulate walking (no Y conflict)
     this.bobTween = this.scene.tweens.add({
@@ -142,9 +157,9 @@ export class NPC extends Phaser.GameObjects.Sprite {
     return new Promise((resolve) => {
       this.scene.tweens.add({
         targets: this,
-        x: col * TILE_SIZE + TILE_SIZE / 2,
+        x: targetX,
         y: targetY,
-        duration: 300,
+        duration,
         ease: "Linear",
         onUpdate: () => {
           if (this.isHovered) {
@@ -197,6 +212,24 @@ export class NPC extends Phaser.GameObjects.Sprite {
     eventBridge.emitNPCClick(this.npcId);
   }
 
+  refreshHover() {
+    if (!this.isHovered) return;
+    this.emitHoverEvent();
+  }
+
+  setDisplayName(name: string) {
+    this.npcName = name;
+    if (this.isHovered) {
+      this.emitHoverEvent();
+    }
+  }
+
+  applyLunarInvestigatorStyle(visorTint: number) {
+    this.setTint(visorTint, visorTint, 0xe8eef7, 0xd9e1ec);
+    this.setAlpha(0.98);
+    this.setDepth(12);
+  }
+
   /** Snapshot for EventBridge → React chat bubbles (camera-relative screen coords) */
   toState(): NPCState | null {
     const cam = this.getMainCamera();
@@ -211,6 +244,8 @@ export class NPC extends Phaser.GameObjects.Sprite {
       category: this.category,
       x: (this.x - cam.scrollX) * cam.zoom,
       y: (this.y - cam.scrollY) * cam.zoom,
+      worldX: this.x,
+      worldY: this.y,
       direction: this.direction,
       state: this.npcState,
       message: this.message,

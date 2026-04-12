@@ -1,14 +1,7 @@
 "use client";
 
 import {
-  BankIcon,
-  CoinIcon,
-  CrownIcon,
-  EggIcon,
-  FistIcon,
   PixelStatBar,
-  ShopIcon,
-  WorkerIcon,
 } from "@/components/dashboard/PixelStatBar";
 import type { SimMetrics } from "@/types";
 
@@ -18,41 +11,30 @@ interface DashboardProps {
   phase: number;
   round: number;
   maxRounds: number;
+  embedded?: boolean;
 }
 
 /* ─── Severity helpers ─── */
 
-function priceSeverity(v: number) {
-  const abs = Math.abs(v);
-  if (abs < 3) return "good" as const;
-  if (abs < 7) return "warn" as const;
+function highBadSeverity(v: number) {
+  if (v < 0.3) return "good" as const;
+  if (v < 0.6) return "warn" as const;
   return "bad" as const;
 }
 
-function unempSeverity(v: number) {
-  if (v < 4.5) return "good" as const;
-  if (v < 5.5) return "warn" as const;
+function highGoodSeverity(v: number) {
+  if (v > 0.7) return "good" as const;
+  if (v > 0.4) return "warn" as const;
   return "bad" as const;
 }
 
-function zeroOneSeverity(v: number, invert = false) {
-  const effective = invert ? 1 - v : v;
-  if (effective > 0.7) return "good" as const;
-  if (effective > 0.4) return "warn" as const;
-  return "bad" as const;
-}
-
-function eggSeverity(v: number) {
-  if (v < 1.5) return "good" as const;
-  if (v < 3.0) return "warn" as const;
+function networkSeverity(v: number) {
+  if (v < 0.3) return "neutral" as const;
+  if (v < 0.65) return "warn" as const;
   return "bad" as const;
 }
 
 /* ─── Fill ratio normalization ─── */
-
-function normalizePrices(v: number): number {
-  return Math.min(1, Math.abs(v) / 10);
-}
 
 function normalizeUnemployment(v: number): number {
   return Math.max(0, Math.min(1, (v - 3) / 7));
@@ -62,8 +44,8 @@ function normalizeInterestRate(v: number): number {
   return Math.max(0, Math.min(1, (v - 3) / 5));
 }
 
-function normalizeEggIndex(v: number): number {
-  return Math.max(0, Math.min(1, (v - 0.5) / 4.5));
+function normalizePrices(v: number): number {
+  return Math.min(1, Math.abs(v) / 10);
 }
 
 /* ─── Trend computation ─── */
@@ -80,103 +62,109 @@ function computeTrend(
   return diff > 0 ? "up" : "down";
 }
 
+/* ─── Terminal-style text icons for noir theme ─── */
+function TextIcon({ ch, color }: { ch: string; color: string }) {
+  return (
+    <span
+      className="shrink-0 text-[10px] font-mono w-4 text-center leading-none"
+      style={{ color }}
+    >
+      {ch}
+    </span>
+  );
+}
+
 export function Dashboard({
   metrics,
   metricsHistory,
   phase,
   round,
   maxRounds,
+  embedded = false,
 }: DashboardProps) {
-  return (
-    <div
-      className="rpg-panel flex w-56 flex-col"
-      data-testid="dashboard"
-    >
-      {/* Header */}
+  const content = (
+    <>
       <div
-        className="flex items-center justify-between px-3 py-2"
-        style={{ background: "#E8D5A3", borderBottom: "2px solid #C4A46C" }}
+        className="flex items-center px-4 py-3"
+        style={{ borderBottom: "1px solid #1e3d5a" }}
       >
         <span
-          className="text-[8px] font-pixel uppercase"
-          style={{ color: "#5B3A1E" }}
+          className="text-[10px] font-mono uppercase tracking-[0.16em]"
+          style={{ color: "#00d4ff" }}
         >
-          Phase {phase || "-"}
-        </span>
-        <span
-          className="text-[10px] font-mono tabular-nums uppercase tracking-widest"
-          style={{ color: "#8B7355" }}
-        >
-          Round {round}/{maxRounds}
+          Systems Status
         </span>
       </div>
 
-      {/* Stats */}
-      <div className="flex flex-col px-1 py-1">
+      <div className="flex flex-col py-1">
         <PixelStatBar
-          icon={<EggIcon />}
-          label="Egg Index"
-          value={metrics.eggIndex}
-          formatValue={(v) => `$${v.toFixed(2)}`}
-          severity={eggSeverity(metrics.eggIndex)}
-          fillRatio={normalizeEggIndex(metrics.eggIndex)}
-          trend={computeTrend(metricsHistory, (m) => m.eggIndex)}
-        />
-        <PixelStatBar
-          icon={<CoinIcon />}
-          label="Prices"
+          icon={<TextIcon ch="◈" color="#00d4ff" />}
+          label="Evidence Integrity"
           value={metrics.priceIndex}
-          formatValue={(v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`}
-          severity={priceSeverity(metrics.priceIndex)}
-          fillRatio={normalizePrices(metrics.priceIndex)}
-          trend={computeTrend(metricsHistory, (m) => m.priceIndex)}
+          formatValue={(v) => `${Math.max(0, Math.round(100 - normalizePrices(v) * 100))}%`}
+          severity={highGoodSeverity(1 - normalizePrices(metrics.priceIndex))}
+          fillRatio={1 - normalizePrices(metrics.priceIndex)}
+          trend={computeTrend(metricsHistory, (m) => -m.priceIndex)}
         />
         <PixelStatBar
-          icon={<WorkerIcon />}
-          label="Unemployment"
+          icon={<TextIcon ch="▣" color="#ff3a3a" />}
+          label="Compromised"
           value={metrics.unemploymentRate}
           formatValue={(v) => `${v.toFixed(1)}%`}
-          severity={unempSeverity(metrics.unemploymentRate)}
+          severity={highBadSeverity(normalizeUnemployment(metrics.unemploymentRate))}
           fillRatio={normalizeUnemployment(metrics.unemploymentRate)}
           trend={computeTrend(metricsHistory, (m) => m.unemploymentRate)}
         />
         <PixelStatBar
-          icon={<BankIcon />}
-          label="Interest Rate"
+          icon={<TextIcon ch="~" color="#00d4ff" />}
+          label="Network Activity"
           value={metrics.interestRate}
-          formatValue={(v) => `${v.toFixed(2)}%`}
-          severity={"neutral"}
+          formatValue={(v) => `${v.toFixed(1)}%`}
+          severity={networkSeverity(normalizeInterestRate(metrics.interestRate))}
           fillRatio={normalizeInterestRate(metrics.interestRate)}
           trend={computeTrend(metricsHistory, (m) => m.interestRate)}
         />
         <PixelStatBar
-          icon={<FistIcon />}
-          label="Social Unrest"
+          icon={<TextIcon ch="⚠" color="#f59e0b" />}
+          label="Threat Level"
           value={metrics.socialUnrest}
           formatValue={(v) => `${(v * 100).toFixed(0)}%`}
-          severity={zeroOneSeverity(metrics.socialUnrest, true)}
+          severity={highBadSeverity(metrics.socialUnrest)}
           fillRatio={metrics.socialUnrest}
           trend={computeTrend(metricsHistory, (m) => m.socialUnrest)}
         />
         <PixelStatBar
-          icon={<ShopIcon />}
-          label="Businesses Open"
+          icon={<TextIcon ch="■" color="#00ff88" />}
+          label="Systems Online"
           value={metrics.businessSurvival}
           formatValue={(v) => `${(v * 100).toFixed(0)}%`}
-          severity={zeroOneSeverity(metrics.businessSurvival)}
+          severity={highGoodSeverity(metrics.businessSurvival)}
           fillRatio={metrics.businessSurvival}
           trend={computeTrend(metricsHistory, (m) => m.businessSurvival)}
         />
         <PixelStatBar
-          icon={<CrownIcon />}
-          label="Gov. Approval"
+          icon={<TextIcon ch="◆" color="#b06fff" />}
+          label="Confidence"
           value={metrics.govApproval}
           formatValue={(v) => `${(v * 100).toFixed(0)}%`}
-          severity={zeroOneSeverity(metrics.govApproval)}
+          severity={highGoodSeverity(metrics.govApproval)}
           fillRatio={metrics.govApproval}
           trend={computeTrend(metricsHistory, (m) => m.govApproval)}
         />
       </div>
+    </>
+  );
+
+  if (embedded) {
+    return <div data-testid="dashboard">{content}</div>;
+  }
+
+  return (
+    <div
+      className="rpg-panel flex w-full flex-col"
+      data-testid="dashboard"
+    >
+      {content}
     </div>
   );
 }

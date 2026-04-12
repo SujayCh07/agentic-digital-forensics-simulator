@@ -22,7 +22,7 @@ import type { LogoItem } from "@/components/LogoLoop/LogoLoop";
  * Icons match declared dependencies in frontend/package.json and backend/pyproject.toml.
  * Phaser has no Simple Icons glyph — text label only.
  */
-export const simulacraTechLogos: LogoItem[] = [
+export const techStackLogos: LogoItem[] = [
   {
     node: <SiNextdotjs title="Next.js" />,
     title: "Next.js",

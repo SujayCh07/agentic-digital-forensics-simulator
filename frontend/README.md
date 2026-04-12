@@ -1,83 +1,38 @@
-# AGORA Frontend
+# EchoLocate Frontend
 
-Pixel-art economic policy simulation — Next.js 16 + Phaser 3 + Tailwind CSS v4.
+The active frontend is a Next.js + Phaser investigation interface for EchoLocate.
 
-## Stack
+## Active Responsibilities
 
-- **Framework:** Next.js 16.2.1 (App Router, React 19, React Compiler)
-- **Game Engine:** Phaser 3.90 (client-only via `next/dynamic`)
-- **Styling:** Tailwind CSS v4 (CSS-first config)
-- **Linting:** Biome 2.2.0
-- **Runtime:** Bun
+- landing and start flow
+- moon-city map rendering
+- investigator roster and recruiting UI
+- building/sector selection
+- evidence feed and case board
+- tactical overlays and agent labels
+- pause flow and investigation shell
 
-## Getting Started
+## Main Entry Points
 
-```bash
-bun install
-bun dev
-```
+- `src/app/page.tsx` — landing screen
+- `src/app/simulate/page.tsx` — investigate mode + legacy replay mode router
+- `src/components/GameCanvas.tsx` — Phaser mount
+- `src/game/scenes/BootScene.ts` — active asset preload
+- `src/game/scenes/WorldScene.ts` — active moon-city scene
 
-Open http://localhost:3000
+## Active Assets
 
-## Structure
+- `public/assets/maps/moon-city-map.json`
+- `public/assets/maps/moon-city-tileset.png`
+- `public/assets/agents/lunar_agents.png`
 
-```
-src/
-├── app/
-│   ├── page.tsx              # Landing page — policy input
-│   ├── simulate/page.tsx     # Simulation view — game + dashboard
-│   ├── layout.tsx            # Root layout (Geist Mono, dark theme)
-│   └── globals.css           # Theme vars, RPG panel styles
-├── components/
-│   ├── GameCanvas.tsx        # Phaser wrapper (dynamic, ssr:false)
-│   ├── PolicyInput.tsx       # Textarea + 3 preset policies
-│   ├── Dashboard.tsx         # Real-time metrics panel
-│   ├── EventFeed.tsx         # Scrolling event log
-│   └── ChatBubble.tsx        # NPC speech bubbles (DOM overlay)
-├── game/
-│   ├── config.ts             # Phaser game config (40x30, 16px tiles)
-│   ├── bridge/EventBridge.ts # React <-> Phaser event bus (SSR-safe)
-│   ├── scenes/
-│   │   ├── BootScene.ts      # Asset loading (tileset + tilemap JSON)
-│   │   └── WorldScene.ts     # City rendering from Tiled JSON map
-│   ├── map/
-│   │   ├── TileRegistry.ts   # Tile index constants
-│   │   ├── CityGenerator.ts  # Legacy procedural generator (unused)
-│   │   └── TILESET_REFERENCE.md # CCity tile ID documentation
-│   ├── entities/NPC.ts       # NPC sprite with walk animation
-│   ├── systems/
-│   │   ├── NPCManager.ts     # Spawns/manages 10 NPCs, zone assignment
-│   │   └── MovementSystem.ts # Road-preference roaming with zone leash
-│   ├── events/
-│   │   └── SimEventHandler.ts # Routes sim events to visual effects
-│   └── effects/              # Protest, Closure, PriceSpike effects
-├── hooks/
-│   └── useSimulation.ts      # Mock event playback (1.2-1.8s intervals)
-└── lib/
-    ├── types.ts              # Shared types (SimEvent, SimMetrics, etc.)
-    └── mockData.ts           # 29 events across 9 months
-```
+## Important State Files
 
-## Tileset
+- `src/hooks/useInvestigation.ts`
+- `src/lib/agentState.ts`
+- `src/lib/playerProgress.ts`
+- `src/hooks/useBoardState.ts`
 
-**CCity** (640 tiles, 16x16px) — `public/assets/citymap_tilesets/CCity_mockup.png`
+## Legacy Note
 
-City map is a Tiled JSON file at `public/assets/maps/city.json` (40x30 grid, 2 layers: ground + buildings).
-
-See `src/game/map/TILESET_REFERENCE.md` for tile ID documentation.
-
-## Key Patterns
-
-- **Phaser is client-only** — loaded via `next/dynamic` with `ssr: false`
-- **EventBridge** — custom emitter (not Phaser.Events) for SSR safety. React emits `sim:event`, Phaser listens. Phaser emits `sim:npc-position`, React renders chat bubbles.
-- **Chat bubbles are DOM overlays** — positioned over the canvas using NPC world coordinates, not Phaser text objects. Testable with Playwright.
-- **Mock backend** — `useSimulation` plays back hardcoded events. Swap for real WebSocket later.
-
-## Commands
-
-```bash
-bun dev          # Start dev server (port 3000)
-bun build        # Production build
-bun lint         # Biome check
-bun format       # Biome format
-```
+The repo still contains archived replay / policy-simulation components for compatibility. They should not be treated as the primary product path.

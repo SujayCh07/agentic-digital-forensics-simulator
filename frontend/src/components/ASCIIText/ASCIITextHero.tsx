@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { simulacraTechLogos } from "@/lib/simulacraTechLogos";
+import { echoLocateTechLogos } from "@/lib/echoLocateTechLogos";
 import LogoLoop from "../LogoLoop/LogoLoop";
 
 const ASCIIText = dynamic(() => import("./ASCIIText"), { ssr: false });
@@ -20,10 +20,10 @@ export default function ASCIITextHero() {
         }}
       >
         <ASCIIText
-          text="SIMULACRA"
+          text="EchoLocate"
           enableWaves
           asciiFontSize={8}
-          textFontSize={288}
+          textFontSize={220}
           textColor="#ffffff"
           planeBaseHeight={10}
         />
@@ -33,7 +33,7 @@ export default function ASCIITextHero() {
         style={{ filter: "drop-shadow(0 0 20px rgba(255,255,255,0.4))" }}
       >
         <LogoLoop
-          logos={simulacraTechLogos}
+          logos={echoLocateTechLogos}
           speed={30}
           direction="left"
           logoHeight={24}

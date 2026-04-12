@@ -116,7 +116,7 @@ describe("NodeCanvas multimodal policy flow", () => {
         num_rounds: 10,
         num_npcs: 40,
         objective: "How does this affect local inflation?",
-        map_id: "citypack",
+        map_id: "moonCity",
       });
     });
 

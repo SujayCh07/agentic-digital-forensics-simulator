@@ -1,30 +1,21 @@
 import { CENTER_BOUNDS } from "../config";
 import type { NPC } from "../entities/NPC";
+import {
+  getConnectedNodes,
+  getNearestGraphNode,
+  getRoadNode,
+  ROAD_GRAPH_NODES,
+} from "../map/RoadGraph";
 import type { OccupancyGrid } from "./OccupancyGrid";
+import { compressPath, findPath } from "./Pathfinder";
 
 type TileCheck = (col: number, row: number) => boolean;
 
-/** Cardinal direction deltas */
-const DIRS = [
-  { dx: 0, dy: -1 }, // up
-  { dx: 0, dy: 1 }, // down
-  { dx: -1, dy: 0 }, // left
-  { dx: 1, dy: 0 }, // right
-] as const;
-
-/** Opposite direction index: up↔down, left↔right */
-const OPPOSITE = [1, 0, 3, 2] as const;
-
-interface ZoneBounds {
-  minRow: number;
-  maxRow: number;
-}
-
-const ZONE_BOUNDS: Record<string, ZoneBounds> = {
-  government: { minRow: 3, maxRow: 10 },
-  commercial: { minRow: 11, maxRow: 16 },
-  industrial: { minRow: 19, maxRow: 24 },
-  residential: { minRow: 0, maxRow: 29 },
+const ZONE_NODE_PREFERENCES: Record<string, string[]> = {
+  government: ["A", "B", "C", "D"],
+  commercial: ["B", "C", "F", "G"],
+  industrial: ["E", "F", "G", "H"],
+  residential: ROAD_GRAPH_NODES.map((node) => node.id),
 };
 
 /**
@@ -39,10 +30,12 @@ export class MovementSystem {
   private scene: Phaser.Scene;
   private isWalkable: TileCheck;
   private isRoad: TileCheck;
-  /** Last movement direction index per NPC (0=up,1=down,2=left,3=right) */
-  private lastDir: Map<string, number> = new Map();
   /** Assigned zone per NPC */
   private npcZone: Map<string, string> = new Map();
+  /** Last completed graph node per NPC */
+  private currentNode: Map<string, string> = new Map();
+  /** Previous graph node per NPC to avoid ping-ponging */
+  private previousNode: Map<string, string | undefined> = new Map();
   /** NPCs currently overridden (protesting/striking) — skip random movement */
   private overridden = new Set<string>();
   private occupancy: OccupancyGrid;
@@ -94,140 +87,136 @@ export class MovementSystem {
       return;
     }
 
-    // 30% chance to idle (look around), 70% chance to walk
-    if (Math.random() < 0.3) {
+    // 18% chance to idle, otherwise follow a longer road segment.
+    if (Math.random() < 0.18) {
       // Idle: face a random direction without moving
       const dirs = ["up", "down", "left", "right"] as const;
       npc.face(dirs[Math.floor(Math.random() * dirs.length)]);
       npc.npcState = "idle";
-      // Longer pause when idling
-      this.scheduleNext(npc, 1500 + Math.random() * 2500);
+      this.scheduleNext(npc, 1200 + Math.random() * 1800);
       return;
     }
 
-    const chosen = this.pickDirection(npc);
-    if (chosen === null) {
-      // Stuck — idle and try again soon
+    const route = this.pickRoute(npc);
+    if (!route || route.waypoints.length === 0) {
       npc.npcState = "idle";
-      this.scheduleNext(npc, 500);
+      this.scheduleNext(npc, 450);
       return;
     }
 
-    const dir = DIRS[chosen];
-    this.lastDir.set(npc.npcId, chosen);
     npc.npcState = "walking";
-    this.occupancy.occupy(npc.npcId, npc.tileX + dir.dx, npc.tileY + dir.dy);
-    npc.walkTo(npc.tileX + dir.dx, npc.tileY + dir.dy).then(() => {
+
+    void this.walkWaypoints(npc, route.waypoints).then((completed) => {
       npc.npcState = "idle";
-      // Brief pause after each step
-      this.scheduleNext(npc, 400 + Math.random() * 800);
+      if (completed) {
+        this.currentNode.set(npc.npcId, route.nextNodeId);
+        if (route.arrivedAtNewNode) {
+          this.previousNode.set(npc.npcId, route.previousNodeId);
+        }
+      }
+      this.scheduleNext(npc, 300 + Math.random() * 700);
     });
   }
 
-  private pickDirection(npc: NPC): number | null {
-    const lastDirIdx = this.lastDir.get(npc.npcId);
+  private pickRoute(
+    npc: NPC,
+  ): {
+    waypoints: { col: number; row: number }[];
+    nextNodeId: string;
+    previousNodeId?: string;
+    arrivedAtNewNode: boolean;
+  } | null {
     const zone = this.npcZone.get(npc.npcId);
-    const bounds = zone ? ZONE_BOUNDS[zone] : undefined;
-    const isDriver = npc.role === "driver";
-    const carOrientation: string | undefined = (
-      npc as { template?: { orientation?: string } }
-    ).template?.orientation;
+    const currentNodeId =
+      this.currentNode.get(npc.npcId) ?? getNearestGraphNode(npc.tileX, npc.tileY);
+    const currentNode = getRoadNode(currentNodeId);
+    if (!currentNode) return null;
 
-    // Score each direction — road tiles only; non-road as last resort
-    const roadScored: { idx: number; score: number }[] = [];
-    const offRoadScored: { idx: number; score: number }[] = [];
+    const routeToCurrentNode = findPath(
+      { col: npc.tileX, row: npc.tileY },
+      { col: currentNode.col, row: currentNode.row },
+      (col, row) => this.isRoadWalkable(col, row),
+    );
 
-    for (let i = 0; i < DIRS.length; i++) {
-      const { dx, dy } = DIRS[i];
-      const nx = npc.tileX + dx;
-      const ny = npc.tileY + dy;
-
-      if (!this.isWalkable(nx, ny)) continue;
-      if (this.occupancy.isOccupiedByOther(npc.npcId, nx, ny)) continue;
-
-      // Portrait cars: vertical road lane — up/down only
-      if (isDriver && carOrientation === "portrait" && (i === 2 || i === 3))
-        continue;
-      // Landscape cars: horizontal road lane — left/right only
-      if (isDriver && carOrientation === "landscape" && (i === 0 || i === 1))
-        continue;
-
-      // Drivers can only move to road tiles
-      if (isDriver && !this.isRoad(nx, ny)) continue;
-
-      // Check full car footprint is on road at the new position
-      if (isDriver && carOrientation === "portrait") {
-        // Check both columns for the new row
-        if (!this.isRoad(nx, ny) || !this.isRoad(nx + 1, ny)) continue;
-      }
-      if (isDriver && carOrientation === "landscape") {
-        // Check both rows for the new column
-        if (!this.isRoad(nx, ny) || !this.isRoad(nx, ny + 1)) continue;
-      }
-
-      // Reject tiles outside center bounds
-      if (
-        nx < CENTER_BOUNDS.minCol ||
-        nx > CENTER_BOUNDS.maxCol ||
-        ny < CENTER_BOUNDS.minRow ||
-        ny > CENTER_BOUNDS.maxRow
-      )
-        continue;
-
-      const onRoad = this.isRoad(nx, ny);
-      let score = onRoad ? 10 : 1;
-
-      // Momentum: prefer continuing in the same direction
-      if (lastDirIdx !== undefined && i === lastDirIdx) {
-        score *= 2;
-      }
-
-      // Penalize instant 180-degree turns
-      if (lastDirIdx !== undefined && i === OPPOSITE[lastDirIdx]) {
-        score *= 0.15;
-      }
-
-      // Zone leashing: penalize moves that go away from home zone
-      if (bounds) {
-        const zoneCenterRow = (bounds.minRow + bounds.maxRow) / 2;
-        const currentDist = Math.abs(npc.tileY - zoneCenterRow);
-        const nextDist = Math.abs(ny - zoneCenterRow);
-
-        // If already outside zone, strongly pull back
-        if (npc.tileY < bounds.minRow || npc.tileY > bounds.maxRow) {
-          if (nextDist < currentDist) score *= 4;
-          else score *= 0.1;
-        }
-        // If near zone boundary, mild bias inward
-        else if (
-          npc.tileY <= bounds.minRow + 1 ||
-          npc.tileY >= bounds.maxRow - 1
-        ) {
-          if (nextDist < currentDist) score *= 1.5;
-          else if (nextDist > currentDist) score *= 0.5;
-        }
-      }
-
-      if (onRoad) {
-        roadScored.push({ idx: i, score });
-      } else {
-        offRoadScored.push({ idx: i, score });
+    if (routeToCurrentNode && routeToCurrentNode.length > 0) {
+      const waypoints = compressPath(routeToCurrentNode);
+      if (waypoints.length > 0) {
+        return {
+          waypoints,
+          nextNodeId: currentNodeId,
+          previousNodeId: this.previousNode.get(npc.npcId),
+          arrivedAtNewNode: false,
+        };
       }
     }
 
-    // Prefer road tiles; only fall back to off-road if completely stuck
-    const scored = roadScored.length > 0 ? roadScored : offRoadScored;
-
-    if (scored.length === 0) return null;
-
-    // Weighted random selection
-    const totalWeight = scored.reduce((sum, s) => sum + s.score, 0);
-    let roll = Math.random() * totalWeight;
-    for (const s of scored) {
-      roll -= s.score;
-      if (roll <= 0) return s.idx;
+    const previousNodeId = this.previousNode.get(npc.npcId);
+    const nextNodeId = this.pickNextGraphNode(currentNodeId, zone, previousNodeId);
+    const nextNode = getRoadNode(nextNodeId);
+    if (!nextNode) return null;
+    if (this.occupancy.isOccupiedByOther(npc.npcId, nextNode.col, nextNode.row)) {
+      return null;
     }
-    return scored[scored.length - 1].idx;
+
+    const routeToNextNode = findPath(
+      { col: npc.tileX, row: npc.tileY },
+      { col: nextNode.col, row: nextNode.row },
+      (col, row) => this.isRoadWalkable(col, row),
+    );
+    if (!routeToNextNode || routeToNextNode.length === 0) return null;
+
+    return {
+      waypoints: compressPath(routeToNextNode),
+      nextNodeId,
+      previousNodeId: currentNodeId,
+      arrivedAtNewNode: true,
+    };
+  }
+
+  private pickNextGraphNode(
+    currentNodeId: string,
+    zone?: string,
+    previousNodeId?: string,
+  ): string {
+    const connected = getConnectedNodes(currentNodeId).filter(
+      (nodeId) =>
+        nodeId !== previousNodeId || getConnectedNodes(currentNodeId).length === 1,
+    );
+    if (connected.length === 0) return currentNodeId;
+
+    const preferredIds = new Set(
+      zone ? (ZONE_NODE_PREFERENCES[zone] ?? ROAD_GRAPH_NODES.map((node) => node.id)) : ROAD_GRAPH_NODES.map((node) => node.id),
+    );
+    const preferredConnected = connected.filter((nodeId) => preferredIds.has(nodeId));
+    const pool = preferredConnected.length > 0 ? preferredConnected : connected;
+    return pool[Math.floor(Math.random() * pool.length)] ?? currentNodeId;
+  }
+
+  private isRoadWalkable(col: number, row: number): boolean {
+    if (
+      col < CENTER_BOUNDS.minCol ||
+      col > CENTER_BOUNDS.maxCol ||
+      row < CENTER_BOUNDS.minRow ||
+      row > CENTER_BOUNDS.maxRow
+    ) {
+      return false;
+    }
+    return this.isWalkable(col, row) && this.isRoad(col, row);
+  }
+
+  private async walkWaypoints(
+    npc: NPC,
+    waypoints: { col: number; row: number }[],
+  ): Promise<boolean> {
+    for (const waypoint of waypoints) {
+      if (this.overridden.has(npc.npcId)) return false;
+      if (this.occupancy.isOccupiedByOther(npc.npcId, waypoint.col, waypoint.row)) {
+        return false;
+      }
+      this.occupancy.occupy(npc.npcId, waypoint.col, waypoint.row);
+      await npc.walkTo(waypoint.col, waypoint.row);
+    }
+    return true;
   }
 
   private scheduleNext(npc: NPC, delay: number) {
@@ -246,7 +235,8 @@ export class MovementSystem {
     }
     this.timers.clear();
     this.overridden.clear();
-    this.lastDir.clear();
     this.npcZone.clear();
+    this.currentNode.clear();
+    this.previousNode.clear();
   }
 }

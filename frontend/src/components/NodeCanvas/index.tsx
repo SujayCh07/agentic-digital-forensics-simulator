@@ -116,7 +116,7 @@ export default function NodeCanvas({ onSimulateStart }: NodeCanvasProps) {
   const [numNpcs, setNumNpcs] = useState(5);
   const [numRounds, setNumRounds] = useState(3);
   const [objective, setObjective] = useState("");
-  const mapId: MapType = "citypack";
+  const mapId: MapType = "moonCity";
   const setMapId = useCallback((_: MapType) => {}, []);
   const [uploadingPolicySources, setUploadingPolicySources] = useState(false);
   const [uploadingTrends, setUploadingTrends] = useState(false);
@@ -250,7 +250,7 @@ export default function NodeCanvas({ onSimulateStart }: NodeCanvasProps) {
         return;
       }
       setReplayData(bundledReplay);
-      router.push("/simulate?mode=replay&map=citypack");
+      router.push("/simulate?mode=replay&map=moonCity");
     } catch (err) {
       console.error("Failed to load bundled custom run:", err);
       setLoadingCustomRun(false);
@@ -300,8 +300,12 @@ export default function NodeCanvas({ onSimulateStart }: NodeCanvasProps) {
       isSimulating,
       record,
       setRecord,
+      incidentSources: policySources,
+      uploadingIncidentSources: uploadingPolicySources,
       handlePolicyNarrativeFiles,
+      handleIncidentNarrativeFiles: handlePolicyNarrativeFiles,
       removePolicySource,
+      removeIncidentSource: removePolicySource,
       handleTrendFiles,
       removeTrendSource,
       handleSimulate,

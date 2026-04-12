@@ -4,8 +4,10 @@ import socketio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from config import K2_API_KEY, K2_BASE_URL, K2_MODEL
+from config import LLM_BASE_URL, LLM_MODEL
 from routers.extract import router as extract_router
+from routers.nips_router import register_nips_events
+from routers.radio import router as radio_router
 from routers.simulate import router, sio
 
 # ── Logging ──────────────────────────────────────────────────────────
@@ -18,10 +20,10 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("openai").setLevel(logging.WARNING)
 
-logger = logging.getLogger("policysim")
+logger = logging.getLogger("echolocate")
 
 # ── App ──────────────────────────────────────────────────────────────
-app = FastAPI(title="PolicySim", version="0.1.0")
+app = FastAPI(title="EchoLocate Backend", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,12 +35,16 @@ app.add_middleware(
 
 app.include_router(router)
 app.include_router(extract_router)
+app.include_router(radio_router)
+
+# Register EchoLocate investigator Socket.IO handlers on the shared sio instance
+register_nips_events(sio)
 
 # Mount Socket.IO as ASGI sub-application
 sio_asgi = socketio.ASGIApp(sio, other_asgi_app=app)
 app = sio_asgi  # type: ignore[assignment]
 
-logger.info("PolicySim ready — model=%s base_url=%s", K2_MODEL, K2_BASE_URL)
+logger.info("EchoLocate backend ready — model=%s base_url=%s", LLM_MODEL, LLM_BASE_URL)
 
 if __name__ == "__main__":
     import uvicorn

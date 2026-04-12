@@ -103,7 +103,7 @@ export async function startSimulation(
       num_rounds: requestOrText.num_rounds ?? numRounds ?? 75,
       num_npcs: requestOrText.num_npcs ?? numNpcs ?? 25,
       objective: requestOrText.objective ?? objective ?? "",
-      map_id: requestOrText.map_id ?? mapId ?? "citypack",
+      map_id: requestOrText.map_id ?? mapId ?? "moonCity",
     }),
   });
 

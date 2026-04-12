@@ -143,6 +143,8 @@ export class Car extends Phaser.GameObjects.Container {
       reputation: this.reputation,
       x: (this.x - cam.scrollX) * cam.zoom,
       y: (this.y - cam.scrollY) * cam.zoom,
+      worldX: this.x,
+      worldY: this.y,
       direction: this.direction,
       state: this.npcState,
       message: this.message,
@@ -177,5 +179,10 @@ export class Car extends Phaser.GameObjects.Container {
 
   private onClick() {
     eventBridge.emitNPCClick(this.npcId);
+  }
+
+  refreshHover() {
+    if (!this.isHovered) return;
+    this.emitHoverEvent();
   }
 }

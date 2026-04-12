@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, field_validator
 
 from config import MAX_X, MAX_Y
 
@@ -39,6 +39,18 @@ class NPC(BaseModel):
     controversial_ideas: list[str] = Field(default_factory=list)
     x: int = Field(ge=0, le=MAX_X)
     y: int = Field(ge=0, le=MAX_Y)
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def sanitize_role(cls, v: Any) -> str:
+        valid = {"worker", "business_owner", "politician", "student", "retiree", "activist", "farmer", "shopkeeper", "driver"}
+        return v if v in valid else "worker"
+        
+    @field_validator("income_level", mode="before")
+    @classmethod
+    def sanitize_income(cls, v: Any) -> str:
+        valid = {"low", "medium", "high"}
+        return v if v in valid else "medium"
 
 
 class Relationship(BaseModel):
@@ -95,7 +107,7 @@ class PolicyContextBundle(BaseModel):
 
 
 class PolicyInput(BaseModel):
-    """Simulation input: a single uploaded PDF source."""
+    """Legacy replay input for the archived simulation pipeline."""
 
     primary_policy_source_id: str | None = None
     policy_source_ids: list[str] = Field(default_factory=list)
@@ -103,13 +115,14 @@ class PolicyInput(BaseModel):
     num_rounds: int = 3
     num_npcs: int = 5
     objective: str = Field(default="", max_length=500)
-    map_id: str = Field(default="ccity")
+    map_id: str = Field(default="moonCity")
 
     @model_validator(mode="after")
     def require_policy_source(self) -> PolicyInput:
         has_files = bool(self.policy_source_ids) or bool(self.primary_policy_source_id)
-        if not has_files:
-            raise ValueError("Provide at least one PDF policy source.")
+        has_notes = len(self.notes_text.strip()) > 0
+        if not has_files and not has_notes:
+            raise ValueError("Provide at least one PDF policy source, or submit raw notes text.")
         return self
 
 
@@ -123,6 +136,14 @@ class PolicyAnalysis(BaseModel):
     stakeholders: list[str]
     economic_impacts: list[str]
     controversy_level: Literal["low", "medium", "high"]
+
+    @field_validator("controversy_level", mode="before")
+    @classmethod
+    def sanitize_controversy(cls, v: Any) -> str:
+        val = str(v).lower()
+        if "low" in val: return "low"
+        if "high" in val: return "high"
+        return "medium"
 
 
 class NPCGenerationResponse(BaseModel):
@@ -148,6 +169,14 @@ class NPCEvent(BaseModel):
     to_y: int | None = None
     # mood_shift
     new_mood: str = ""
+
+    @field_validator("event_type", mode="before")
+    @classmethod
+    def sanitize_event_type(cls, v: Any) -> str:
+        valid = {"chat", "move", "protest", "price_change", "mood_shift"}
+        if v in valid:
+            return v
+        return "chat"
 
 
 class NPCRoundResponse(BaseModel):

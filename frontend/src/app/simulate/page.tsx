@@ -2,41 +2,67 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AgentCommandModal, type MessageEntry } from "@/components/AgentCommandModal";
+import { AgentDirectory } from "@/components/AgentDirectory";
+import { AgentMarketplace } from "@/components/AgentMarketplace";
+import { AgentStatusBar } from "@/components/AgentStatusBar";
 import { Dashboard } from "@/components/Dashboard";
 import { EconomicReportModal } from "@/components/EconomicReportModal";
 import { EventFeed } from "@/components/EventFeed";
+import { HelperSelectionPanel } from "@/components/HelperSelectionPanel";
+import { SectorStatusPanel } from "@/components/SectorStatusPanel";
 import { NPCInteractionModal } from "@/components/NPCInteractionModal";
-import { useSimulation } from "@/hooks/useSimulation";
-import { clearReplayData, getReplayData } from "@/lib/replayStore";
-import type { NPCHoverInfo, SimEvent } from "@/types";
+import { PauseOverlay } from "@/components/PauseOverlay";
+import { UserBoard } from "@/components/UserBoard/UserBoard";
+import {
+  CYBER_CITY_SECTOR_SEEDS,
+  DOMAIN_LABEL_BY_SECTOR,
+  computeSectorThreatStatuses,
+} from "@/data/cyberCitySectors";
+import { CASE_AGENTS_NPCS } from "@/data/case_midnight_exfil";
 
-const SocialGraph = dynamic(
-  () =>
-    import("@/components/SocialGraph").then((m) => ({
-      default: m.SocialGraph,
-    })),
-  {
-    ssr: false,
-    loading: () => (
-      <div
-        className="flex h-full items-center justify-center text-[8px] font-pixel uppercase tracking-widest"
-        style={{ color: "#A0824A" }}
-      >
-        Loading graph...
-      </div>
-    ),
-  },
-);
+import { useInvestigation } from "@/hooks/useInvestigation";
+import { useBoardState } from "@/hooks/useBoardState";
+import { useSimulation } from "@/hooks/useSimulation";
+import { useRadio } from "@/hooks/useRadio";
+import { RadioPanel } from "@/components/RadioPanel";
+import type { ActiveHelpers, AgentDefinition, AgentId, CaseSystemNode, NipsAgentInstance, NipsMarketplaceOffer, NipsEvidenceUpdate, SectorId } from "@/types/investigation";
+import type { BackendNPC } from "@/types/backend";
+import { clearReplayData, getReplayData } from "@/lib/replayStore";
+import {
+  initNipsSession,
+  buyNipsAgent,
+  requestNipsMarketplaceRefresh,
+  setMarketplaceCallbacks,
+  disconnectNips,
+} from "@/lib/investigationAgentClient";
+import {
+  buildAgentStateModel,
+  normalizeOwnedAgents,
+  ROLE_ORDER,
+  toAgentId,
+} from "@/lib/agentState";
+import {
+  applyCaseRewards,
+  computeCaseRewards,
+  loadProgress,
+  saveProgress,
+  type PlayerProgress,
+} from "@/lib/playerProgress";
+import { audioManager } from "@/lib/audioManager";
+import { CaseModal } from "@/components/CaseModal";
+import type { SectorCase } from "@/types/sectors";
+import { SECTOR_COLORS, SECTOR_NAMES } from "@/types/sectors";
+import type { NPCHoverInfo, NPCState, SimEvent } from "@/types";
 
 // Mirror game/constants values here to avoid importing Phaser during SSR.
-// game/config.ts imports Phaser at top level which requires `window`.
 const GAME_WIDTH = 1280;
 const GAME_HEIGHT = 960;
-const SCALE_FACTOR = 1; // must match constants.ts — 1:1, Phaser Scale.FIT handles display
+const SCALE_FACTOR = 1;
+const WORLD_TILE_SIZE = 32;
 
-// Phaser requires browser APIs — must be client-only
 const GameCanvas = dynamic(
   () =>
     import("@/components/GameCanvas").then((m) => ({ default: m.GameCanvas })),
@@ -50,14 +76,14 @@ function GameCanvasPlaceholder() {
       style={{
         width: GAME_WIDTH * SCALE_FACTOR,
         height: GAME_HEIGHT * SCALE_FACTOR,
-        background: "#E8D5A3",
+        background: "#080c12",
       }}
     >
       <span
-        className="text-[8px] font-pixel uppercase tracking-widest animate-pulse"
-        style={{ color: "#A0824A" }}
+        className="text-[8px] font-mono uppercase tracking-widest animate-pulse"
+        style={{ color: "#1e3d5a" }}
       >
-        Loading world...
+        Initializing grid...
       </span>
     </div>
   );
@@ -67,10 +93,10 @@ const SENTIMENT_LABEL: Record<
   NPCHoverInfo["sentiment"],
   { symbol: string; color: string }
 > = {
-  happy: { symbol: "+", color: "#3E7C34" },
-  neutral: { symbol: "~", color: "#8B7355" },
-  worried: { symbol: "?", color: "#C97D1A" },
-  angry: { symbol: "!", color: "#B83A52" },
+  happy:   { symbol: "+", color: "#00ff88" },
+  neutral: { symbol: "~", color: "#4a6580" },
+  worried: { symbol: "?", color: "#f59e0b" },
+  angry:   { symbol: "!", color: "#ff3a3a" },
 };
 
 interface OverlayMetrics {
@@ -101,27 +127,24 @@ function NPCTooltip({
       }}
     >
       <div
-        className="rounded px-2 py-1 shadow-md"
+        className="rounded px-2 py-1"
         style={{
-          background: "#FDF5E6",
-          border: "2px solid #A0824A",
-          boxShadow: "2px 2px 0 rgba(61,37,16,.3)",
+          background: "#0f1927",
+          border: "1px solid #1e3d5a",
+          boxShadow: "0 0 12px rgba(0,0,0,0.8)",
         }}
       >
         <div className="flex items-center gap-1.5">
-          <span className="text-[10px] font-pixel" style={{ color: "#5B3A1E" }}>
+          <span className="text-[10px] font-mono" style={{ color: "#c9d8e8" }}>
             {info.name}
           </span>
-          <span
-            className="text-[10px] font-pixel"
-            style={{ color: sent.color }}
-          >
+          <span className="text-[10px] font-mono" style={{ color: sent.color }}>
             [{sent.symbol}]
           </span>
         </div>
         <div
           className="text-[8px] font-mono tracking-widest uppercase"
-          style={{ color: "#8B7355" }}
+          style={{ color: "#4a6580" }}
         >
           {info.role}
         </div>
@@ -139,15 +162,1139 @@ const DEFAULT_OVERLAY_METRICS: OverlayMetrics = {
   scaleY: SCALE_FACTOR,
 };
 
+const MAP_FRAME_MAX_WIDTH = 1120;
+
+const AGENT_MARKER_COLORS: Record<AgentId, string> = {
+  logis: "#22d3ee",
+  nexus: "#a78bfa",
+  filer: "#f59e0b",
+  chrono: "#34d399",
+};
+
+interface AgentMarkerData {
+  agent: NipsAgentInstance;
+  npcId: string;
+  position: NPCState;
+  isLocked: boolean;
+  color: string;
+  roleLabel: string;
+  statusLabel: string;
+  assignmentLabel: string;
+  sectorCode: string;
+  sectorLabel: string;
+}
+
+function normalizeAgentId(id: string) {
+  return id.toLowerCase();
+}
+
+function resolveAgentPositionId(
+  agent: NipsAgentInstance,
+  positions: Record<string, NPCState>,
+) {
+  const arc = normalizeAgentId(agent.archetype);
+  return Object.keys(positions).find(
+    (id) =>
+      normalizeAgentId(id) === arc ||
+      arc.startsWith(normalizeAgentId(id)) ||
+      id === agent.instance_id ||
+      id === agent.codename,
+  );
+}
+
+function resolveSector(worldX: number, worldY: number) {
+  const tileX = Math.floor(worldX / WORLD_TILE_SIZE);
+  const tileY = Math.floor(worldY / WORLD_TILE_SIZE);
+  return CYBER_CITY_SECTOR_SEEDS.find(
+    (sector) =>
+      tileX >= sector.bounds.x &&
+      tileX < sector.bounds.x + sector.bounds.width &&
+      tileY >= sector.bounds.y &&
+      tileY < sector.bounds.y + sector.bounds.height,
+  );
+}
+
+function buildAgentMarkers(
+  slotAgentsByRole: Partial<Record<AgentId, NipsAgentInstance>>,
+  positions: Record<string, NPCState>,
+  lockedRoles: AgentId[],
+  agentStates: AgentDefinition[],
+  systemNodes: CaseSystemNode[],
+): AgentMarkerData[] {
+  return ROLE_ORDER.flatMap((roleId) => {
+    const agent = slotAgentsByRole[roleId];
+    if (!agent) return [];
+
+    const npcId = resolveAgentPositionId(agent, positions);
+    if (!npcId) return [];
+
+    const position = positions[npcId];
+    const archetype = roleId;
+    const agentState = agentStates.find((entry) => entry.id === roleId);
+    const sector = resolveSector(position.worldX, position.worldY);
+    const nodeName = agentState?.currentNodeId
+      ? systemNodes.find((node) => node.id === agentState.currentNodeId)?.name
+      : null;
+    const isLocked = lockedRoles.includes(roleId);
+
+    return [{
+      agent,
+      npcId,
+      position,
+      isLocked,
+      color: AGENT_MARKER_COLORS[archetype] ?? "#22d3ee",
+      roleLabel: agent.primary_specialties[0] ?? agent.team_role,
+      statusLabel: isLocked ? "locked" : agentState?.status ?? "idle",
+      assignmentLabel: isLocked
+        ? "Locked — recruit to unlock"
+        : nodeName ?? "Awaiting task",
+      sectorCode: sector?.id ?? "TRANSIT",
+      sectorLabel: sector ? DOMAIN_LABEL_BY_SECTOR[sector.id] : "Transit lane",
+    }];
+  });
+}
+
+function buildVisibleSpecialists(
+  slotAgentsByRole: Partial<Record<AgentId, NipsAgentInstance>>,
+): BackendNPC[] {
+  return CASE_AGENTS_NPCS.map((npc) => {
+    const roleId = npc.id as AgentId;
+    const slotAgent = slotAgentsByRole[roleId];
+    return {
+      ...npc,
+      name: slotAgent?.display_name ?? npc.name,
+    };
+  });
+}
+
+function setWorldPaused(paused: boolean) {
+  const game = (globalThis as Record<string, unknown>).__PHASER_GAME__ as
+    | {
+        scene?: {
+          pause?: (sceneKey: string) => void;
+          resume?: (sceneKey: string) => void;
+          isPaused?: (sceneKey: string) => boolean;
+        };
+      }
+    | undefined;
+
+  const sceneManager = game?.scene;
+  if (!sceneManager) return;
+
+  if (paused) {
+    if (!sceneManager.isPaused?.("WorldScene")) {
+      sceneManager.pause?.("WorldScene");
+    }
+    return;
+  }
+
+  if (sceneManager.isPaused?.("WorldScene")) {
+    sceneManager.resume?.("WorldScene");
+  } else {
+    sceneManager.resume?.("WorldScene");
+  }
+}
+
 export default function SimulatePage() {
   return (
     <Suspense fallback={<GameCanvasPlaceholder />}>
-      <SimulateContent />
+      <SimulateRouter />
     </Suspense>
   );
 }
 
+function SimulateRouter() {
+  const searchParams = useSearchParams();
+  const mode = searchParams.get("mode");
+  if (mode === "investigate") return <InvestigateContent />;
+  return <SimulateContent />;
+}
+
+// ---------------------------------------------------------------------------
+// InvestigateContent — phase router: team selection → game
+// ---------------------------------------------------------------------------
+
+function InvestigateContent() {
+  const [phase, setPhase] = useState<"selecting" | "playing">("selecting");
+  const [activeHelpers, setActiveHelpers] = useState<ActiveHelpers | null>(null);
+  const [progress, setProgress] = useState<PlayerProgress>(() => loadProgress());
+
+  const handleProgressChange = useCallback((p: PlayerProgress) => {
+    setProgress(p);
+    saveProgress(p);
+  }, []);
+
+  const handleConfirm = useCallback((helpers: ActiveHelpers) => {
+    setActiveHelpers(helpers);
+    setPhase("playing");
+  }, []);
+
+  if (phase === "selecting" || !activeHelpers) {
+    return (
+      <HelperSelectionPanel
+        progress={progress}
+        onProgressChange={handleProgressChange}
+        onConfirm={handleConfirm}
+      />
+    );
+  }
+
+  return (
+    <InvestigateGame
+      activeHelpers={activeHelpers}
+      progress={progress}
+      onProgressChange={handleProgressChange}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// InvestigateGame — core gameplay loop (receives confirmed helpers)
+// ---------------------------------------------------------------------------
+
+function InvestigateGame({
+  activeHelpers,
+  progress,
+  onProgressChange,
+}: {
+  activeHelpers: ActiveHelpers;
+  progress: PlayerProgress;
+  onProgressChange: (p: PlayerProgress) => void;
+}) {
+  const router = useRouter();
+  const inv = useInvestigation(activeHelpers);
+  const starterRole = (((activeHelpers as unknown as { _starter?: AgentId })._starter) ??
+    "logis") as AgentId;
+  const [activeOverlay, setActiveOverlay] = useState<"board" | "market" | null>(null);
+  const [rewardsShown, setRewardsShown] = useState(false);
+  const board = useBoardState();
+  const [paused, setPaused] = useState(false);
+  const [hoverInfo, setHoverInfo] = useState<NPCHoverInfo | null>(null);
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const [overlayMetrics, setOverlayMetrics] = useState<OverlayMetrics>(DEFAULT_OVERLAY_METRICS);
+  const radio = useRadio();
+
+  // --- EchoLocate investigator agent state ---
+  const [nipsAgents, setNipsAgents] = useState<NipsAgentInstance[]>([]);
+  const [nipsOffers, setNipsOffers] = useState<NipsMarketplaceOffer[]>([]);
+  const [nipsFunds, setNipsFunds] = useState(1500);
+  const [nipsNextRefresh, setNipsNextRefresh] = useState(0);
+  const [chatAgent, setChatAgent] = useState<NipsAgentInstance | null>(null);
+  const [chatHistories, setChatHistories] = useState<Record<string, MessageEntry[]>>({});
+  const [showDirectory, setShowDirectory] = useState(false);
+  const [lockedAgentInfo, setLockedAgentInfo] = useState<NipsAgentInstance | null>(null);
+  const [npcPositions, setNpcPositions] = useState<Record<string, NPCState>>({});
+  const [caseModalSector, setCaseModalSector] = useState<SectorId | null>(null);
+  const [activeSectorId, setActiveSectorId] = useState<SectorId | null>(null);
+  const sectorSelectionCooldownUntilRef = useRef(0);
+
+  const agentState = useMemo(
+    () =>
+      buildAgentStateModel({
+        ownedAgents: nipsAgents,
+        marketplaceOffers: nipsOffers,
+        baseLockedRoles: inv.lockedAgents,
+      }),
+    [nipsAgents, nipsOffers, inv.lockedAgents],
+  );
+  const ownedRoleKey = agentState.ownedRoleIds.join("|");
+  const slotRoleKey = ROLE_ORDER.map((roleId) => {
+    const slotAgent = agentState.slotAgentsByRole[roleId];
+    return `${roleId}:${slotAgent?.instance_id ?? "none"}:${slotAgent?.display_name ?? "none"}`;
+  }).join("|");
+
+  // ── Audio: stop music when leaving the game view ────────────────────────────
+  useEffect(() => {
+    return () => { audioManager.stopMusic(); };
+  }, []);
+
+  // ── Audio: switch music tracks based on investigation pressure ──────────────
+  useEffect(() => {
+    if (inv.pressureLevel >= 8) {
+      audioManager.switchToCorruptMusic();
+    } else if (inv.pressureLevel >= 4) {
+      audioManager.switchToIncidentMusic();
+    }
+  }, [inv.pressureLevel]);
+
+  // ── Audio: play sound when new evidence is found ────────────────────────────
+  useEffect(() => {
+    if (inv.events.length > 0) {
+      audioManager.playEvidenceAdded();
+    }
+  }, [inv.events.length]);
+
+  // Init backend investigator session
+  useEffect(() => {
+    const cleanupSession = initNipsSession({
+      onSessionReady: (data) => {
+        setNipsAgents(normalizeOwnedAgents(data.agents));
+        setNipsOffers(data.marketplace);
+        setNipsFunds(data.funds);
+        setNipsNextRefresh(data.next_refresh);
+      },
+      onError: (msg) => console.error("[EchoLocate agents]", msg),
+    }, inv.caseId, starterRole.toUpperCase());
+
+    setMarketplaceCallbacks({
+      onAgentPurchased: (data) => {
+        const roleId = toAgentId(data.agent.archetype);
+        setNipsAgents((prev) => normalizeOwnedAgents([...prev, data.agent]));
+        if (roleId) {
+          setNipsOffers((prev) =>
+            prev.filter((offer) => toAgentId(offer.agent.archetype) !== roleId),
+          );
+        }
+        setNipsFunds(data.funds);
+      },
+      onMarketplaceRefreshed: (data) => {
+        setNipsOffers(data.marketplace);
+        setNipsNextRefresh(data.next_refresh);
+      },
+      onAgentsList: (data) => {
+        setNipsAgents(normalizeOwnedAgents(data.agents));
+        setNipsFunds(data.funds);
+      },
+      onError: (msg) => console.error("[EchoLocate recruiting]", msg),
+    });
+
+    return () => {
+      cleanupSession();
+      disconnectNips();
+    };
+  }, [inv.caseId, starterRole]);
+
+  useEffect(() => {
+    inv.syncRoleUnlocks(agentState.ownedRoleIds);
+  }, [ownedRoleKey, inv.syncRoleUnlocks]);
+
+  useEffect(() => {
+    const hasVisibleSlots = ROLE_ORDER.some(
+      (roleId) => Boolean(agentState.slotAgentsByRole[roleId]),
+    );
+    if (!hasVisibleSlots) return;
+
+    const visibleSpecialists = buildVisibleSpecialists(agentState.slotAgentsByRole);
+    const specialistIds = new Set(visibleSpecialists.map((npc) => npc.id));
+
+    import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+      eventBridge.emitInitNPCs(visibleSpecialists, starterRole);
+      eventBridge.emitNPCIdentityUpdates(
+        visibleSpecialists.map((npc) => ({
+          npcId: npc.id,
+          name: npc.name,
+        })),
+      );
+      setNpcPositions((prev) =>
+        Object.fromEntries(
+          Object.entries(prev).filter(
+            ([npcId]) =>
+              !ROLE_ORDER.includes(npcId as AgentId) || specialistIds.has(npcId),
+          ),
+        ),
+      );
+    });
+  }, [slotRoleKey, starterRole, agentState.slotAgentsByRole]);
+
+  // Handle sprite clicks → open agent chat
+  // Sprite npcIds are lowercase archetype prefixes like "logis", "nexus", etc.
+  // Match by archetype (case-insensitive), or by instance_id/codename for marketplace agents.
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+      const clickHandler = (data: { npcId: string }) => {
+        audioManager.playButtonClick();
+        handler(data);
+      };
+      const handler = (data: { npcId: string }) => {
+        const id = data.npcId.toLowerCase();
+        const slotAgent =
+          agentState.deployedAgents.find(
+            (a) =>
+              a.archetype.toLowerCase() === id ||
+              a.archetype.toLowerCase().startsWith(id) ||
+              a.instance_id === data.npcId ||
+              a.codename === data.npcId,
+          ) ??
+          agentState.slotAgentsByRole[id as AgentId];
+        const agent = slotAgent ?? null;
+        if (agent) {
+          const roleId = toAgentId(agent.archetype) ?? (id as AgentId);
+          const isLocked = agentState.lockedRoles.includes(roleId);
+          if (isLocked) {
+            setLockedAgentInfo(agent);
+          } else {
+            setChatAgent(agent);
+          }
+        }
+      };
+      const posHandler = (npc: NPCState) => {
+        setNpcPositions((prev) => ({ ...prev, [npc.id]: npc }));
+      };
+
+      eventBridge.on("sim:npc-click", clickHandler);
+      eventBridge.on("sim:npc-position", posHandler);
+      cleanup = () => {
+        eventBridge.off("sim:npc-click", clickHandler);
+        eventBridge.off("sim:npc-position", posHandler);
+      };
+    });
+    return () => cleanup?.();
+  }, [agentState.deployedAgents, agentState.lockedRoles, agentState.slotAgentsByRole]);
+
+  const handleBuyAgent = useCallback((offerId: string) => {
+    buyNipsAgent(offerId);
+  }, []);
+
+  const handleRefreshMarketplace = useCallback(() => {
+    requestNipsMarketplaceRefresh();
+  }, []);
+
+  const currentTimestamp = useCallback(
+    () => globalThis.performance?.now?.() ?? Date.now(),
+    [],
+  );
+
+  const suppressSectorSelection = useCallback((durationMs = 220) => {
+    sectorSelectionCooldownUntilRef.current = currentTimestamp() + durationMs;
+  }, [currentTimestamp]);
+
+  const canOpenSectorSelection = useCallback(
+    () => currentTimestamp() >= sectorSelectionCooldownUntilRef.current,
+    [currentTimestamp],
+  );
+
+  const openSectorSelection = useCallback((sectorId: SectorId) => {
+    if (!canOpenSectorSelection()) return;
+    audioManager.playButtonClick();
+    setCaseModalSector(sectorId);
+  }, [canOpenSectorSelection]);
+
+  const closeSectorSelection = useCallback(() => {
+    suppressSectorSelection();
+    setCaseModalSector(null);
+  }, [suppressSectorSelection]);
+
+  const showBoard = activeOverlay === "board";
+  const showMarketplace = activeOverlay === "market";
+
+  const toggleBoard = useCallback(() => {
+    audioManager.playPauseMenu();
+    setActiveOverlay((prev) => (prev === "board" ? null : "board"));
+  }, []);
+
+  const openBoard = useCallback(() => {
+    setActiveOverlay("board");
+  }, []);
+
+  const toggleMarketplace = useCallback(() => {
+    audioManager.playPauseMenu();
+    setActiveOverlay((prev) => (prev === "market" ? null : "market"));
+  }, []);
+
+  const openMarketplace = useCallback(() => {
+    setActiveOverlay("market");
+  }, []);
+
+  const nodeContextStr = inv.selectedNodeId
+    ? `Selected node: ${inv.systemNodes.find((n) => n.id === inv.selectedNodeId)?.name ?? inv.selectedNodeId} (${inv.selectedNodeId})`
+    : "";
+
+  const agentMarkers = useMemo(
+    () =>
+      buildAgentMarkers(
+        agentState.slotAgentsByRole,
+        npcPositions,
+        agentState.lockedRoles,
+        inv.agents,
+        inv.systemNodes,
+      ),
+    [
+      agentState.slotAgentsByRole,
+      agentState.lockedRoles,
+      npcPositions,
+      inv.agents,
+      inv.systemNodes,
+    ],
+  );
+  const pinnedFindingCount = useMemo(
+    () =>
+      inv.completedFindings.filter((finding) =>
+        board.isPinned(`${finding.nodeId}:${finding.taskType}`),
+      ).length,
+    [board, inv.completedFindings],
+  );
+
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+      const onHover = (info: NPCHoverInfo) => setHoverInfo(info);
+      const onHoverOut = () => setHoverInfo(null);
+      eventBridge.on("sim:npc-hover", onHover);
+      eventBridge.on("sim:npc-hover-out", onHoverOut);
+      cleanup = () => {
+        eventBridge.off("sim:npc-hover", onHover);
+        eventBridge.off("sim:npc-hover-out", onHoverOut);
+      };
+    });
+    return () => cleanup?.();
+  }, []);
+
+  // ── Sector landmark clicks → open CaseModal ─────────────────────────────────
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+      const handler = (data: { sectorId: string }) => {
+        openSectorSelection(data.sectorId as SectorId);
+      };
+      eventBridge.on("sim:landmark-click", handler);
+      cleanup = () => eventBridge.off("sim:landmark-click", handler);
+    });
+    return () => cleanup?.();
+  }, [openSectorSelection]);
+
+  const handleStartInvestigation = useCallback((sectorCase: SectorCase) => {
+    setActiveSectorId(sectorCase.sectorId);
+    suppressSectorSelection(120);
+    setCaseModalSector(null);
+  }, [suppressSectorSelection]);
+
+  const handleDeactivateCase = useCallback(() => {
+    setActiveSectorId(null);
+  }, []);
+
+  useEffect(() => {
+    const previewSectorId = caseModalSector ?? activeSectorId;
+    const threatStatuses = computeSectorThreatStatuses(activeSectorId, inv.pressureLevel);
+    const tone =
+      (previewSectorId
+        ? threatStatuses.find((entry) => entry.sectorId === previewSectorId)?.tone
+        : undefined) ?? "healthy";
+
+    import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+      if (previewSectorId) {
+        eventBridge.emitCaseActivate(previewSectorId, tone);
+      } else {
+        eventBridge.emitCaseDeactivate();
+      }
+    });
+  }, [caseModalSector, activeSectorId, inv.pressureLevel]);
+
+  useEffect(() => {
+    const container = canvasContainerRef.current;
+    if (!container) return;
+    let observedTarget: Element | null = null;
+    const updateMetrics = () => {
+      const canvas = container.querySelector("canvas") ?? container.querySelector("[data-testid='game-canvas']");
+      const target = canvas instanceof HTMLElement ? canvas : null;
+      if (!target) return;
+      if (observedTarget !== target) {
+        if (observedTarget) resizeObserver.unobserve(observedTarget);
+        observedTarget = target;
+        resizeObserver.observe(target);
+      }
+      const containerRect = container.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const next: OverlayMetrics = {
+        offsetX: targetRect.left - containerRect.left,
+        offsetY: targetRect.top - containerRect.top,
+        width: targetRect.width,
+        height: targetRect.height,
+        scaleX: targetRect.width / GAME_WIDTH,
+        scaleY: targetRect.height / GAME_HEIGHT,
+      };
+      setOverlayMetrics((prev) => {
+        const changed = Math.abs(prev.offsetX - next.offsetX) > 0.5 || Math.abs(prev.offsetY - next.offsetY) > 0.5 || Math.abs(prev.width - next.width) > 0.5 || Math.abs(prev.height - next.height) > 0.5;
+        return changed ? next : prev;
+      });
+    };
+    const resizeObserver = new ResizeObserver(() => updateMetrics());
+    resizeObserver.observe(container);
+    const mutationObserver = new MutationObserver(() => updateMetrics());
+    mutationObserver.observe(container, { childList: true, subtree: true });
+    window.addEventListener("resize", updateMetrics);
+    document.addEventListener("fullscreenchange", updateMetrics);
+    updateMetrics();
+    return () => {
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+      window.removeEventListener("resize", updateMetrics);
+      document.removeEventListener("fullscreenchange", updateMetrics);
+    };
+  }, []);
+
+  useEffect(() => {
+    const el = canvasContainerRef.current;
+    if (!el) return;
+    let dragging = false;
+    let lastX = 0;
+    let lastY = 0;
+    const onDown = (e: PointerEvent) => {
+      if (paused) return;
+      if (e.button !== 0) return;
+      dragging = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      el.setPointerCapture(e.pointerId);
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!dragging) return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+        eventBridge.emitCameraPan(-dx / SCALE_FACTOR, -dy / SCALE_FACTOR);
+      });
+    };
+    const onUp = (e: PointerEvent) => {
+      if (!dragging) return;
+      dragging = false;
+      el.releasePointerCapture(e.pointerId);
+    };
+    el.style.cursor = "crosshair";
+    el.addEventListener("pointerdown", onDown);
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+    return () => {
+      el.removeEventListener("pointerdown", onDown);
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
+    };
+  }, [paused]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.repeat) {
+        e.preventDefault();
+        setPaused((value) => !value);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [paused]);
+
+  useEffect(() => {
+    setWorldPaused(paused);
+    return () => setWorldPaused(false);
+  }, [paused]);
+
+  return (
+    <div
+      className="relative flex h-screen flex-col overflow-clip"
+      style={{ background: "#080c12" }}
+      data-testid="investigate-page"
+    >
+      {/* Top bar: EchoLocate header + agent status */}
+      <div
+        className="rpg-panel flex h-16 shrink-0 items-center gap-4 rounded-none border-x-0 border-t-0 px-5 panel-slide-top"
+        style={{ borderBottom: "1px solid #1e3d5a" }}
+      >
+        <div className="flex items-center gap-3 shrink-0 mr-3">
+          <span className="text-[12px] font-mono tracking-[0.14em]" style={{ color: "#00d4ff" }}>
+            ◈ EchoLocate
+          </span>
+          <span className="text-[11px] font-mono" style={{ color: "#1e3d5a" }}>|</span>
+          <span className="text-[10px] font-mono uppercase tracking-[0.14em]" style={{ color: "#2a5070" }}>
+            investigation console
+          </span>
+        </div>
+
+        {/* Agent status bar */}
+        <div className="flex-1 h-full py-1.5 overflow-x-auto">
+          <AgentStatusBar
+            agents={inv.agents}
+            activeTasks={inv.activeTasks}
+            lockedAgents={agentState.lockedRoles}
+            slotAgentsByRole={agentState.slotAgentsByRole}
+            onAgentClick={(agentId) => {
+              const nipsAgent = agentState.slotAgentsByRole[agentId];
+              if (nipsAgent) {
+                const isLocked = agentState.lockedRoles.includes(agentId);
+                if (isLocked) {
+                  setLockedAgentInfo(nipsAgent);
+                } else {
+                  setChatAgent(nipsAgent);
+                }
+              }
+            }}
+          />
+        </div>
+
+        <div className="ml-3 flex shrink-0 items-center gap-2.5">
+          {/* Funds display */}
+          <div className="flex items-center gap-1.5 rpg-panel px-3 py-1.5">
+            <span className="text-[10px] font-mono" style={{ color: "#2a5070" }}>₡</span>
+            <span className="text-[11px] font-mono tabular-nums" style={{ color: "#00ff88" }}>
+              {nipsFunds.toLocaleString()}
+            </span>
+          </div>
+          {inv.isComplete && (
+            <button
+              type="button"
+              onClick={() => { audioManager.playButtonClick(); setRewardsShown(true); }}
+              className="text-[10px] font-mono transition-opacity hover:opacity-70"
+              style={{ color: "#00ff88", textShadow: "0 0 8px rgba(0,255,136,0.5)" }}
+            >
+              CASE CLOSED — CLAIM REWARDS →
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={toggleBoard}
+            className="rpg-panel px-3.5 py-2 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-80"
+            style={{
+              color: showBoard ? "#f5d0fe" : "#d8b4fe",
+              border: `1px solid ${showBoard ? "#d946ef" : "rgba(176,111,255,0.38)"}`,
+              background: showBoard ? "rgba(176,111,255,0.18)" : "rgba(176,111,255,0.08)",
+              boxShadow: "0 0 16px rgba(176,111,255,0.12)",
+            }}
+          >
+            Case Board {pinnedFindingCount > 0 ? `(${pinnedFindingCount})` : ""}
+          </button>
+          <button
+            type="button"
+            onClick={toggleMarketplace}
+            className="rpg-panel px-3 py-1.5 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-70"
+            style={{ color: showMarketplace ? "#f59e0b" : "#4a6580", border: `1px solid ${showMarketplace ? "#f59e0b" : "#1e3d5a"}` }}
+          >
+            Market
+          </button>
+          <button
+            type="button"
+            onClick={() => { audioManager.playPauseMenu(); setShowDirectory(true); }}
+            className="rpg-panel px-3 py-1.5 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-70"
+            style={{ color: "#4a6580" }}
+          >
+            Agents ({agentState.ownedAgents.length}/4)
+          </button>
+          <button
+            type="button"
+            onClick={() => { audioManager.playPauseMenu(); radio.setIsOpen(!radio.isOpen); }}
+            className="rpg-panel px-3 py-1.5 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-70"
+            style={{
+              color: radio.isOpen ? "#00d4ff" : "#4a6580",
+              border: `1px solid ${radio.isOpen ? "#00d4ff" : "#1e3d5a"}`,
+              background: radio.isOpen ? "rgba(0,212,255,0.08)" : "transparent",
+            }}
+          >
+            Radio {radio.status !== "idle" ? "·" : ""}
+          </button>
+        </div>
+      </div>
+
+      {/* Main layout */}
+      <div className="flex flex-1 gap-2 overflow-hidden p-3">
+        {/* Left: Evidence feed */}
+        <div className="rpg-panel panel-slide-left flex h-full w-[248px] shrink-0 flex-col">
+          <div className="shrink-0 px-4 py-3" style={{ borderBottom: "1px solid #1e3d5a" }}>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-[10px] font-mono uppercase tracking-[0.16em]" style={{ color: "#00d4ff" }}>
+                Evidence Feed
+              </h2>
+              <button
+                type="button"
+                onClick={openBoard}
+                className="rounded-md px-3 py-2 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-80"
+                style={{
+                  background: "rgba(176,111,255,0.14)",
+                  border: "1px solid rgba(176,111,255,0.48)",
+                  color: "#d8b4fe",
+                  boxShadow: "0 0 16px rgba(176,111,255,0.14)",
+                }}
+              >
+                Open Board
+              </button>
+            </div>
+            <p className="mt-2 text-[9px] font-mono leading-5" style={{ color: "#6f87a1" }}>
+              Analyze logs, pin evidence, and connect the strongest findings.
+            </p>
+          </div>
+          <div className="flex-1 overflow-hidden">
+            <EventFeed
+              events={inv.events}
+              onPinEvent={(event: SimEvent) => {
+                const finding = inv.completedFindings.find(f =>
+                  event.message.includes(f.summary.substring(0, 30))
+                );
+                if (finding) {
+                  board.pinEvidence(`${finding.nodeId}:${finding.taskType}`);
+                }
+              }}
+              onOpenBoard={(event: SimEvent) => {
+                const finding = inv.completedFindings.find(f =>
+                  event.message.includes(f.summary.substring(0, 30))
+                );
+                if (finding) {
+                  board.addEvidenceNode(finding);
+                  openBoard();
+                }
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Center: Game canvas */}
+        <div
+          className="relative flex min-w-0 flex-1 items-start justify-center overflow-hidden pt-0.5"
+        >
+          <div
+            ref={canvasContainerRef}
+            className="relative shrink-0 overflow-hidden"
+            style={{
+              width: "100%",
+              maxWidth: MAP_FRAME_MAX_WIDTH,
+              border: "1px solid rgba(255,255,255,0.04)",
+              borderRadius: 12,
+              background: "#050911",
+              boxShadow: "0 28px 72px rgba(0,0,0,0.72)",
+            }}
+          >
+            <GameCanvas />
+            {/* NPC hover tooltip */}
+            {hoverInfo && (
+              <div className="pointer-events-none absolute z-30 overflow-hidden" style={{ left: overlayMetrics.offsetX, top: overlayMetrics.offsetY, width: overlayMetrics.width, height: overlayMetrics.height }}>
+                <NPCTooltip info={hoverInfo} scaleX={overlayMetrics.scaleX} scaleY={overlayMetrics.scaleY} />
+              </div>
+            )}
+            <div
+              className="pointer-events-none absolute z-20 overflow-hidden"
+              style={{
+                left: overlayMetrics.offsetX,
+                top: overlayMetrics.offsetY,
+                width: overlayMetrics.width,
+                height: overlayMetrics.height,
+              }}
+            >
+              <AgentOverlay
+                markers={agentMarkers}
+                boundsWidth={overlayMetrics.width}
+                boundsHeight={overlayMetrics.height}
+                scaleX={overlayMetrics.scaleX}
+                scaleY={overlayMetrics.scaleY}
+                onAgentClick={(agent) => {
+                  const roleId = toAgentId(agent.archetype);
+                  const isLocked = roleId ? agentState.lockedRoles.includes(roleId) : false;
+                  if (isLocked) {
+                    setLockedAgentInfo(agent);
+                  } else {
+                    setChatAgent(agent);
+                  }
+                }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Right: Sector integrity panel */}
+        <div className="panel-slide-right shrink-0 h-full">
+          <SectorStatusPanel
+            activeSectorId={caseModalSector ?? activeSectorId}
+            pressureLevel={inv.pressureLevel}
+            onSectorClick={(sectorId) => {
+              openSectorSelection(sectorId);
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Investigation Board */}
+      {showBoard && (
+        <UserBoard
+          board={board}
+          completedFindings={inv.completedFindings}
+          lockedAgents={agentState.lockedRoles}
+          onClose={() => setActiveOverlay(null)}
+        />
+      )}
+
+      {/* Marketplace overlay */}
+      {showMarketplace && (
+        <div className="fixed inset-x-0 top-14 z-[80] mx-auto max-w-4xl px-4 py-3">
+          <div className="rpg-panel p-4">
+            <AgentMarketplace
+              offersByRole={agentState.offersByRole}
+              ownedAgentsByRole={agentState.ownedAgentsByRole}
+              funds={nipsFunds}
+              nextRefresh={nipsNextRefresh}
+              lockedAgents={agentState.lockedRoles}
+              ownedAgentCount={agentState.ownedAgents.length}
+              onBuy={handleBuyAgent}
+              onRefresh={handleRefreshMarketplace}
+            />
+            <div className="mt-2 text-center">
+              <button
+                type="button"
+                onClick={() => setActiveOverlay(null)}
+                className="text-[10px] font-mono uppercase tracking-[0.14em] text-[var(--muted)] hover:text-[var(--foreground)]"
+              >
+                Close Marketplace
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Agent directory modal */}
+      {showDirectory && (
+        <AgentDirectory
+          agents={agentState.ownedAgents}
+          lockedAgents={agentState.lockedRoles}
+          slotAgentsByRole={agentState.slotAgentsByRole}
+          onOpenChat={(agent) => {
+            setShowDirectory(false);
+            setChatAgent(agent);
+          }}
+          onLockedClick={(agent) => {
+            setShowDirectory(false);
+            setLockedAgentInfo(agent);
+          }}
+          onClose={() => setShowDirectory(false)}
+        />
+      )}
+
+      {/* Locked Agent Popup */}
+      {lockedAgentInfo && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="rpg-panel p-6 w-full max-w-sm flex flex-col items-center gap-4 text-center animate-[modalIn_200ms_ease-out]">
+            <div className="text-[24px]">🔒</div>
+            <div>
+              <div className="text-[11px] font-mono font-bold" style={{ color: "#00d4ff" }}>
+                {lockedAgentInfo.display_name.toUpperCase()} IS LOCKED
+              </div>
+              <div className="mt-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted)]">
+                {lockedAgentInfo.archetype} Specialist
+              </div>
+            </div>
+            <p className="text-[11px] font-mono leading-6" style={{ color: "#4a6580" }}>
+              This specialist is visible in the field, but their role is still locked.
+              Recruit them in the marketplace to unlock and use them.
+            </p>
+            <div className="flex gap-2 w-full">
+              <button
+                type="button"
+                onClick={() => setLockedAgentInfo(null)}
+                className="flex-1 rpg-panel py-2 text-[10px] font-mono uppercase tracking-[0.12em] transition-all hover:bg-white/5"
+                style={{ color: "#4a6580" }}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLockedAgentInfo(null);
+                  openMarketplace();
+                }}
+                className="flex-1 rpg-panel py-2 text-[10px] font-mono uppercase tracking-[0.12em] transition-all"
+                style={{ background: "rgba(245,158,11,0.1)", border: "1px solid #f59e0b", color: "#f59e0b" }}
+              >
+                Go to Market
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mini Map */}
+      <GameMiniMap
+        positions={npcPositions}
+        markers={agentMarkers}
+        onAgentClick={(agent) => {
+          const roleId = toAgentId(agent.archetype);
+          const isLocked = roleId ? agentState.lockedRoles.includes(roleId) : false;
+          if (isLocked) {
+            setLockedAgentInfo(agent);
+          } else {
+            setChatAgent(agent);
+          }
+        }}
+      />
+
+      {/* Agent chat modal */}
+      {/* Radio Panel */}
+      <RadioPanel radio={radio} agents={agentState.ownedAgents} />
+
+      {chatAgent && (
+        <AgentCommandModal
+          agent={chatAgent}
+          nodeContext={nodeContextStr}
+          currentFunds={nipsFunds}
+          initialMessages={chatHistories[chatAgent.instance_id]}
+          onEvidenceUpdate={(ev) => {
+            inv.addExternalEvidence(ev);
+            if (typeof ev.funds === "number") {
+              setNipsFunds(ev.funds);
+            } else {
+              const rewardCredits = ev.reward_credits;
+              if (typeof rewardCredits === "number") {
+                setNipsFunds((prev) => prev + rewardCredits);
+              }
+            }
+          }}
+          onFundsChange={setNipsFunds}
+          onOpenRadio={() => {
+            radio.setSelectedAgent(chatAgent);
+            radio.setIsOpen(true);
+          }}
+          onClose={(msgs) => {
+            setChatHistories((prev) => ({ ...prev, [chatAgent.instance_id]: msgs }));
+            setChatAgent(null);
+          }}
+        />
+      )}
+
+      <PauseOverlay
+        isVisible={paused}
+        onResume={() => setPaused(false)}
+        onRestart={() => router.replace("/simulate?mode=investigate&map=moonCity")}
+        onReturnToLanding={() => router.push("/")}
+      />
+
+      {/* Case Complete — Rewards Modal */}
+      {rewardsShown && inv.isComplete && (
+        <CaseRewardsModal
+          findings={inv.completedFindings}
+          progress={progress}
+          onClose={(updated) => {
+            onProgressChange(updated);
+            setRewardsShown(false);
+          }}
+        />
+      )}
+
+      {/* Active sector banner */}
+      {activeSectorId && (
+        <div
+          className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 flex items-center gap-3 rounded-full px-4 py-2"
+          style={{
+            background: "#0a0f1a",
+            border: `1px solid ${SECTOR_COLORS[activeSectorId] ?? "#00d4ff"}55`,
+            boxShadow: `0 0 20px ${SECTOR_COLORS[activeSectorId] ?? "#00d4ff"}22`,
+          }}
+        >
+          <span
+            className="w-2 h-2 rounded-full animate-pulse"
+            style={{ background: SECTOR_COLORS[activeSectorId] ?? "#00d4ff" }}
+          />
+          <span className="text-[10px] font-mono tracking-widest" style={{ color: SECTOR_COLORS[activeSectorId] ?? "#00d4ff" }}>
+            ACTIVE INVESTIGATION
+          </span>
+          <span className="text-[10px] font-mono text-slate-400">
+            {SECTOR_NAMES[activeSectorId]}
+          </span>
+          <button
+            type="button"
+            onClick={handleDeactivateCase}
+            className="text-[10px] font-mono text-slate-600 hover:text-slate-400 ml-1"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {/* Sector Case Modal */}
+      {caseModalSector && (
+        <CaseModal
+          sectorId={caseModalSector}
+          onStartInvestigation={handleStartInvestigation}
+          onClose={closeSectorSelection}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CaseRewardsModal
+// ---------------------------------------------------------------------------
+
+function CaseRewardsModal({
+  findings,
+  progress,
+  onClose,
+}: {
+  findings: import("@/types/investigation").AgentResult[];
+  progress: PlayerProgress;
+  onClose: (updated: PlayerProgress) => void;
+}) {
+  const criticalCount = findings.filter((f) => f.severity === "critical").length;
+  const highCount     = findings.filter((f) => f.severity === "high").length;
+  const { credits, reputation } = computeCaseRewards(findings.length, criticalCount, highCount);
+  const updated = applyCaseRewards(progress, credits, reputation);
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.80)" }}
+    >
+      <div className="rpg-panel flex flex-col" style={{ width: 420 }}>
+        {/* Header */}
+        <div className="px-5 py-4" style={{ borderBottom: "1px solid #1e3d5a" }}>
+          <div className="text-[11px] font-mono font-bold" style={{ color: "#00ff88", textShadow: "0 0 10px rgba(0,255,136,0.4)" }}>
+            ◈ CASE CLOSED
+          </div>
+          <div className="text-[8px] font-mono uppercase tracking-widest mt-0.5" style={{ color: "#2a5070" }}>
+            Investigation complete — rewards issued
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div className="px-5 py-4 flex flex-col gap-2">
+          {[
+            { label: "Total findings", value: findings.length },
+            { label: "Critical findings", value: criticalCount },
+            { label: "High findings", value: highCount },
+          ].map(({ label, value }) => (
+            <div key={label} className="flex items-center justify-between">
+              <span className="text-[8px] font-mono" style={{ color: "#4a6580" }}>{label}</span>
+              <span className="text-[9px] font-mono tabular-nums" style={{ color: "#c9d8e8" }}>{value}</span>
+            </div>
+          ))}
+          <div className="mt-2 pt-2" style={{ borderTop: "1px solid #1e3d5a" }}>
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-mono" style={{ color: "#00ff88" }}>Credits earned</span>
+              <span className="text-[11px] font-mono font-bold tabular-nums" style={{ color: "#00ff88" }}>
+                +{credits.toLocaleString()}₡
+              </span>
+            </div>
+            <div className="flex items-center justify-between mt-1">
+              <span className="text-[8px] font-mono" style={{ color: "#b06fff" }}>Reputation</span>
+              <span className="text-[9px] font-mono tabular-nums" style={{ color: "#b06fff" }}>+{reputation}</span>
+            </div>
+          </div>
+          <div className="mt-2 pt-2 flex items-center justify-between" style={{ borderTop: "1px solid #1e3d5a" }}>
+            <span className="text-[8px] font-mono" style={{ color: "#2a5070" }}>Total balance</span>
+            <span className="text-[10px] font-mono tabular-nums" style={{ color: "#00ff88" }}>
+              {updated.credits.toLocaleString()}₡
+            </span>
+          </div>
+        </div>
+
+        <div className="px-5 py-3 flex justify-between items-center" style={{ borderTop: "1px solid #1e3d5a" }}>
+          <span className="text-[7px] font-mono" style={{ color: "#1e3d5a" }}>
+            Spend credits to upgrade helpers before next case
+          </span>
+          <button
+            type="button"
+            onClick={() => onClose(updated)}
+            className="px-4 py-1.5 text-[9px] font-mono rounded transition-all"
+            style={{
+              background: "rgba(0,212,255,0.12)",
+              border: "1px solid #00d4ff",
+              color: "#00d4ff",
+              boxShadow: "0 0 10px rgba(0,212,255,0.15)",
+            }}
+          >
+            CONTINUE →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SimulateContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const isMock = process.env.NEXT_PUBLIC_MOCK_BACKEND === "true";
   const simulationId = searchParams.get("id") || "";
@@ -161,32 +1308,15 @@ function SimulateContent() {
   }, []);
 
   const selectedNpc = selectedNpcId ? sim.getNpc(selectedNpcId) : undefined;
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [focusMode, setFocusMode] = useState(false);
+  const [paused, setPaused] = useState(false);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
-  const [focusScale, setFocusScale] = useState(1);
   const [hoverInfo, setHoverInfo] = useState<NPCHoverInfo | null>(null);
-  const [showGraph, setShowGraph] = useState(false);
   const [overlayMetrics, setOverlayMetrics] = useState<OverlayMetrics>(
     DEFAULT_OVERLAY_METRICS,
   );
   const [showReport, setShowReport] = useState(false);
   const reportShownRef = useRef(false);
 
-  useEffect(() => {
-    if (focusMode) {
-      setFocusScale(
-        Math.max(
-          window.innerWidth / GAME_WIDTH,
-          window.innerHeight / GAME_HEIGHT,
-        ),
-      );
-    } else {
-      setFocusScale(1);
-    }
-  }, [focusMode]);
-
-  // Auto-start simulation once we have a simulation ID (or immediately in mock/replay mode)
   const hasStartedRef = useRef(false);
   useEffect(() => {
     if (hasStartedRef.current) return;
@@ -206,7 +1336,6 @@ function SimulateContent() {
     };
   }, [simulationId, isReplay]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reset transient overlay UI when Phaser re-initializes the NPC set.
   useEffect(() => {
     let cleanup: (() => void) | undefined;
     import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
@@ -219,7 +1348,6 @@ function SimulateContent() {
     return () => cleanup?.();
   }, []);
 
-  // Listen for NPC hover events from Phaser
   useEffect(() => {
     let cleanup: (() => void) | undefined;
     import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
@@ -235,14 +1363,11 @@ function SimulateContent() {
     return () => cleanup?.();
   }, []);
 
-  // Open NPC profile when clicked on canvas
   useEffect(() => {
     let cleanup: (() => void) | undefined;
     import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
       const handler = (data: { npcId: string }) => {
         setSelectedNpcId(data.npcId);
-        // Removed automatic camera snap to allow manual control
-        // eventBridge.emitCameraSnapToNPC(data.npcId);
       };
       eventBridge.on("sim:npc-click", handler);
       cleanup = () => eventBridge.off("sim:npc-click", handler);
@@ -250,25 +1375,6 @@ function SimulateContent() {
     return () => cleanup?.();
   }, []);
 
-  // Fullscreen toggle
-  const toggleFullscreen = useCallback(() => {
-    const el = canvasContainerRef.current;
-    if (!el) return;
-    if (document.fullscreenElement) {
-      document.exitFullscreen();
-    } else {
-      el.requestFullscreen();
-    }
-  }, []);
-
-  // Track fullscreen state
-  useEffect(() => {
-    const handler = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener("fullscreenchange", handler);
-    return () => document.removeEventListener("fullscreenchange", handler);
-  }, []);
-
-  // Measure the real Phaser canvas box so DOM overlays stay locked to sprite positions.
   useEffect(() => {
     const container = canvasContainerRef.current;
     if (!container) return;
@@ -326,7 +1432,6 @@ function SimulateContent() {
     };
   }, []);
 
-  // Camera panning via click+drag
   useEffect(() => {
     const el = canvasContainerRef.current;
     if (!el) return;
@@ -336,11 +1441,12 @@ function SimulateContent() {
     let lastY = 0;
 
     const onDown = (e: PointerEvent) => {
+      if (paused) return;
       if (e.button !== 0) return;
       dragging = true;
       lastX = e.clientX;
       lastY = e.clientY;
-      el.style.cursor = "grabbing";
+      el.style.cursor = "crosshair";
       el.setPointerCapture(e.pointerId);
     };
 
@@ -358,58 +1464,37 @@ function SimulateContent() {
     const onUp = (e: PointerEvent) => {
       if (!dragging) return;
       dragging = false;
-      el.style.cursor = "grab";
+      el.style.cursor = "crosshair";
       el.releasePointerCapture(e.pointerId);
     };
 
-    el.style.cursor = "grab";
+    el.style.cursor = "crosshair";
     el.addEventListener("pointerdown", onDown);
     el.addEventListener("pointermove", onMove);
     el.addEventListener("pointerup", onUp);
-
-    // Camera zooming via mouse wheel
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const delta = e.deltaY < 0 ? 1 : -1;
-
-      const zoomTarget =
-        el.querySelector("canvas") ??
-        el.querySelector("[data-testid='game-canvas']");
-      const rect =
-        zoomTarget instanceof HTMLElement
-          ? zoomTarget.getBoundingClientRect()
-          : el.getBoundingClientRect();
-      const scaleX = rect.width > 0 ? GAME_WIDTH / rect.width : 1;
-      const scaleY = rect.height > 0 ? GAME_HEIGHT / rect.height : 1;
-      const mouseX = (e.clientX - rect.left) * scaleX;
-      const mouseY = (e.clientY - rect.top) * scaleY;
-
-      import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
-        eventBridge.emitCameraZoom(delta, mouseX, mouseY);
-      });
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
 
     return () => {
       el.removeEventListener("pointerdown", onDown);
       el.removeEventListener("pointermove", onMove);
       el.removeEventListener("pointerup", onUp);
-      el.removeEventListener("wheel", onWheel);
     };
-  }, []);
+  }, [paused]);
 
-  // Close modals / focus mode on ESC
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setFocusMode(false);
-        setShowGraph(false);
-        setShowReport(false);
+      if (e.key === "Escape" && !e.repeat) {
+        e.preventDefault();
+        setPaused((value) => !value);
       }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, []);
+  }, [paused]);
+
+  useEffect(() => {
+    setWorldPaused(paused);
+    return () => setWorldPaused(false);
+  }, [paused]);
 
   useEffect(() => {
     if (!sim.isComplete) {
@@ -423,47 +1508,40 @@ function SimulateContent() {
       setShowReport(true);
     }
   }, [sim.isComplete, sim.reportLoading, sim.report]);
+
   if (!simulationId && !isMock && !isReplay) {
     return (
       <div
         className="flex min-h-screen flex-col items-center justify-center px-6"
-        style={{ background: "#4a7a3b" }}
+        style={{ background: "#080c12" }}
       >
         <div
-          className="flex max-w-md flex-col items-center gap-4 p-8 text-center"
-          style={{
-            background: "#F5E6C8",
-            border: "4px solid #6B4226",
-            borderRadius: "8px",
-            boxShadow:
-              "inset 2px 2px 0 rgba(196,164,108,.55), inset -2px -2px 0 rgba(61,37,16,.25), 4px 4px 0 rgba(61,37,16,.4)",
-          }}
+          className="flex max-w-md flex-col items-center gap-4 p-8 text-center rpg-panel"
         >
           <span
-            className="text-[10px] font-pixel tracking-widest"
-            style={{ color: "#5B3A1E" }}
+            className="text-[12px] font-mono tracking-[0.16em]"
+            style={{ color: "#00d4ff" }}
           >
-            {"\u2605"} SIMULACRA {"\u2605"}
+            ◈ EchoLocate — No Incident Loaded
           </span>
           <p
-            className="text-[10px] font-mono uppercase tracking-widest"
-            style={{ color: "#3D2510" }}
+            className="text-[12px] font-mono uppercase tracking-[0.14em]"
+            style={{ color: "#c9d8e8" }}
           >
-            No policy specified.
+            No incident loaded.
           </p>
           <p
-            className="text-[10px] font-mono uppercase tracking-widest"
-            style={{ color: "#8B7355" }}
+            className="text-[11px] font-mono uppercase tracking-[0.14em]"
+            style={{ color: "#4a6580" }}
           >
-            Please describe an economic policy on the home page before running a
-            simulation.
+            Load a case from the home screen to begin your investigation.
           </p>
           <Link
             href="/"
-            className="rpg-panel mt-2 px-6 py-2 text-[10px] font-pixel transition-opacity hover:opacity-80"
-            style={{ color: "#5B3A1E", background: "#E8D5A3" }}
+            className="rpg-panel mt-2 px-6 py-2 text-[11px] font-mono transition-opacity hover:opacity-80"
+            style={{ color: "#00d4ff", border: "1px solid #1e3d5a" }}
           >
-            {">> Enter Policy <<"}
+            {">> Load Case <<"}
           </Link>
         </div>
       </div>
@@ -473,82 +1551,91 @@ function SimulateContent() {
   return (
     <div
       className="relative flex h-screen flex-col overflow-clip"
-      style={{ background: "#4a7a3b" }}
+      style={{ background: "#080c12" }}
       data-testid="simulate-page"
     >
-      {/* Phase indicator bar */}
+      {/* Stage indicator bar */}
       <div
-        className={`rpg-panel flex h-10 shrink-0 items-center justify-between rounded-none border-x-0 border-t-0 px-4 panel-slide-top ${focusMode ? "panel-hidden-top" : ""}`}
-        style={{ background: "#E8D5A3", borderBottom: "3px solid #6B4226" }}
+        className="rpg-panel flex h-14 shrink-0 items-center justify-between rounded-none border-x-0 border-t-0 px-5 panel-slide-top"
+        style={{ borderBottom: "1px solid #1e3d5a" }}
         data-testid="phase-bar"
       >
         <div className="flex items-center gap-3">
           <span
-            className="text-[10px] font-pixel tracking-tight"
-            style={{ color: "#5B3A1E" }}
+            className="text-[12px] font-mono tracking-[0.14em]"
+            style={{ color: "#00d4ff" }}
           >
-            {"\u2605"} SIMULACRA
+            ◈ EchoLocate
           </span>
-          <span className="text-[10px] font-mono" style={{ color: "#C4A46C" }}>
+          <span className="text-[11px] font-mono" style={{ color: "#1e3d5a" }}>
             |
           </span>
+          {/* Stage dots */}
           <div className="flex gap-1">
             {[1, 2, 3].map((p) => (
               <div
                 key={p}
                 className="h-2 w-12 rounded-sm transition-colors duration-500"
                 style={{
-                  border: "1px solid #C4A46C",
+                  border: "1px solid #1e3d5a",
                   background:
                     sim.phase >= p
                       ? p === 3
-                        ? "#B83A52"
+                        ? "#ff3a3a"
                         : p === 2
-                          ? "#C97D1A"
-                          : "#3E7C34"
-                      : "#F5E6C8",
+                          ? "#f59e0b"
+                          : "#00d4ff"
+                      : "#0d1520",
+                  boxShadow:
+                    sim.phase >= p
+                      ? p === 3
+                        ? "0 0 6px rgba(255,58,58,0.5)"
+                        : p === 2
+                          ? "0 0 6px rgba(245,158,11,0.5)"
+                          : "0 0 6px rgba(0,212,255,0.5)"
+                      : "none",
                 }}
               />
             ))}
           </div>
           {sim.phase > 0 && (
-            <span
-              className="text-[9px] font-mono uppercase tracking-widest ml-2"
-              style={{ color: "#6B4C2A" }}
-            >
-              {sim.phaseLabel}
-            </span>
+          <span
+            className="ml-2 text-[10px] font-mono uppercase tracking-[0.14em]"
+            style={{ color: "#4a6580" }}
+          >
+            {sim.phaseLabel}
+          </span>
           )}
         </div>
 
         <div className="relative z-[2] flex items-center gap-3">
           {sim.isRunning && isRecording && (
             <span
-              className="text-[9px] font-pixel animate-pulse"
-              style={{ color: "#B83A52" }}
+              className="text-[10px] font-mono animate-pulse"
+              style={{ color: "#ff3a3a" }}
             >
-              REC
+              ● REC
             </span>
           )}
           {sim.isComplete && (
             <>
               <span
-                className="text-[9px] font-pixel"
-                style={{ color: "#3E7C34" }}
+                className="text-[10px] font-mono"
+                style={{ color: "#00ff88", textShadow: "0 0 8px rgba(0,255,136,0.5)" }}
               >
-                COMPLETE
+                CASE CLOSED
               </span>
               <button
                 type="button"
                 onClick={() => setShowReport(true)}
-                className="text-[9px] font-mono uppercase tracking-widest transition-opacity hover:opacity-60"
-                style={{ color: "#6B4C2A" }}
+                className="text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-60"
+                style={{ color: "#4a6580" }}
               >
                 {sim.reportLoading
-                  ? "[Report...]"
+                  ? "[Evidence...]"
                   : sim.report
-                    ? "[Report]"
-                    : "[Report Pending]"}
+                    ? "[Evidence]"
+                    : "[Evidence Pending]"}
               </button>
               {sim.getRecording() && (
                 <button
@@ -563,12 +1650,12 @@ function SimulateContent() {
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement("a");
                     a.href = url;
-                    a.download = `agora-sim-${Date.now()}.json`;
+                    a.download = `echolocate-case-${Date.now()}.json`;
                     a.click();
                     URL.revokeObjectURL(url);
                   }}
-                  className="text-[9px] font-mono uppercase tracking-widest transition-opacity hover:opacity-60"
-                  style={{ color: "#6B4C2A" }}
+                  className="text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-60"
+                  style={{ color: "#4a6580" }}
                 >
                   SAVE JSON
                 </button>
@@ -577,129 +1664,52 @@ function SimulateContent() {
           )}
           {sim.isRunning && !isRecording && (
             <span
-              className="text-[9px] font-mono uppercase tracking-widest"
-              style={{ color: "#8B7355" }}
+              className="text-[10px] font-mono uppercase tracking-[0.14em] animate-pulse"
+              style={{ color: "#4a6580" }}
             >
-              Simulating...
+              Investigating...
             </span>
           )}
-          <button
-            type="button"
-            onClick={() => setFocusMode((f) => !f)}
-            className="rpg-panel px-3 py-1 text-[9px] font-mono font-bold tracking-widest transition-all hover:opacity-80"
-            style={{
-              color: focusMode ? "#D4A520" : "#8B7355",
-              background: focusMode ? "rgba(212,165,32,0.1)" : undefined,
-              borderColor: focusMode ? "#D4A520" : undefined,
-            }}
-            title="Toggle focus mode (hides panels)"
-          >
-            {focusMode ? "[ EXIT FOCUS ]" : "[ FOCUS ]"}
-          </button>
         </div>
       </div>
 
       {/* Main layout */}
-      <div className="flex flex-1 gap-2 overflow-hidden p-2">
-        {/* Left: Event feed */}
-        <div
-          className={`rpg-panel flex h-full w-64 shrink-0 flex-col panel-slide-left ${focusMode ? "panel-hidden-left" : ""}`}
-        >
+      <div className="flex flex-1 gap-3 overflow-hidden p-3">
+        {/* Left: Evidence feed */}
+        <div className="rpg-panel panel-slide-left flex h-full w-[300px] shrink-0 flex-col">
           <div
-            className="flex items-center justify-between px-3 py-2"
-            style={{ borderBottom: "2px solid #C4A46C" }}
+            className="flex items-center justify-between px-4 py-3"
+            style={{ borderBottom: "1px solid #1e3d5a" }}
           >
             <h2
-              className="text-[8px] font-pixel uppercase"
-              style={{ color: "#5B3A1E" }}
+              className="text-[10px] font-mono uppercase tracking-[0.16em]"
+              style={{ color: "#00d4ff" }}
             >
-              Event Log
+              Evidence Feed
             </h2>
-            <button
-              type="button"
-              onClick={() => setShowGraph(true)}
-              className="text-[9px] font-mono uppercase tracking-widest transition-opacity hover:opacity-60"
-              style={{ color: "#8B7355" }}
-              title="Open Social Graph"
-            >
-              GRAPH
-            </button>
           </div>
           <div className="flex-1 overflow-hidden">
             <EventFeed events={sim.events} onEventClick={handleEventClick} />
           </div>
         </div>
 
-        {/* Center: Game canvas with overlays - now full width */}
+        {/* Center: Game canvas */}
         <div
-          className={
-            focusMode
-              ? "fixed inset-0 z-50 flex items-center justify-center overflow-hidden"
-              : "relative flex min-w-0 flex-1 items-center justify-center overflow-hidden"
-          }
-          style={focusMode ? { background: "#060010" } : undefined}
+          className="relative flex min-w-0 flex-1 items-center justify-center overflow-hidden"
         >
           <div
             ref={canvasContainerRef}
-            className="relative shrink-0 canvas-glow canvas-expand"
+            className="relative shrink-0 overflow-hidden"
             style={{
-              border: "3px solid #6B4226",
-              borderRadius: 4,
-              ...(focusMode
-                ? {
-                    transform: `scale(${focusScale})`,
-                    transformOrigin: "center center",
-                    border: "none",
-                    padding: 0,
-                    boxShadow: "none",
-                  }
-                : {}),
+              width: "100%",
+              maxWidth: MAP_FRAME_MAX_WIDTH,
+              border: "1px solid rgba(255,255,255,0.04)",
+              borderRadius: 12,
+              background: "#050911",
+              boxShadow: "0 28px 72px rgba(0,0,0,0.72)",
             }}
           >
             <GameCanvas />
-
-            {/* Fullscreen toggle + Zoom controls */}
-            <div className="absolute top-2 right-2 z-40 flex gap-1">
-              <button
-                type="button"
-                onClick={() => {
-                  import("@/game/bridge/EventBridge").then(
-                    ({ eventBridge }) => {
-                      eventBridge.emitCameraZoom(1);
-                    },
-                  );
-                }}
-                className="rpg-panel px-1.5 py-1 text-[10px] font-mono transition-opacity hover:opacity-70"
-                style={{ color: "#5B3A1E", background: "#E8D5A3" }}
-                title="Zoom in"
-              >
-                ZOOM+
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  import("@/game/bridge/EventBridge").then(
-                    ({ eventBridge }) => {
-                      eventBridge.emitCameraZoom(-1);
-                    },
-                  );
-                }}
-                className="rpg-panel px-1.5 py-1 text-[10px] font-mono transition-opacity hover:opacity-70"
-                style={{ color: "#5B3A1E", background: "#E8D5A3" }}
-                title="Zoom out"
-              >
-                ZOOM-
-              </button>
-              <button
-                type="button"
-                onClick={toggleFullscreen}
-                className="rpg-panel px-1.5 py-1 text-[10px] font-mono transition-opacity hover:opacity-70"
-                style={{ color: "#5B3A1E", background: "#E8D5A3" }}
-                title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-              >
-                {isFullscreen ? "EXIT" : "FULL"}
-              </button>
-            </div>
 
             {/* NPC hover tooltip */}
             {hoverInfo && (
@@ -721,98 +1731,37 @@ function SimulateContent() {
             )}
           </div>
         </div>
+
+        <div className="rpg-panel flex w-[320px] shrink-0 flex-col">
+          <div
+            className="px-4 py-3"
+            style={{ borderBottom: "1px solid #1e3d5a" }}
+          >
+            <span
+              className="text-[10px] font-mono uppercase tracking-[0.16em]"
+              style={{ color: "#00d4ff" }}
+            >
+              Operation Status
+            </span>
+          </div>
+          <Dashboard
+            metrics={sim.metrics}
+            metricsHistory={sim.metricsHistory}
+            phase={sim.phase}
+            round={sim.round}
+            maxRounds={sim.maxRounds}
+            embedded
+          />
+        </div>
       </div>
 
-      {/* Viewport-fixed dashboard so it stays fully visible instead of being clipped by the canvas area */}
-      <div
-        className={`fixed bottom-3 right-3 z-40 pointer-events-auto ${focusMode ? "opacity-0 pointer-events-none" : ""}`}
-      >
-        <Dashboard
-          metrics={sim.metrics}
-          metricsHistory={sim.metricsHistory}
-          phase={sim.phase}
-          round={sim.round}
-          maxRounds={sim.maxRounds}
-        />
-      </div>
-
-      {/* Focus mode exit overlay */}
-      {focusMode && (
-        <button
-          type="button"
-          className="fixed top-4 right-4 z-[60] rpg-panel px-3 py-1.5 text-[9px] font-mono transition-opacity hover:opacity-70"
-          style={{
-            color: "#5B3A1E",
-            background: "#E8D5A3",
-            border: "2px solid #6B4226",
-          }}
-          onClick={() => setFocusMode(false)}
-        >
-          [ESC] exit focus
-        </button>
-      )}
-
-      {/* NPC Interaction Modal (Profile + Chat side-by-side) */}
+      {/* Agent Profile Modal */}
       {selectedNpc && (
         <NPCInteractionModal
           npc={selectedNpc}
           simulationId={simulationId}
           onClose={() => setSelectedNpcId(null)}
         />
-      )}
-
-      {/* Social Graph Modal */}
-      {showGraph && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setShowGraph(false);
-          }}
-        >
-          <div
-            className="relative flex flex-col animate-[modalIn_200ms_ease-out]"
-            style={{
-              width: 700,
-              height: 560,
-              background: "#F5E6C8",
-              border: "4px solid #6B4226",
-              borderRadius: "8px",
-              boxShadow:
-                "inset 2px 2px 0 rgba(196,164,108,.55), inset -2px -2px 0 rgba(61,37,16,.25), 4px 4px 0 rgba(61,37,16,.4)",
-            }}
-          >
-            <div
-              className="flex items-center justify-between px-4 py-2"
-              style={{
-                background: "#E8D5A3",
-                borderBottom: "2px solid #C4A46C",
-              }}
-            >
-              <h2
-                className="text-[10px] font-pixel uppercase"
-                style={{ color: "#5B3A1E" }}
-              >
-                {"\u2605"} Social Graph
-              </h2>
-              <button
-                type="button"
-                onClick={() => setShowGraph(false)}
-                className="text-[10px] font-mono uppercase tracking-widest transition-opacity hover:opacity-60"
-                style={{ color: "#8B7355" }}
-              >
-                [ESC]
-              </button>
-            </div>
-            <div className="flex-1 overflow-hidden">
-              <SocialGraph
-                npcs={sim.graphData.npcs}
-                relationships={sim.graphData.relationships}
-                influenceEvents={sim.graphData.influenceEvents}
-                version={sim.graphData.version}
-              />
-            </div>
-          </div>
-        </div>
       )}
 
       {showReport && (
@@ -824,36 +1773,262 @@ function SimulateContent() {
         />
       )}
 
-      {/* Error overlay — shown when backend restarts or simulation is lost */}
+      <PauseOverlay
+        isVisible={paused}
+        onResume={() => setPaused(false)}
+        onRestart={() => {
+          if (simulationId) {
+            router.replace(`/simulate?id=${simulationId}&map=moonCity${isRecording ? "&record=true" : ""}`);
+            return;
+          }
+          router.push("/");
+        }}
+        onReturnToLanding={() => router.push("/")}
+      />
+
+      {/* Connection error overlay */}
       {sim.error && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div
-            className="rpg-panel px-6 py-4 text-center"
-            style={{ background: "#FDF5E6" }}
-          >
-            <p
-              className="font-mono text-sm font-bold"
-              style={{ color: "#B83A52" }}
-            >
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+          <div className="rpg-panel px-6 py-4 text-center">
+            <p className="font-mono text-sm font-bold" style={{ color: "#ff3a3a" }}>
               Connection Lost
             </p>
-            <p
-              className="mt-2 font-mono text-xs"
-              style={{ color: "#6B4C2A" }}
-            >
-              The simulation server restarted. Please go back and start a new
-              simulation.
+            <p className="mt-2 font-mono text-xs" style={{ color: "#4a6580" }}>
+              The investigation server disconnected. Please return home and load a new incident.
             </p>
             <a
               href="/"
               className="mt-3 block font-mono text-xs underline"
-              style={{ color: "#A0824A" }}
+              style={{ color: "#2a5070" }}
             >
               {"<-"} Back to home
             </a>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AgentOverlay — floating labels that follow agents
+// ---------------------------------------------------------------------------
+
+function AgentOverlay({
+  markers,
+  boundsWidth,
+  boundsHeight,
+  scaleX,
+  scaleY,
+  onAgentClick,
+}: {
+  markers: AgentMarkerData[];
+  boundsWidth: number;
+  boundsHeight: number;
+  scaleX: number;
+  scaleY: number;
+  onAgentClick: (agent: NipsAgentInstance) => void;
+}) {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden">
+      {markers.map((marker) => {
+        const anchorX = marker.position.x * scaleX;
+        const anchorY = marker.position.y * scaleY;
+        const estimatedWidth = Math.min(
+          148,
+          Math.max(72, marker.agent.display_name.length * 6 + 22),
+        );
+        const labelHeight = 20;
+        const spriteHalfHeight = Math.max(9, 14 * scaleY);
+        const labelGap = 40;
+        const left = Math.max(
+          6,
+          Math.min(
+            anchorX - estimatedWidth / 2,
+            Math.max(6, boundsWidth - estimatedWidth - 6),
+          ),
+        );
+        const top = Math.max(
+          6,
+          Math.min(
+            anchorY - spriteHalfHeight - labelHeight - labelGap,
+            Math.max(6, boundsHeight - labelHeight - 6),
+          ),
+        );
+
+        return (
+          <div
+            key={marker.agent.instance_id}
+            className="absolute pointer-events-auto"
+            style={{
+              left,
+              top,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => onAgentClick(marker.agent)}
+              className="animate-[fadeIn_0.3s_ease-out] rounded-full px-2.5 py-[3px] text-[8px] font-mono tracking-[0.06em] transition-opacity hover:opacity-100"
+              style={{
+                width: estimatedWidth,
+                background: "rgba(7,12,19,0.78)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                color: marker.isLocked ? "#6f87a1" : "#d9e6f2",
+                boxShadow: marker.isLocked
+                  ? "0 6px 14px rgba(0,0,0,0.2)"
+                  : `0 0 10px ${marker.color}12, 0 6px 14px rgba(0,0,0,0.24)`,
+                textShadow: "0 1px 0 rgba(0,0,0,0.6)",
+                whiteSpace: "nowrap",
+                backdropFilter: "blur(2px)",
+                opacity: 0.92,
+              }}
+            >
+              {marker.agent.display_name}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// GameMiniMap — tactical bottom-left map
+// ---------------------------------------------------------------------------
+
+function GameMiniMap({
+  positions,
+  markers,
+  onAgentClick,
+}: {
+  positions: Record<string, NPCState>;
+  markers: AgentMarkerData[];
+  onAgentClick: (agent: NipsAgentInstance) => void;
+}) {
+  const MAP_W = 1600;
+  const MAP_H = 1280;
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isStowed, setIsStowed] = useState(false);
+  const miniWidth = isExpanded ? 280 : 170;
+  const miniHeight = isExpanded ? 196 : 122;
+  const frameWidth = miniWidth + 8;
+  const frameHeight = miniHeight + 30;
+  const stowedPeek = 28;
+
+  const toMiniX = (wx: number) => (wx / MAP_W) * miniWidth;
+  const toMiniY = (wy: number) => (wy / MAP_H) * miniHeight;
+
+  return (
+    <div
+      className="fixed bottom-4 left-4 z-40 rpg-panel p-1 transition-transform duration-300 ease-out"
+      style={{
+        width: frameWidth,
+        height: frameHeight,
+        background: "rgba(8,12,18,0.95)",
+        border: "1px solid #1e3d5a",
+        transform: isStowed ? `translateX(-${frameWidth - stowedPeek}px)` : "translateX(0)",
+      }}
+    >
+      <div className="relative flex items-center justify-between px-1 mb-1 border-b border-[#1e3d5a] pb-0.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-[8px] font-mono uppercase tracking-[0.16em] text-[#4a6580]">
+            Tactical Map
+          </span>
+          <span className="text-[8px] font-mono text-[#1e3d5a]">
+            {markers.length} AGENTS
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => {
+              setIsExpanded((prev) => !prev);
+              if (isStowed) setIsStowed(false);
+            }}
+            className="rounded border border-[#1e3d5a] px-1.5 py-0.5 text-[8px] font-mono uppercase tracking-[0.12em] text-[#4a6580] transition-colors hover:border-[#2a5070] hover:text-[#c9d8e8]"
+            title={isExpanded ? "Collapse map" : "Expand map"}
+          >
+            {isExpanded ? "−" : "+"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsStowed((prev) => !prev)}
+            className="rounded border border-[#1e3d5a] px-1.5 py-0.5 text-[8px] font-mono uppercase tracking-[0.12em] text-[#4a6580] transition-colors hover:border-[#2a5070] hover:text-[#c9d8e8]"
+            title={isStowed ? "Bring map back" : "Stow map to the side"}
+          >
+            {isStowed ? ">" : "<"}
+          </button>
+        </div>
+        {isStowed && (
+          <button
+            type="button"
+            onClick={() => setIsStowed(false)}
+            className="absolute -right-1 top-8 flex h-20 w-6 items-center justify-center rounded-r border border-[#1e3d5a] bg-[#08111b] text-[8px] font-mono uppercase tracking-[0.18em] text-[#4a6580] transition-colors hover:border-[#2a5070] hover:text-[#c9d8e8]"
+            style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
+            title="Bring tactical map back"
+          >
+            MAP
+          </button>
+        )}
+      </div>
+
+      <div
+        className="relative overflow-hidden rounded bg-[#0d1520]"
+        style={{ width: miniWidth, height: miniHeight }}
+      >
+        <div
+          className="absolute inset-0 opacity-20"
+          style={{
+            backgroundImage: "radial-gradient(#1e3d5a 0.5px, transparent 0.5px)",
+            backgroundSize: "8px 8px",
+          }}
+        />
+
+        {Object.values(positions).map((pos) => {
+          const isAgent = markers.some((marker) => marker.npcId === pos.id);
+          if (isAgent) return null;
+
+          return (
+            <div
+              key={pos.id}
+              className="absolute h-0.5 w-0.5 rounded-full bg-[#1e3d5a]"
+              style={{
+                left: toMiniX(pos.worldX),
+                top: toMiniY(pos.worldY),
+              }}
+            />
+          );
+        })}
+
+        {markers.map((marker) => {
+          return (
+            <div
+              key={marker.agent.instance_id}
+              className={`absolute z-10 ${
+                !marker.isLocked ? "animate-pulse" : ""
+              }`}
+              style={{
+                left: toMiniX(marker.position.worldX) - 4,
+                top: toMiniY(marker.position.worldY) - 4,
+              }}
+            >
+              <button
+                type="button"
+                className="h-2.5 w-2.5 rounded-full border"
+                style={{
+                  backgroundColor: marker.isLocked ? "#2a5070" : marker.color,
+                  borderColor: marker.isLocked ? "#1e3d5a" : "#fff",
+                  boxShadow: marker.isLocked ? "none" : `0 0 6px ${marker.color}`,
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAgentClick(marker.agent);
+                }}
+              />
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

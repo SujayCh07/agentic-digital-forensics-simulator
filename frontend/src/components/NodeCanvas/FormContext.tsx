@@ -16,14 +16,18 @@ export interface FormState {
   mapId: MapType;
   setMapId: (v: MapType) => void;
   policySources: UploadedContextSource[];
+  incidentSources: UploadedContextSource[];
   trendSources: UploadedContextSource[];
   uploadingPolicySources: boolean;
+  uploadingIncidentSources: boolean;
   uploadingTrends: boolean;
   isSimulating: boolean;
   record: boolean;
   setRecord: (v: boolean) => void;
   handlePolicyNarrativeFiles: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  handleIncidentNarrativeFiles: (e: React.ChangeEvent<HTMLInputElement>) => void;
   removePolicySource: (sourceId: string) => void;
+  removeIncidentSource: (sourceId: string) => void;
   handleTrendFiles: (e: React.ChangeEvent<HTMLInputElement>) => void;
   removeTrendSource: (sourceId: string) => void;
   handleSimulate: () => void;

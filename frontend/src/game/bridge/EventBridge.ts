@@ -1,6 +1,11 @@
 import type { NPCHoverInfo, NPCState, SimEvent } from "@/types";
 import type { BackendNPC } from "@/types/backend";
 
+interface NPCIdentityUpdate {
+  npcId: string;
+  name: string;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Listener = (...args: any[]) => void;
 
@@ -75,15 +80,10 @@ class EventBridge {
     this.emit("sim:camera-pan", { dx, dy });
   }
 
-  // React → Phaser
-  emitCameraZoom(delta: number, x?: number, y?: number) {
-    this.emit("sim:camera-zoom", { delta, x, y });
-  }
-
   // React → Phaser: initialize NPCs from backend (sticky — replays for late listeners)
-  emitInitNPCs(npcs: unknown[]) {
-    this.sticky.set("sim:init-npcs", [npcs]);
-    this.emit("sim:init-npcs", npcs);
+  emitInitNPCs(npcs: unknown[], starterId?: string) {
+    this.sticky.set("sim:init-npcs", [npcs, starterId]);
+    this.emit("sim:init-npcs", npcs, starterId);
   }
 
   // React → Phaser: clear all NPC sprites before a new simulation
@@ -107,6 +107,11 @@ class EventBridge {
     this.emit("sim:npc-mood", { npcId, mood });
   }
 
+  // React → Phaser: update already-spawned specialist labels/names
+  emitNPCIdentityUpdates(updates: NPCIdentityUpdate[]) {
+    this.emit("sim:npc-identity-updates", updates);
+  }
+
   // React → Phaser: snap camera to an NPC by ID
   emitCameraSnapToNPC(npcId: string) {
     this.emit("sim:camera-snap-npc", { npcId });
@@ -128,6 +133,24 @@ class EventBridge {
 
   emitNPCHoverOut() {
     this.emit("sim:npc-hover-out");
+  }
+
+  // Phaser → React: player clicked a sector landmark building
+  emitLandmarkClick(sectorId: string) {
+    this.emit("sim:landmark-click", { sectorId });
+  }
+
+  // React → Phaser: a case was started — highlight this sector
+  emitCaseActivate(
+    sectorId: string,
+    tone?: "healthy" | "suspicious" | "compromised" | "isolated",
+  ) {
+    this.emit("sim:case-activate", { sectorId, tone });
+  }
+
+  // React → Phaser: case closed/solved
+  emitCaseDeactivate() {
+    this.emit("sim:case-deactivate");
   }
 }
 

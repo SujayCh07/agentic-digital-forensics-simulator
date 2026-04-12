@@ -3,16 +3,22 @@ import { getCoordScale, moodToSentiment } from "@/lib/adapter";
 import type { BuildingPositions } from "@/types";
 import type { BackendNPC } from "@/types/backend";
 import { eventBridge } from "../bridge/EventBridge";
-import { CENTER_BOUNDS, TILE_SIZE, getMapConfig } from "../config";
+import { CENTER_BOUNDS, getMapConfig, selectedMap, TILE_SIZE } from "../config";
 import { spawnEmotionBubble } from "../effects/EconomicEffects";
 import { Car } from "../entities/Car";
 import { NPC } from "../entities/NPC";
 import { WorldChatBubble } from "../entities/WorldChatBubble";
 import { CAR_TEMPLATES, type CarTemplate } from "../map/CarRegistry";
-import { roleToCharacter } from "../map/NPCCharacterRegistry";
+import { ALL_CHARACTERS, roleToCharacter } from "../map/NPCCharacterRegistry";
+import {
+  getNearestGraphNode,
+  getRoadNode,
+  pickNextNode,
+  ROAD_GRAPH_NODES,
+} from "../map/RoadGraph";
 import { MovementSystem } from "./MovementSystem";
 import { OccupancyGrid } from "./OccupancyGrid";
-import { findPath } from "./Pathfinder";
+import { compressPath, findPath } from "./Pathfinder";
 
 function roleToZone(role: string): string {
   switch (role) {
@@ -31,6 +37,13 @@ function roleToZone(role: string): string {
 }
 
 const MIN_SPAWN_SPACING = 4;
+
+const INVESTIGATOR_VISOR_TINT: Partial<Record<string, number>> = {
+  logis: 0x7dd3fc,
+  nexus: 0xc4b5fd,
+  filer: 0xfbbf24,
+  chrono: 0x5eead4,
+};
 
 export class NPCManager {
   private scene: Phaser.Scene;
@@ -58,6 +71,8 @@ export class NPCManager {
   private conversationVersions: Map<string, number> = new Map();
   /** Random emotion bubble timer */
   private emotionTimer?: Phaser.Time.TimerEvent;
+  /** Graph-roam intersection timers for process NPCs */
+  private graphRoamTimers: Map<string, Phaser.Time.TimerEvent> = new Map();
 
   constructor(
     scene: Phaser.Scene,
@@ -86,6 +101,11 @@ export class NPCManager {
     eventBridge.on("sim:init-npcs", this.onInitNPCs, this);
     eventBridge.on("sim:npc-move", this.onNPCMove, this);
     eventBridge.on("sim:npc-mood", this.onNPCMood, this);
+    eventBridge.on(
+      "sim:npc-identity-updates",
+      this.onNPCIdentityUpdates,
+      this,
+    );
   }
 
   private ensureSpawnArea() {
@@ -111,6 +131,8 @@ export class NPCManager {
   private onResetNPCs() {
     this.emotionTimer?.destroy();
     this.emotionTimer = undefined;
+    for (const timer of this.graphRoamTimers.values()) timer.destroy();
+    this.graphRoamTimers.clear();
     this.movement.destroy();
     for (const bubble of this.chatBubbles.values()) bubble.destroy();
     this.chatBubbles.clear();
@@ -168,14 +190,20 @@ export class NPCManager {
       );
     }
 
-    const entity = this.spawnEntity(bn, tileX, tileY, this.npcs.size, this.roadTilesCache);
+    const entity = this.spawnEntity(
+      bn,
+      tileX,
+      tileY,
+      this.npcs.size,
+      this.roadTilesCache,
+    );
     this.npcs.set(bn.id, entity);
     const zone = roleToZone(bn.role);
     this.npcZones.set(bn.id, zone);
     this.movement.startRoaming(entity, zone);
   }
 
-  private onInitNPCs(backendNPCs: unknown[]) {
+  private onInitNPCs(backendNPCs: unknown[], starterId?: string) {
     // If NPCs were already streamed individually, skip batch creation
     if (this.npcs.size > 0) return;
 
@@ -227,17 +255,34 @@ export class NPCManager {
 
     for (let i = 0; i < npcs.length; i++) {
       const bn = npcs[i];
+      const isStarter = starterId && bn.id === starterId;
 
       // Find a road tile with adequate spacing from other NPCs
       let tileX = -1;
       let tileY = -1;
 
-      for (const candidate of roadTiles) {
-        if (this.occupancy.isOccupied(candidate.x, candidate.y)) continue;
-        if (this.hasMinSpacing(candidate.x, candidate.y, MIN_SPAWN_SPACING)) {
-          tileX = candidate.x;
-          tileY = candidate.y;
-          break;
+      if (isStarter) {
+        // Find road tile closest to map center (10, 7)
+        let minD = Infinity;
+        for (const candidate of roadTiles) {
+          if (this.occupancy.isOccupied(candidate.x, candidate.y)) continue;
+          const d = (candidate.x - 10) ** 2 + (candidate.y - 7) ** 2;
+          if (d < minD) {
+            minD = d;
+            tileX = candidate.x;
+            tileY = candidate.y;
+          }
+        }
+      }
+
+      if (tileX === -1) {
+        for (const candidate of roadTiles) {
+          if (this.occupancy.isOccupied(candidate.x, candidate.y)) continue;
+          if (this.hasMinSpacing(candidate.x, candidate.y, MIN_SPAWN_SPACING)) {
+            tileX = candidate.x;
+            tileY = candidate.y;
+            break;
+          }
         }
       }
 
@@ -312,11 +357,7 @@ export class NPCManager {
   }
 
   /** Check whether a car template fits at the given tile position. */
-  private canFitCar(
-    col: number,
-    row: number,
-    template: CarTemplate,
-  ): boolean {
+  private canFitCar(col: number, row: number, template: CarTemplate): boolean {
     if (template.orientation === "portrait") {
       return (
         this.getRoadType(col, row) === "v" &&
@@ -348,7 +389,7 @@ export class NPCManager {
     index: number,
     roadTiles: { x: number; y: number }[],
   ): NPC {
-    if (bn.role === "driver") {
+    if (bn.role === "driver" && selectedMap !== "moonCity") {
       const template = CAR_TEMPLATES[index % CAR_TEMPLATES.length];
 
       // Try to find a road tile where the car template fits
@@ -388,11 +429,7 @@ export class NPCManager {
 
       for (let dc = 0; dc < template.cols; dc++) {
         for (let dr = 0; dr < template.rows; dr++) {
-          this.occupancy.occupy(
-            `${bn.id}_${dc}_${dr}`,
-            carX + dc,
-            carY + dr,
-          );
+          this.occupancy.occupy(`${bn.id}_${dc}_${dr}`, carX + dc, carY + dr);
         }
       }
 
@@ -401,12 +438,24 @@ export class NPCManager {
 
     // Regular NPC
     const charType = roleToCharacter(bn.role, index);
-    const npc = new NPC(this.scene, bn.id, bn.name, charType, index, tileX, tileY);
+    const npc = new NPC(
+      this.scene,
+      bn.id,
+      bn.name,
+      charType,
+      index,
+      tileX,
+      tileY,
+    );
     npc.role = bn.role;
     npc.profession = bn.profession;
     npc.category = bn.category ?? "";
     npc.reputation = bn.reputation;
     npc.sentiment = moodToSentiment(bn.mood);
+    const investigatorTint = INVESTIGATOR_VISOR_TINT[bn.id.toLowerCase()];
+    if (bn.category === "specialist" && investigatorTint) {
+      npc.applyLunarInvestigatorStyle(investigatorTint);
+    }
     this.occupancy.occupy(bn.id, tileX, tileY);
     return npc;
   }
@@ -502,6 +551,16 @@ export class NPCManager {
     npc.sentiment = moodToSentiment(data.mood);
   }
 
+  private onNPCIdentityUpdates(updates: { npcId: string; name: string }[]) {
+    for (const update of updates) {
+      const npc = this.npcs.get(update.npcId);
+      if (!npc) continue;
+      npc.setDisplayName(update.name);
+      this.upsertChatBubble(npc);
+      this.emitNPCPosition(npc);
+    }
+  }
+
   getNPC(id: string): NPC | undefined {
     return this.npcs.get(id);
   }
@@ -513,11 +572,20 @@ export class NPCManager {
   /** Re-emit positions for NPCs with active bubbles so camera pan/zoom stays in sync. */
   refreshActiveBubblePositions() {
     for (const npc of this.npcs.values()) {
+      this.emitNPCPosition(npc);
+      npc.refreshHover?.();
       if (!npc.message) {
         this.upsertChatBubble(npc);
         continue;
       }
       this.upsertChatBubble(npc);
+    }
+  }
+
+  /** Emit all current NPC positions for the mini map and labels */
+  updateAllPositions() {
+    for (const npc of this.npcs.values()) {
+      this.emitNPCPosition(npc);
     }
   }
 
@@ -682,8 +750,10 @@ export class NPCManager {
     );
     if (!path || path.length === 0) return;
 
-    for (let i = 0; i < Math.min(maxSteps, path.length); i++) {
-      const next = path[i];
+    const limitedPath = path.slice(0, Math.min(maxSteps, path.length));
+    const waypoints = compressPath(limitedPath);
+
+    for (const next of waypoints) {
       // Re-check occupancy at step time — another NPC may have moved here
       if (this.occupancy.isOccupiedByOther(npc.npcId, next.col, next.row))
         break;
@@ -721,14 +791,98 @@ export class NPCManager {
     return this.buildingPositions;
   }
 
+  /**
+   * Spawn autonomous network-process NPCs that roam the road graph.
+   * These represent background data traffic — no backend data needed.
+   */
+  spawnProcessNPCs(count: number) {
+    this.ensureSpawnArea();
+    for (let i = 0; i < count; i++) {
+      const node = ROAD_GRAPH_NODES[i % ROAD_GRAPH_NODES.length];
+      const charType = ALL_CHARACTERS[i % ALL_CHARACTERS.length];
+      const id = `proc_${i}`;
+
+      let tileX = node.col;
+      let tileY = node.row;
+      if (this.occupancy.isOccupied(tileX, tileY)) {
+        const nearby = this.findNearestTile(
+          tileX,
+          tileY,
+          (c, r) => this.isRoad(c, r) && this.isWalkable(c, r),
+        );
+        if (nearby) {
+          tileX = nearby.x;
+          tileY = nearby.y;
+        }
+      }
+
+      const npc = new NPC(
+        this.scene,
+        id,
+        `NET-${i.toString().padStart(2, "0")}`,
+        charType,
+        i,
+        tileX,
+        tileY,
+      );
+      npc.role = "process";
+      this.occupancy.occupy(id, tileX, tileY);
+      this.npcs.set(id, npc);
+      this.startGraphRoaming(npc);
+    }
+  }
+
+  /** Begin graph-based road roaming from the nearest intersection node. */
+  private startGraphRoaming(entity: NPC) {
+    const nearestNodeId = getNearestGraphNode(entity.tileX, entity.tileY);
+    this.scheduleGraphMove(entity, nearestNodeId);
+  }
+
+  /**
+   * Pick the next road graph node, walk the NPC along the edge tiles,
+   * then schedule the next move after a short pause at the intersection.
+   */
+  private scheduleGraphMove(
+    entity: NPC,
+    fromNodeId: string,
+    prevNodeId?: string,
+  ) {
+    const nextNodeId = pickNextNode(fromNodeId, prevNodeId);
+    const nextNode = getRoadNode(nextNodeId);
+    if (!nextNode) return;
+
+    const walkSteps = async () => {
+      if (!this.npcs.has(entity.npcId)) return;
+      this.occupancy.occupy(entity.npcId, nextNode.col, nextNode.row);
+      await entity.walkTo(nextNode.col, nextNode.row);
+      if (!this.npcs.has(entity.npcId)) return;
+      const delay = 200 + Math.random() * 600;
+      const timer = this.scene.time.delayedCall(delay, () => {
+        this.graphRoamTimers.delete(entity.npcId);
+        if (!this.npcs.has(entity.npcId)) return;
+        this.scheduleGraphMove(entity, nextNodeId, fromNodeId);
+      });
+      this.graphRoamTimers.set(entity.npcId, timer);
+    };
+
+    walkSteps();
+  }
+
   destroy() {
     this.emotionTimer?.destroy();
     this.emotionTimer = undefined;
+    for (const timer of this.graphRoamTimers.values()) timer.destroy();
+    this.graphRoamTimers.clear();
     eventBridge.off("sim:reset-npcs", this.onResetNPCs, this);
     eventBridge.off("sim:add-npc", this.onAddNPC, this);
     eventBridge.off("sim:init-npcs", this.onInitNPCs, this);
     eventBridge.off("sim:npc-move", this.onNPCMove, this);
     eventBridge.off("sim:npc-mood", this.onNPCMood, this);
+    eventBridge.off(
+      "sim:npc-identity-updates",
+      this.onNPCIdentityUpdates,
+      this,
+    );
     for (const t of this.positionTimers.values()) t.destroy();
     this.positionTimers.clear();
     for (const bubble of this.chatBubbles.values()) bubble.destroy();

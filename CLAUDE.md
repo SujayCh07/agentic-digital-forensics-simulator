@@ -1,39 +1,38 @@
 # Agent Instructions
 
-## Package Managers
-- **Frontend**: Bun — `bun install`, `bun dev`, `bun build`
-- **Backend**: uv — `uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000`
+## Product Focus
 
-## File-Scoped Commands
+The active product is EchoLocate: a moon-city cyber forensics and incident-response game.
+
+When working in this repository, prioritize the active investigate flow over archived replay or policy-simulation modules.
+
+## Package Managers
+- Frontend: Bun
+- Backend: uv
+
+## Common Commands
 | Task | Command |
 |------|---------|
-| Lint | `cd frontend && bun lint` |
-| Format | `cd frontend && bun format` |
+| Frontend dev | `cd frontend && bun dev` |
+| Frontend build | `cd frontend && bun run build` |
+| Backend dev | `cd backend && uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000` |
 | Backend tests | `cd backend && uv run pytest` |
 
-## Key Conventions
-- **Phaser client-only**: wrap in `next/dynamic` with `ssr: false`; page must be `"use client"`
-- **Linting**: Biome 2.2.0 — not ESLint. Rules live in `frontend/biome.json`
-- **EventBridge**: singleton in `src/game/bridge/` bridges React ↔ Phaser via `sim:*` events
-- **LLM model**: set via `MODEL_NAME` in backend `.env` (`grok-3-think-v2` or `k2-think-v2`)
-- **Next.js 16**: has breaking changes — read `node_modules/next/dist/docs/` before using unfamiliar APIs
+## Active Frontend Files
+- `frontend/src/app/page.tsx`
+- `frontend/src/app/simulate/page.tsx`
+- `frontend/src/components/GameCanvas.tsx`
+- `frontend/src/game/scenes/BootScene.ts`
+- `frontend/src/game/scenes/WorldScene.ts`
+- `frontend/src/hooks/useInvestigation.ts`
 
-## Environment Variables
-```
-XAI_API_KEY=xai-...
-K2_API_KEY=...
-MODEL_NAME=grok-3-think-v2
-```
+## Active Backend Files
+- `backend/main.py`
+- `backend/routers/nips_router.py`
+- `backend/nips/session.py`
+- `backend/nips/chat.py`
+- `backend/nips/tools.py`
 
-## Project Layout
-```
-frontend/src/
-  components/    # UI: ChatBubble, Dashboard, EventFeed, GameCanvas, NPCProfileModal, PolicyInput
-  game/          # Phaser: scenes/, systems/, effects/, entities/, bridge/, map/
-  hooks/         # useSimulation (WebSocket)
-  services/      # wsClient
-  types/         # index.ts (frontend types), backend.ts (backend types)
-backend/
-  graph/nodes/   # parse_policy, npc_orchestrator, run_round
-  routers/       # simulate.py — POST /simulate + WebSocket /simulate/{id}/ws
-```
+## Legacy Note
+
+Policy-simulation and replay modules remain in the repo for compatibility and archived recordings. Treat them as secondary unless a task explicitly targets them.
