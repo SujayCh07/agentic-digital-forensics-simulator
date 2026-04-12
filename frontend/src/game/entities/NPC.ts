@@ -211,6 +211,8 @@ export class NPC extends Phaser.GameObjects.Sprite {
       category: this.category,
       x: (this.x - cam.scrollX) * cam.zoom,
       y: (this.y - cam.scrollY) * cam.zoom,
+      worldX: this.x,
+      worldY: this.y,
       direction: this.direction,
       state: this.npcState,
       message: this.message,

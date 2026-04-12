@@ -36,7 +36,7 @@ import {
   saveProgress,
   type PlayerProgress,
 } from "@/lib/playerProgress";
-import type { NPCHoverInfo, SimEvent } from "@/types";
+import type { NPCHoverInfo, NPCState, SimEvent } from "@/types";
 
 const SocialGraph = dynamic(
   () =>
@@ -247,6 +247,8 @@ function InvestigateGame({
   const [chatHistories, setChatHistories] = useState<Record<string, MessageEntry[]>>({});
   const [showDirectory, setShowDirectory] = useState(false);
   const [showMarketplace, setShowMarketplace] = useState(false);
+  const [lockedAgentInfo, setLockedAgentInfo] = useState<NipsAgentInstance | null>(null);
+  const [npcPositions, setNpcPositions] = useState<Record<string, NPCState>>({});
 
   // Init NIPS backend session
   useEffect(() => {
@@ -297,10 +299,25 @@ function InvestigateGame({
             a.instance_id === data.npcId ||
             a.codename === data.npcId,
         );
-        if (agent) setChatAgent(agent);
+        if (agent) {
+          const isLocked = inv.lockedAgents.includes(agent.archetype.toLowerCase() as AgentId);
+          if (isLocked) {
+            setLockedAgentInfo(agent);
+          } else {
+            setChatAgent(agent);
+          }
+        }
       };
+      const posHandler = (npc: NPCState) => {
+        setNpcPositions((prev) => ({ ...prev, [npc.id]: npc }));
+      };
+
       eventBridge.on("sim:npc-click", handler);
-      cleanup = () => eventBridge.off("sim:npc-click", handler);
+      eventBridge.on("sim:npc-position", posHandler);
+      cleanup = () => {
+        eventBridge.off("sim:npc-click", handler);
+        eventBridge.off("sim:npc-position", posHandler);
+      };
     });
     return () => cleanup?.();
   }, [nipsAgents]);
@@ -531,7 +548,14 @@ function InvestigateGame({
               const nipsAgent = nipsAgents.find(
                 (a) => a.archetype.toLowerCase() === agentId || a.codename.toLowerCase() === agentId,
               );
-              if (nipsAgent) setChatAgent(nipsAgent);
+              if (nipsAgent) {
+                const isLocked = inv.lockedAgents.includes(nipsAgent.archetype.toLowerCase() as AgentId);
+                if (isLocked) {
+                  setLockedAgentInfo(nipsAgent);
+                } else {
+                  setChatAgent(nipsAgent);
+                }
+              }
             }}
           />
         </div>
@@ -735,11 +759,85 @@ function InvestigateGame({
       {showDirectory && (
         <AgentDirectory
           agents={nipsAgents}
+          lockedAgents={inv.lockedAgents}
           onOpenChat={(agent) => {
             setShowDirectory(false);
             setChatAgent(agent);
           }}
+          onLockedClick={(agent) => {
+            setShowDirectory(false);
+            setLockedAgentInfo(agent);
+          }}
           onClose={() => setShowDirectory(false)}
+        />
+      )}
+
+      {/* Locked Agent Popup */}
+      {lockedAgentInfo && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="rpg-panel p-6 w-full max-w-sm flex flex-col items-center gap-4 text-center animate-[modalIn_200ms_ease-out]">
+            <div className="text-[24px]">🔒</div>
+            <div>
+              <div className="text-[11px] font-mono font-bold" style={{ color: "#00d4ff" }}>
+                {lockedAgentInfo.display_name.toUpperCase()} IS LOCKED
+              </div>
+              <div className="text-[8px] font-mono text-[var(--muted)] uppercase mt-1">
+                {lockedAgentInfo.archetype} Specialist
+              </div>
+            </div>
+            <p className="text-[10px] font-mono leading-relaxed" style={{ color: "#4a6580" }}>
+              This specialist has not been deployed for this case yet.
+              You can unlock them by visiting the marketplace.
+            </p>
+            <div className="flex gap-2 w-full">
+              <button
+                type="button"
+                onClick={() => setLockedAgentInfo(null)}
+                className="flex-1 rpg-panel py-2 text-[9px] font-mono uppercase transition-all hover:bg-white/5"
+                style={{ color: "#4a6580" }}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLockedAgentInfo(null);
+                  setShowMarketplace(true);
+                }}
+                className="flex-1 rpg-panel py-2 text-[9px] font-mono uppercase transition-all"
+                style={{ background: "rgba(245,158,11,0.1)", border: "1px solid #f59e0b", color: "#f59e0b" }}
+              >
+                Go to Market
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Agent Overlay (floating labels) */}
+      <AgentOverlay
+        nipsAgents={nipsAgents}
+        lockedAgents={inv.lockedAgents}
+        positions={npcPositions}
+        onAgentClick={(agent) => {
+          const isLocked = inv.lockedAgents.includes(agent.archetype.toLowerCase() as AgentId);
+          if (isLocked) {
+            setLockedAgentInfo(agent);
+          } else {
+            setChatAgent(agent);
+          }
+        }}
+      />
+
+      {/* Mini Map */}
+      {!focusMode && (
+        <GameMiniMap
+          positions={npcPositions}
+          nipsAgents={nipsAgents}
+          lockedAgents={inv.lockedAgents}
+          onAgentClick={(agent) => {
+            setChatAgent(agent);
+          }}
         />
       )}
 
@@ -1533,6 +1631,218 @@ function SimulateContent() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AgentOverlay — floating labels that follow agents
+// ---------------------------------------------------------------------------
+
+function AgentOverlay({
+  nipsAgents,
+  lockedAgents,
+  positions,
+  onAgentClick,
+}: {
+  nipsAgents: NipsAgentInstance[];
+  lockedAgents: AgentId[];
+  positions: Record<string, NPCState>;
+  onAgentClick: (agent: NipsAgentInstance) => void;
+}) {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden">
+      {nipsAgents.map((agent) => {
+        const arc = agent.archetype.toLowerCase();
+        const npcId = Object.keys(positions).find(
+          (id) =>
+            id.toLowerCase() === arc ||
+            id === agent.instance_id ||
+            id === agent.codename ||
+            arc.startsWith(id.toLowerCase()),
+        );
+
+        if (!npcId) return null;
+        const pos = positions[npcId];
+        const isLocked = lockedAgents.includes(arc as AgentId);
+
+        const color =
+          arc === "logis"
+            ? "#22d3ee"
+            : arc === "nexus"
+              ? "#a78bfa"
+              : arc === "filer"
+                ? "#f59e0b"
+                : "#34d399";
+
+        return (
+          <div
+            key={agent.instance_id}
+            className="absolute pointer-events-auto cursor-pointer"
+            onClick={() => onAgentClick(agent)}
+            style={{
+              left: pos.x,
+              top: pos.y - 35,
+              transform: "translateX(-50%)",
+            }}
+          >
+            <div
+              className={`flex flex-col items-center gap-0.5 animate-[fadeIn_0.5s_ease-out]`}
+            >
+              <div
+                className="px-2 py-0.5 rounded border shadow-lg flex items-center gap-1.5 backdrop-blur-md"
+                style={{
+                  background: isLocked ? "rgba(13,21,32,0.85)" : "rgba(8,12,18,0.92)",
+                  borderColor: isLocked ? "#1e3d5a" : `${color}60`,
+                  boxShadow: isLocked ? "none" : `0 0 10px ${color}20`,
+                }}
+              >
+                <span
+                  className="text-[8px] font-pixel whitespace-nowrap"
+                  style={{ color: isLocked ? "#4a6580" : "#ffffff" }}
+                >
+                  {isLocked ? "🔒" : ""} {agent.display_name}
+                </span>
+                <span
+                  className="text-[6px] font-mono uppercase tracking-tighter"
+                  style={{ color: isLocked ? "#2a5070" : color }}
+                >
+                  {agent.archetype}
+                </span>
+              </div>
+              <div
+                className="w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[4px]"
+                style={{
+                  borderTopColor: isLocked ? "#1e3d5a" : `${color}60`,
+                }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// GameMiniMap — tactical bottom-left map
+// ---------------------------------------------------------------------------
+
+function GameMiniMap({
+  positions,
+  nipsAgents,
+  lockedAgents,
+  onAgentClick,
+}: {
+  positions: Record<string, NPCState>;
+  nipsAgents: NipsAgentInstance[];
+  lockedAgents: AgentId[];
+  onAgentClick: (agent: NipsAgentInstance) => void;
+}) {
+  const MAP_W = 1600;
+  const MAP_H = 1280;
+  const MINI_W = 140;
+  const MINI_H = 112;
+
+  const toMiniX = (wx: number) => (wx / MAP_W) * MINI_W;
+  const toMiniY = (wy: number) => (wy / MAP_H) * MINI_H;
+
+  return (
+    <div
+      className="fixed bottom-4 left-4 z-40 rpg-panel p-1 animate-[panelSlideLeft_0.4s_ease-out]"
+      style={{
+        width: MINI_W + 8,
+        height: MINI_H + 24,
+        background: "rgba(8,12,18,0.95)",
+        border: "1px solid #1e3d5a",
+      }}
+    >
+      <div className="flex items-center justify-between px-1 mb-1 border-b border-[#1e3d5a] pb-0.5">
+        <span className="text-[7px] font-mono uppercase tracking-widest text-[#4a6580]">
+          Tactical Map
+        </span>
+        <span className="text-[7px] font-mono text-[#1e3d5a]">
+          {Object.keys(positions).length} SIGS
+        </span>
+      </div>
+
+      <div
+        className="relative overflow-hidden rounded bg-[#0d1520]"
+        style={{ width: MINI_W, height: MINI_H }}
+      >
+        <div
+          className="absolute inset-0 opacity-20"
+          style={{
+            backgroundImage: "radial-gradient(#1e3d5a 0.5px, transparent 0.5px)",
+            backgroundSize: "8px 8px",
+          }}
+        />
+
+        {Object.values(positions).map((pos) => {
+          const isAgent = nipsAgents.some(
+            (a) =>
+              pos.id.toLowerCase() === a.archetype.toLowerCase() ||
+              pos.id === a.instance_id ||
+              pos.id === a.codename,
+          );
+          if (isAgent) return null;
+
+          return (
+            <div
+              key={pos.id}
+              className="absolute h-0.5 w-0.5 rounded-full bg-[#1e3d5a]"
+              style={{
+                left: toMiniX(pos.worldX),
+                top: toMiniY(pos.worldY),
+              }}
+            />
+          );
+        })}
+
+        {nipsAgents.map((agent) => {
+          const arc = agent.archetype.toLowerCase();
+          const npcId = Object.keys(positions).find(
+            (id) =>
+              id.toLowerCase() === arc ||
+              arc.startsWith(id.toLowerCase()) ||
+              id === agent.instance_id ||
+              id === agent.codename,
+          );
+          if (!npcId) return null;
+          const pos = positions[npcId];
+          const isLocked = lockedAgents.includes(arc as AgentId);
+
+          const color =
+            arc === "logis"
+              ? "#22d3ee"
+              : arc === "nexus"
+                ? "#a78bfa"
+                : arc === "filer"
+                  ? "#f59e0b"
+                  : "#34d399";
+
+          return (
+            <div
+              key={agent.instance_id}
+              className={`absolute h-1.5 w-1.5 rounded-full z-10 cursor-pointer ${
+                !isLocked ? "animate-pulse" : ""
+              }`}
+              style={{
+                left: toMiniX(pos.worldX) - 3,
+                top: toMiniY(pos.worldY) - 3,
+                backgroundColor: isLocked ? "#2a5070" : color,
+                border: `1px solid ${isLocked ? "#1e3d5a" : "#fff"}`,
+                boxShadow: isLocked ? "none" : `0 0 6px ${color}`,
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onAgentClick(agent);
+              }}
+              title={agent.display_name}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }

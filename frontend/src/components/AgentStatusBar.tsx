@@ -57,7 +57,7 @@ export function AgentStatusBar({
           <button
             type="button"
             key={agent.id}
-            onClick={() => !isLocked && onAgentClick?.(agent.id)}
+            onClick={() => onAgentClick?.(agent.id)}
             className="rpg-panel flex flex-col justify-between px-2.5 py-1.5 min-w-[130px] text-left transition-all hover:brightness-110"
             style={{
               borderColor: isLocked

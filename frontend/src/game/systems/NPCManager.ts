@@ -521,6 +521,13 @@ export class NPCManager {
     }
   }
 
+  /** Emit all current NPC positions for the mini map and labels */
+  updateAllPositions() {
+    for (const npc of this.npcs.values()) {
+      this.emitNPCPosition(npc);
+    }
+  }
+
   /** Override movement: NPC stops roaming and enters protest/override state at current position */
   sendTo(npcId: string, _targetCol: number, _targetRow: number) {
     const npc = this.npcs.get(npcId);
