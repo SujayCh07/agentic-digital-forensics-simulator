@@ -163,11 +163,9 @@ function StarterAgentCard({
 
       {/* Pre-case upgrade button */}
       {!canUpgrade && upgradedHelper && (
-        <button
-          type="button"
+        <div
           onClick={(e) => { e.stopPropagation(); onUpgrade(); }}
-          disabled={!canAffordUpgrade}
-          className="mt-0.5 w-full text-[7px] font-mono py-1 rounded transition-opacity"
+          className="mt-0.5 w-full text-[7px] font-mono py-1 rounded transition-opacity text-center"
           style={{
             background: canAffordUpgrade ? `${roleColor}18` : "#1e3d5a",
             border: `1px solid ${canAffordUpgrade ? `${roleColor}50` : "#2a5070"}`,
@@ -178,7 +176,7 @@ function StarterAgentCard({
           {canAffordUpgrade
             ? `↑ UPGRADE TO ${upgradedHelper.name} — ${upgradedHelper.cost.toLocaleString()}₡`
             : `${upgradedHelper.cost.toLocaleString()}₡ to upgrade`}
-        </button>
+        </div>
       )}
       {canUpgrade && (
         <div
