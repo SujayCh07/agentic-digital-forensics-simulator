@@ -55,6 +55,7 @@ export interface BoardHookReturn {
 
   // Evidence → board node attachment
   attachEvidenceToNode: (evidenceKey: string, boardNodeId: string) => void;
+  addEvidenceNode: (finding: AgentResult) => void;
 
   // Connections
   addConnection: (sourceId: string, targetId: string, relation: BoardRelation) => void;
@@ -288,6 +289,31 @@ export function useBoardState(): BoardHookReturn {
     consultAgent,
     updateNodePosition,
     updateHypothesisPosition,
+    addEvidenceNode: (f: AgentResult) => {
+      const id = `ev-node-${f.nodeId}-${f.taskType}`;
+      setBoardNodes(prev => {
+        if (prev.some(n => n.id === id)) return prev;
+        const node: BoardGraphNode = {
+          id,
+          type: "evidence",
+          label: f.nodeName,
+          status: "normal",
+          revealed: true,
+          linkedEvidenceIds: [`${f.nodeId}:${f.taskType}`],
+          position: { x: 800 + Math.random() * 50, y: 100 + Math.random() * 50 },
+          metadata: {
+            agentId: f.agentId,
+            agentName: f.agentName,
+            severity: f.severity,
+            confidence: f.confidence,
+            summary: f.summary,
+          }
+        };
+        return [...prev, node];
+      });
+      // Also pin it
+      pinEvidence(`${f.nodeId}:${f.taskType}`);
+    }
   };
 }
 

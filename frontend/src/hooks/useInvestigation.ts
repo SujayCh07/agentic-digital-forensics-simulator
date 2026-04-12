@@ -40,8 +40,10 @@ import type {
   AgentDefinition,
   AgentId,
   AgentResult,
+  ArtifactType,
   CaseSystemNode,
   Helper,
+  NipsEvidenceUpdate,
   Task,
   TaskType,
 } from "@/types/investigation";
@@ -274,6 +276,7 @@ export interface InvestigationHookReturn {
   caseName:     string;
   incidentBrief: string;
   objective:    string;
+  addExternalEvidence: (eu: NipsEvidenceUpdate) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -737,5 +740,44 @@ export function useInvestigation(
     caseName:     CASE_META.name,
     incidentBrief: CASE_META.brief,
     objective:    CASE_META.objective,
+    addExternalEvidence: (eu: NipsEvidenceUpdate) => {
+      // 1. Convert NIPS discovery to AgentResult
+      const result: AgentResult = {
+        agentId: eu.agent_instance_id as any, // or map archetype
+        agentName: eu.agent_display_name,
+        nodeId: eu.node_id,
+        nodeName: CASE_NODES.find(n => n.id === eu.node_id)?.name || eu.node_id,
+        taskType: eu.evidence_type as TaskType,
+        summary: eu.summary,
+        details: eu.details,
+        confidence: eu.confidence,
+        severity: eu.severity,
+        evidenceType: eu.evidence_type as ArtifactType,
+        tags: eu.tags,
+      };
+
+      // 2. Add to completed findings
+      setCompletedFindings(prev => [...prev, result]);
+
+      // 3. Push to evidence feed
+      const newEvent: SimEvent = {
+        id: `ev-nips-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        type: "reaction", // Use reaction type for findings
+        agentId: eu.agent_instance_id,
+        agentName: eu.agent_display_name,
+        agentCategory: eu.evidence_type.split("_")[0].toUpperCase(),
+        message: eu.summary,
+        phase: stage,
+        round: currentCycle,
+        maxRounds: (CASE_META as any).maxCycles || 10,
+        timestamp: Date.now(),
+        data: { nips: true, severity: eu.severity, nodeId: eu.node_id }
+      };
+      setEvents(prev => [...prev, newEvent]);
+
+      // 4. Update metrics/funds based on severity
+      const reward = eu.severity === "critical" ? 800 : eu.severity === "high" ? 400 : 200;
+      setFunds(f => f + reward);
+    }
   };
 }

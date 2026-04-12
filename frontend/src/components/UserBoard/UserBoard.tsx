@@ -40,17 +40,42 @@ export function UserBoard({ board, completedFindings, lockedAgents, onClose }: U
 
   // Connection mode: first click selects source, second click creates edge
   const [connectSrc, setConnectSrc]    = useState<BoardSimNode | null>(null);
+  // Connector drawing hint
   const [showConnectHint, setShowConnectHint] = useState(false);
-
-  // Track which evidence IDs are on the canvas as nodes
-  const [canvasEvidenceIds, setCanvasEvidenceIds] = useState<Set<string>>(new Set());
 
   // Sync board enrichment effects (status changes, revealed nodes/edges)
   useEffect(() => {
     const canvas = canvasHandleRef.current;
     if (!canvas) return;
+
+    // 1. Sync status for existing nodes
     board.boardNodes.forEach((bn) => {
-      canvas.updateNodeStatus(bn.id, bn.status as BoardSimNode["status"], bn.linkedEvidenceIds.length);
+      canvas.updateNodeStatus(
+        bn.id,
+        bn.status as BoardSimNode["status"],
+        bn.linkedEvidenceIds.length,
+      );
+    });
+
+    // 2. Add missing evidence nodes to canvas (persistent boardNodes -> local D3 sim)
+    const currentSimNodes = canvas.getNodesSnapshot();
+    const simNodeIds = new Set(currentSimNodes.map((n) => n.id));
+
+    board.boardNodes.forEach((bn) => {
+      if (bn.type === "evidence" && !simNodeIds.has(bn.id)) {
+        canvas.addNode({
+          id: bn.id,
+          label: bn.label,
+          nodeType: "evidence",
+          status: bn.status as BoardSimNode["status"],
+          evidenceCount: 0,
+          agentId: bn.metadata?.agentId as string,
+          agentName: bn.metadata?.agentName as string,
+          severity: bn.metadata?.severity as string,
+          confidence: bn.metadata?.confidence as number,
+          summary: bn.metadata?.summary as string,
+        });
+      }
     });
   }, [board.boardNodes]);
 
@@ -114,23 +139,8 @@ export function UserBoard({ board, completedFindings, lockedAgents, onClose }: U
     try { f = JSON.parse(raw); } catch { return; }
 
     const id = `ev-node-${f.nodeId}-${f.taskType}`;
-    if (canvasEvidenceIds.has(id)) return;
-
-    board.pinEvidence(`${f.nodeId}:${f.taskType}`);
-    canvasHandleRef.current?.addNode({
-      id,
-      label: f.nodeName,
-      nodeType: "evidence",
-      status: "normal",
-      evidenceCount: 0,
-      agentId: f.agentId,
-      agentName: f.agentName,
-      severity: f.severity,
-      confidence: f.confidence,
-      summary: f.summary,
-    });
-    setCanvasEvidenceIds((prev) => new Set([...prev, id]));
-  }, [board, canvasEvidenceIds]);
+    board.addEvidenceNode(f);
+  }, [board]);
 
   const handleDragStart = (e: React.DragEvent, f: AgentResult) => {
     e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(f));
@@ -207,8 +217,9 @@ export function UserBoard({ board, completedFindings, lockedAgents, onClose }: U
                 {completedFindings.length === 0 ? "Deploy agents to gather evidence." : "No pinned evidence yet."}
               </p>
             ) : evidenceList.map((f) => {
+              const evidenceKey = `${f.nodeId}:${f.taskType}`;
               const id = `ev-node-${f.nodeId}-${f.taskType}`;
-              const onCanvas = canvasEvidenceIds.has(id);
+              const onCanvas = board.boardNodes.some(n => n.id === id);
               return (
                 <div
                   key={`${f.nodeId}:${f.taskType}`}

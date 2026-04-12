@@ -634,12 +634,20 @@ function InvestigateGame({
             <EventFeed
               events={inv.events}
               onPinEvent={(event: SimEvent) => {
-                // Find matching finding key and pin it
                 const finding = inv.completedFindings.find(f =>
                   event.message.includes(f.summary.substring(0, 30))
                 );
                 if (finding) {
                   board.pinEvidence(`${finding.nodeId}:${finding.taskType}`);
+                }
+              }}
+              onOpenBoard={(event: SimEvent) => {
+                const finding = inv.completedFindings.find(f =>
+                  event.message.includes(f.summary.substring(0, 30))
+                );
+                if (finding) {
+                  board.addEvidenceNode(finding);
+                  setShowBoard(true);
                 }
               }}
             />
@@ -852,6 +860,7 @@ function InvestigateGame({
           agent={chatAgent}
           nodeContext={nodeContextStr}
           initialMessages={chatHistories[chatAgent.instance_id]}
+          onEvidenceUpdate={(ev) => inv.addExternalEvidence(ev)}
           onClose={(msgs) => {
             setChatHistories((prev) => ({ ...prev, [chatAgent.instance_id]: msgs }));
             setChatAgent(null);
