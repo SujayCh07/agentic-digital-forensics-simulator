@@ -12,7 +12,7 @@ import { Dashboard } from "@/components/Dashboard";
 import { EconomicReportModal } from "@/components/EconomicReportModal";
 import { EventFeed } from "@/components/EventFeed";
 import { HelperSelectionPanel } from "@/components/HelperSelectionPanel";
-import { NodeListPanel } from "@/components/NodeListPanel";
+import { SectorStatusPanel } from "@/components/SectorStatusPanel";
 import { NPCInteractionModal } from "@/components/NPCInteractionModal";
 import { PauseOverlay } from "@/components/PauseOverlay";
 import { UserBoard } from "@/components/UserBoard/UserBoard";
@@ -852,22 +852,14 @@ function InvestigateGame({
           </div>
         </div>
 
-        {/* Right: Node list panel */}
-        <div className="panel-slide-right shrink-0">
-          <NodeListPanel
-            nodes={inv.systemNodes}
-            selectedNodeId={inv.selectedNodeId}
-            onSelectNode={(id) => inv.setSelectedNodeId(inv.selectedNodeId === id ? null : id)}
-            summary={
-              <Dashboard
-                metrics={inv.metrics}
-                metricsHistory={inv.metricsHistory}
-                phase={inv.stage}
-                round={inv.currentCycle}
-                maxRounds={99}
-                embedded
-              />
-            }
+        {/* Right: Sector integrity panel */}
+        <div className="panel-slide-right shrink-0 h-full">
+          <SectorStatusPanel
+            activeSectorId={activeSectorId}
+            pressureLevel={inv.pressureLevel}
+            onSectorClick={(sectorId) => {
+              setCaseModalSector(sectorId);
+            }}
           />
         </div>
       </div>

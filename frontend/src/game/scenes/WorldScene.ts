@@ -1,13 +1,9 @@
 import * as Phaser from "phaser";
 import { CYBER_CITY_SECTOR_SEEDS } from "@/data/cyberCitySectors";
-import type { SectorId } from "@/types/investigation";
 import type { BuildingPositions } from "@/types";
+import type { SectorId } from "@/types/investigation";
 import { eventBridge } from "../bridge/EventBridge";
-import {
-  GAME_HEIGHT,
-  GAME_WIDTH,
-  TILE_SIZE,
-} from "../config";
+import { GAME_HEIGHT, GAME_WIDTH, TILE_SIZE } from "../config";
 import { SimEventHandler } from "../events/SimEventHandler";
 import {
   ALL_CHARACTERS,
@@ -285,32 +281,35 @@ export class WorldScene extends Phaser.Scene {
 
   private setupLandmarkZones() {
     for (const seed of CYBER_CITY_SECTOR_SEEDS) {
-      const worldX = seed.anchor.tileX * TILE_SIZE + TILE_SIZE / 2;
-      const worldY = seed.anchor.tileY * TILE_SIZE + TILE_SIZE / 2;
+      // Use full sector bounds as the click zone
+      const bx = seed.bounds.x * TILE_SIZE;
+      const by = seed.bounds.y * TILE_SIZE;
+      const bw = seed.bounds.width * TILE_SIZE;
+      const bh = seed.bounds.height * TILE_SIZE;
 
-      // Transparent interactive zone — 3×3 tiles
       const zone = this.add.rectangle(
-        worldX,
-        worldY,
-        TILE_SIZE * 3,
-        TILE_SIZE * 3,
+        bx + bw / 2,
+        by + bh / 2,
+        bw,
+        bh,
         0x000000,
         0,
       );
       zone.setDepth(9); // above sector overlay, below NPCs
       zone.setInteractive({ useHandCursor: true });
 
-      const sectorId = seed.id;
+      const sectorId = seed.id as SectorId;
       zone.on("pointerdown", () => {
         eventBridge.emitLandmarkClick(sectorId);
       });
 
-      // Pointer-over cursor feedback
       zone.on("pointerover", () => {
         this.game.canvas.style.cursor = "pointer";
+        this.sectorOverlay?.hoverSector(sectorId);
       });
       zone.on("pointerout", () => {
         this.game.canvas.style.cursor = "default";
+        this.sectorOverlay?.unhoverSector();
       });
 
       this.landmarkZones.push(zone);

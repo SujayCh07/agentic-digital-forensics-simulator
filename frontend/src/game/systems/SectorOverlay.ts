@@ -12,8 +12,8 @@
  */
 
 import type * as Phaser from "phaser";
-import type { SectorId } from "@/types/investigation";
 import { CYBER_CITY_SECTOR_SEEDS } from "@/data/cyberCitySectors";
+import type { SectorId } from "@/types/investigation";
 import { SECTOR_COLORS_HEX } from "@/types/sectors";
 import { TILE_SIZE } from "../config";
 
@@ -28,13 +28,16 @@ interface SectorHighlight {
   border: Phaser.GameObjects.Rectangle;
 }
 
-const GLOW_DEPTH = 2;      // just above ground, below NPCs (depth 10)
+const HOVER_DEPTH = 3;
+
+const GLOW_DEPTH = 2; // just above ground, below NPCs (depth 10)
 const HIGHLIGHT_DEPTH = 3;
 
 export class SectorOverlay {
   private scene: Phaser.Scene;
   private markers: Map<SectorId, GlowMarker> = new Map();
   private activeSectorHighlight: SectorHighlight | null = null;
+  private hoverHighlight: SectorHighlight | null = null;
   private activeSectorId: SectorId | null = null;
 
   constructor(scene: Phaser.Scene) {
@@ -88,10 +91,7 @@ export class SectorOverlay {
     for (const [id, marker] of this.markers) {
       marker.pulseTween.stop();
       if (id === sectorId) {
-        marker.rect.setFillStyle(
-          SECTOR_COLORS_HEX[sectorId] ?? 0x00d4ff,
-          0.28,
-        );
+        marker.rect.setFillStyle(SECTOR_COLORS_HEX[sectorId] ?? 0x00d4ff, 0.28);
         marker.rect.setStrokeStyle(
           2,
           SECTOR_COLORS_HEX[sectorId] ?? 0x00d4ff,
@@ -177,6 +177,68 @@ export class SectorOverlay {
     }
   }
 
+  // ── Hover highlight ───────────────────────────────────────────────────────
+
+  hoverSector(sectorId: SectorId) {
+    // Don't override the active case highlight
+    if (this.activeSectorId === sectorId) return;
+    this.clearHoverHighlight();
+
+    const seed = CYBER_CITY_SECTOR_SEEDS.find((s) => s.id === sectorId);
+    if (!seed) return;
+
+    const color = SECTOR_COLORS_HEX[sectorId] ?? 0x00d4ff;
+    const x = seed.bounds.x * TILE_SIZE;
+    const y = seed.bounds.y * TILE_SIZE;
+    const w = seed.bounds.width * TILE_SIZE;
+    const h = seed.bounds.height * TILE_SIZE;
+
+    // Start both at alpha 0, fade in together
+    const rect = this.scene.add.rectangle(
+      x + w / 2,
+      y + h / 2,
+      w,
+      h,
+      color,
+      0.07,
+    );
+    rect.setAlpha(0);
+    rect.setDepth(HOVER_DEPTH);
+
+    const border = this.scene.add.rectangle(
+      x + w / 2,
+      y + h / 2,
+      w,
+      h,
+      color,
+      0,
+    );
+    border.setAlpha(0);
+    border.setDepth(HOVER_DEPTH);
+    border.setStrokeStyle(1.5, color, 0.6);
+
+    this.hoverHighlight = { rect, border };
+
+    this.scene.tweens.add({
+      targets: [rect, border],
+      alpha: { from: 0, to: 1 },
+      duration: 160,
+      ease: "Quad.easeOut",
+    });
+  }
+
+  unhoverSector() {
+    this.clearHoverHighlight();
+  }
+
+  private clearHoverHighlight() {
+    if (this.hoverHighlight) {
+      this.hoverHighlight.rect.destroy();
+      this.hoverHighlight.border.destroy();
+      this.hoverHighlight = null;
+    }
+  }
+
   private clearHighlight() {
     if (this.activeSectorHighlight) {
       this.activeSectorHighlight.rect.destroy();
@@ -186,6 +248,7 @@ export class SectorOverlay {
   }
 
   destroy() {
+    this.clearHoverHighlight();
     this.clearHighlight();
     for (const marker of this.markers.values()) {
       marker.pulseTween.stop();
