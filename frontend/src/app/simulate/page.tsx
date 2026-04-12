@@ -991,11 +991,12 @@ function InvestigateGame({
               CASE CLOSED — CLAIM REWARDS →
             </button>
           )}
-          {!proposalSubmitted && activeSectorId && (
+          {activeSectorId && !endgameOutcome && !showFinalClaimModal && (
             <button
               type="button"
               onClick={() => {
                 audioManager.playButtonClick();
+                setProposalEval(null);
                 setShowProposalModal(true);
               }}
               className="rpg-panel px-3.5 py-2 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-80 animate-pulse"
