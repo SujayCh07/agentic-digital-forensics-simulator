@@ -124,6 +124,21 @@ class EventBridge {
   emitNPCHoverOut() {
     this.emit("sim:npc-hover-out");
   }
+
+  // Phaser → React: player clicked a sector landmark building
+  emitLandmarkClick(sectorId: string) {
+    this.emit("sim:landmark-click", { sectorId });
+  }
+
+  // React → Phaser: a case was started — highlight this sector
+  emitCaseActivate(sectorId: string) {
+    this.emit("sim:case-activate", { sectorId });
+  }
+
+  // React → Phaser: case closed/solved
+  emitCaseDeactivate() {
+    this.emit("sim:case-deactivate");
+  }
 }
 
 export const eventBridge = EventBridge.getInstance();

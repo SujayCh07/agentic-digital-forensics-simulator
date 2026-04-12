@@ -12,7 +12,7 @@ import { Dashboard } from "@/components/Dashboard";
 import { EconomicReportModal } from "@/components/EconomicReportModal";
 import { EventFeed } from "@/components/EventFeed";
 import { HelperSelectionPanel } from "@/components/HelperSelectionPanel";
-import { NodeListPanel } from "@/components/NodeListPanel";
+import { SectorStatusPanel } from "@/components/SectorStatusPanel";
 import { NPCInteractionModal } from "@/components/NPCInteractionModal";
 import { PauseOverlay } from "@/components/PauseOverlay";
 import { UserBoard } from "@/components/UserBoard/UserBoard";
@@ -23,7 +23,7 @@ import { useBoardState } from "@/hooks/useBoardState";
 import { useSimulation } from "@/hooks/useSimulation";
 import { useRadio } from "@/hooks/useRadio";
 import { RadioPanel } from "@/components/RadioPanel";
-import type { ActiveHelpers, AgentDefinition, AgentId, CaseSystemNode, NipsAgentInstance, NipsMarketplaceOffer, NipsEvidenceUpdate } from "@/types/investigation";
+import type { ActiveHelpers, AgentDefinition, AgentId, CaseSystemNode, NipsAgentInstance, NipsMarketplaceOffer, SectorId } from "@/types/investigation";
 import { clearReplayData, getReplayData } from "@/lib/replayStore";
 import {
   initNipsSession,
@@ -40,6 +40,9 @@ import {
   type PlayerProgress,
 } from "@/lib/playerProgress";
 import { audioManager } from "@/lib/audioManager";
+import { CaseModal } from "@/components/CaseModal";
+import type { SectorCase } from "@/types/sectors";
+import { SECTOR_COLORS, SECTOR_NAMES } from "@/types/sectors";
 import type { NPCHoverInfo, NPCState, SimEvent } from "@/types";
 
 // Mirror game/constants values here to avoid importing Phaser during SSR.
@@ -348,6 +351,8 @@ function InvestigateGame({
   const [showDirectory, setShowDirectory] = useState(false);
   const [lockedAgentInfo, setLockedAgentInfo] = useState<NipsAgentInstance | null>(null);
   const [npcPositions, setNpcPositions] = useState<Record<string, NPCState>>({});
+  const [caseModalSector, setCaseModalSector] = useState<SectorId | null>(null);
+  const [activeSectorId, setActiveSectorId] = useState<SectorId | null>(null);
 
   // ── Audio: stop music when leaving the game view ────────────────────────────
   useEffect(() => {
@@ -510,6 +515,35 @@ function InvestigateGame({
       };
     });
     return () => cleanup?.();
+  }, []);
+
+  // ── Sector landmark clicks → open CaseModal ─────────────────────────────────
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+      const handler = (data: { sectorId: string }) => {
+        audioManager.playButtonClick();
+        setCaseModalSector(data.sectorId as SectorId);
+      };
+      eventBridge.on("sim:landmark-click", handler);
+      cleanup = () => eventBridge.off("sim:landmark-click", handler);
+    });
+    return () => cleanup?.();
+  }, []);
+
+  const handleStartInvestigation = useCallback((sectorCase: SectorCase) => {
+    setActiveSectorId(sectorCase.sectorId);
+    setCaseModalSector(null);
+    import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+      eventBridge.emitCaseActivate(sectorCase.sectorId);
+    });
+  }, []);
+
+  const handleDeactivateCase = useCallback(() => {
+    setActiveSectorId(null);
+    import("@/game/bridge/EventBridge").then(({ eventBridge }) => {
+      eventBridge.emitCaseDeactivate();
+    });
   }, []);
 
   useEffect(() => {
@@ -818,22 +852,14 @@ function InvestigateGame({
           </div>
         </div>
 
-        {/* Right: Node list panel */}
-        <div className="panel-slide-right shrink-0">
-          <NodeListPanel
-            nodes={inv.systemNodes}
-            selectedNodeId={inv.selectedNodeId}
-            onSelectNode={(id) => inv.setSelectedNodeId(inv.selectedNodeId === id ? null : id)}
-            summary={
-              <Dashboard
-                metrics={inv.metrics}
-                metricsHistory={inv.metricsHistory}
-                phase={inv.stage}
-                round={inv.currentCycle}
-                maxRounds={99}
-                embedded
-              />
-            }
+        {/* Right: Sector integrity panel */}
+        <div className="panel-slide-right shrink-0 h-full">
+          <SectorStatusPanel
+            activeSectorId={activeSectorId}
+            pressureLevel={inv.pressureLevel}
+            onSectorClick={(sectorId) => {
+              setCaseModalSector(sectorId);
+            }}
           />
         </div>
       </div>
@@ -989,6 +1015,45 @@ function InvestigateGame({
             onProgressChange(updated);
             setRewardsShown(false);
           }}
+        />
+      )}
+
+      {/* Active sector banner */}
+      {activeSectorId && (
+        <div
+          className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 flex items-center gap-3 rounded-full px-4 py-2"
+          style={{
+            background: "#0a0f1a",
+            border: `1px solid ${SECTOR_COLORS[activeSectorId] ?? "#00d4ff"}55`,
+            boxShadow: `0 0 20px ${SECTOR_COLORS[activeSectorId] ?? "#00d4ff"}22`,
+          }}
+        >
+          <span
+            className="w-2 h-2 rounded-full animate-pulse"
+            style={{ background: SECTOR_COLORS[activeSectorId] ?? "#00d4ff" }}
+          />
+          <span className="text-[10px] font-mono tracking-widest" style={{ color: SECTOR_COLORS[activeSectorId] ?? "#00d4ff" }}>
+            ACTIVE INVESTIGATION
+          </span>
+          <span className="text-[10px] font-mono text-slate-400">
+            {SECTOR_NAMES[activeSectorId]}
+          </span>
+          <button
+            type="button"
+            onClick={handleDeactivateCase}
+            className="text-[10px] font-mono text-slate-600 hover:text-slate-400 ml-1"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {/* Sector Case Modal */}
+      {caseModalSector && (
+        <CaseModal
+          sectorId={caseModalSector}
+          onStartInvestigation={handleStartInvestigation}
+          onClose={() => setCaseModalSector(null)}
         />
       )}
     </div>
