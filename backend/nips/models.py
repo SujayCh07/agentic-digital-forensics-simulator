@@ -327,6 +327,7 @@ class FinalEvaluationEnvelope(BaseModel):
 
 class CaseState(BaseModel):
     case_id: str
+    funds: int = 0
     issues: list[dict[str, Any]] = Field(default_factory=list)
     resolved_issue_count: int = 0
     final_phase_ready: bool = False

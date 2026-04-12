@@ -5,19 +5,19 @@
 
 import { io, type Socket } from "socket.io-client";
 import type {
+  AgentResult,
   FinalEvaluation,
   FinalFeedback,
   FinalReportSubmission,
   IssueResolutionRequest,
   IssueResolutionResult,
   IssueState,
-  NipsCaseState,
   NipsAgentInstance,
+  NipsCaseState,
   NipsEvidenceUpdate,
   NipsMarketplaceOffer,
   NipsToolActivity,
   ThreatState,
-  AgentResult,
 } from "@/types/investigation";
 
 const API_BASE = "http://localhost:8000";
@@ -169,6 +169,7 @@ function mapIssueResolutionResult(data: {
 
 function mapCaseState(data: {
   case_id: string;
+  funds: number;
   issues: Array<Parameters<typeof mapIssueState>[0]>;
   resolved_issue_count: number;
   final_phase_ready: boolean;
@@ -184,6 +185,7 @@ function mapCaseState(data: {
 }): NipsCaseState {
   return {
     case_id: data.case_id,
+    funds: data.funds,
     issues: data.issues.map(mapIssueState),
     resolved_issue_count: data.resolved_issue_count,
     final_phase_ready: data.final_phase_ready,
@@ -195,7 +197,8 @@ function mapCaseState(data: {
           incorrectAssumptions: data.latest_feedback.incorrect_assumptions,
           misleadingEvidence: data.latest_feedback.misleading_evidence,
           missingConnections: data.latest_feedback.missing_connections,
-          suggestedRecheckTargets: data.latest_feedback.suggested_recheck_targets,
+          suggestedRecheckTargets:
+            data.latest_feedback.suggested_recheck_targets,
         }
       : null,
   };
@@ -280,9 +283,15 @@ function getSocket(): Socket {
   _socket.on("nips_threat_updated", (data) => {
     _progressionCallbacks?.onThreatUpdated(mapThreatState(data));
   });
-  _socket.on("nips_final_phase_ready", (data: { case_id: string; ready: boolean }) => {
-    _progressionCallbacks?.onFinalPhaseReady({ caseId: data.case_id, ready: data.ready });
-  });
+  _socket.on(
+    "nips_final_phase_ready",
+    (data: { case_id: string; ready: boolean }) => {
+      _progressionCallbacks?.onFinalPhaseReady({
+        caseId: data.case_id,
+        ready: data.ready,
+      });
+    },
+  );
   _socket.on("nips_final_evaluation", (data) => {
     _progressionCallbacks?.onFinalEvaluation({
       result: data.result,
@@ -314,12 +323,16 @@ function getSocket(): Socket {
 export function initNipsSession(
   callbacks: NipsSessionCallbacks,
   caseId = "midnight_exfil",
+  starterArchetype?: "LOGIS" | "NEXUS" | "FILER" | "CHRONO",
 ): () => void {
   _sessionCallbacks = callbacks;
   const socket = getSocket();
 
   const onConnect = () => {
-    socket.emit("nips_init_session", { case_id: caseId });
+    socket.emit("nips_init_session", {
+      case_id: caseId,
+      starter_archetype: starterArchetype,
+    });
   };
 
   if (socket.connected) {

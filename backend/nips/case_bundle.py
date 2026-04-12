@@ -210,8 +210,169 @@ MIDNIGHT_EXFIL_BUNDLE = CaseBundle(
     ),
 )
 
+GUIDED_TUTORIAL_SUMMARY = (
+    "Case: Guided Tutorial — Contain the Relay\n"
+    "A smaller proof-of-concept theft is moving through a workstation, a mail relay, "
+    "a backup relay, and a gateway. The operator must identify the origin node, "
+    "confirm the pivot, recover the staged archive, block the gateway, and submit "
+    "the final report using the guided sequence."
+)
+
+GUIDED_TUTORIAL_NODES: list[CaseNode] = [
+    CaseNode(
+        id="WKS-03",
+        label="Design Workstation",
+        sector_id="EDU-01",
+        node_type="workstation",
+        threat_level=0.28,
+        aliases=["workstation", "design workstation", "ws-03", "wks-03"],
+        tool_data={
+            "logs": "23:54 user logout; 23:57 removable media mount; 23:58 suspicious credential script execution.",
+            "network": "Short outbound burst to MAIL-01 immediately after the credential tool ran.",
+            "files": "Recovered creds_seed.ps1 and a staged credential list under /tmp/.cache.",
+            "timeline": "23:57 USB mount -> 23:58 credential seed -> 00:01 first stolen login attempts to MAIL-01.",
+        },
+    ),
+    CaseNode(
+        id="MAIL-01",
+        label="Mail Relay",
+        sector_id="FIN-03",
+        node_type="server",
+        threat_level=0.46,
+        aliases=["mail relay", "mail server", "mail-01"],
+        tool_data={
+            "logs": "Repeated login attempts from WKS-03 followed by svc_backup success; relay account reused for archive movement.",
+            "network": "Inbound from WKS-03, outbound toward BACKUP-01. Clear pivot behavior.",
+            "files": "Small command history fragments reference the relay hop but no long-term staging.",
+            "timeline": "00:01 credential replay -> 00:03 relay established -> 00:07 handoff to BACKUP-01.",
+        },
+    ),
+    CaseNode(
+        id="BACKUP-01",
+        label="Backup Relay",
+        sector_id="PWR-06",
+        node_type="archive",
+        threat_level=0.38,
+        aliases=["backup relay", "backup server", "backup-01", "archive"],
+        tool_data={
+            "logs": "Archive written briefly, then deleted moments before egress.",
+            "network": "Receives the staged archive from MAIL-01, then forwards it toward GW-01.",
+            "files": "tutorial_bundle.tar.gz recovered with the staged source files intact.",
+            "timeline": "00:07 stage write -> 00:09 relay to GW-01 -> 00:11 delete attempt.",
+        },
+    ),
+    CaseNode(
+        id="GW-01",
+        label="Gateway Router",
+        sector_id="NET-04",
+        node_type="router",
+        threat_level=0.41,
+        aliases=["gateway", "gateway router", "gw-01"],
+        tool_data={
+            "logs": "Temporary allow rule inserted just before the outbound transfer.",
+            "network": "Forwarded the staged archive to the external drop over HTTPS.",
+            "files": "Policy snapshot confirms the short-lived allow rule.",
+            "timeline": "00:10 allow rule -> 00:11 outbound transfer -> 00:14 cleanup.",
+        },
+    ),
+    CaseNode(
+        id="EXT-01",
+        label="External Drop",
+        sector_id="AUTH-05",
+        node_type="external",
+        threat_level=0.0,
+        aliases=["external drop", "external endpoint", "ext-01"],
+        tool_data={
+            "logs": "External visibility is limited from the internal perimeter.",
+            "network": "Observed as the final destination for the tutorial transfer.",
+            "files": "No internal file access is available on the destination host.",
+            "timeline": "00:11 destination observed during the outbound transfer.",
+        },
+    ),
+]
+
+GUIDED_TUTORIAL_CONNECTIONS = [
+    {"source": "WKS-03", "target": "MAIL-01", "type": "credential replay"},
+    {"source": "MAIL-01", "target": "BACKUP-01", "type": "pivot handoff"},
+    {"source": "BACKUP-01", "target": "GW-01", "type": "staging relay"},
+    {"source": "GW-01", "target": "EXT-01", "type": "external exfiltration"},
+]
+
+GUIDED_TUTORIAL_ALIASES: dict[str, str] = {}
+for node in GUIDED_TUTORIAL_NODES:
+    GUIDED_TUTORIAL_ALIASES[node.id.lower()] = node.id
+    GUIDED_TUTORIAL_ALIASES[node.label.lower()] = node.id
+    for alias in node.aliases:
+        GUIDED_TUTORIAL_ALIASES[alias.lower()] = node.id
+
+GUIDED_TUTORIAL_ISSUES = [
+    IssueDefinition(
+        id="wks03_credential_source",
+        building_id="WKS-03",
+        sector_id="EDU-01",
+        type="credential_abuse",
+        title="Confirm the origin workstation",
+        description="Validate that the stolen credential list was created on WKS-03 before the relay activity began.",
+        required_evidence=["WKS-03:inspect_artifacts"],
+        required_agent="FILER",
+        unlocks_issue_ids=["mail01_pivot_containment"],
+        spread_reduction=0.08,
+        confidence_delta=0.12,
+        required_tags=["credential_dumping"],
+    ),
+    IssueDefinition(
+        id="mail01_pivot_containment",
+        building_id="MAIL-01",
+        sector_id="FIN-03",
+        type="lateral_movement",
+        title="Contain the relay pivot",
+        description="Prove that MAIL-01 connected the workstation to the staging relay, then stabilize it.",
+        required_evidence=["MAIL-01:analyze_logs", "MAIL-01:trace_lateral_movement"],
+        required_agent="NEXUS",
+        unlocks_issue_ids=["gw01_block_egress"],
+        spread_reduction=0.12,
+        confidence_delta=0.14,
+        required_tags=["pivot_node"],
+    ),
+    IssueDefinition(
+        id="gw01_block_egress",
+        building_id="GW-01",
+        sector_id="NET-04",
+        type="egress_control",
+        title="Block the gateway egress",
+        description="Use the gateway telemetry to cut the final exfiltration route and prepare the final report.",
+        required_evidence=["GW-01:trace_connections", "GW-01:analyze_logs"],
+        required_agent="NEXUS",
+        unlocks_issue_ids=[],
+        spread_reduction=0.22,
+        confidence_delta=0.18,
+        required_tags=["exfiltration"],
+    ),
+]
+
+GUIDED_TUTORIAL_BUNDLE = CaseBundle(
+    case_id="guided_tutorial",
+    title="Guided Tutorial: Contain the Relay",
+    summary=GUIDED_TUTORIAL_SUMMARY,
+    nodes=GUIDED_TUTORIAL_NODES,
+    connections=GUIDED_TUTORIAL_CONNECTIONS,
+    aliases=GUIDED_TUTORIAL_ALIASES,
+    issues=GUIDED_TUTORIAL_ISSUES,
+    final_truth=FinalTruth(
+        origin_node_id="WKS-03",
+        attack_path=["WKS-03", "MAIL-01", "BACKUP-01", "GW-01", "EXT-01"],
+        attack_type="data_exfil",
+        required_mitigations=[
+            "reset_credentials",
+            "remove_persistence",
+            "block_external_communication",
+        ],
+    ),
+)
+
 CASE_BUNDLES = {
     MIDNIGHT_EXFIL_BUNDLE.case_id: MIDNIGHT_EXFIL_BUNDLE,
+    GUIDED_TUTORIAL_BUNDLE.case_id: GUIDED_TUTORIAL_BUNDLE,
 }
 
 

@@ -19,11 +19,7 @@ function isSavedSimulation(data: unknown): data is SavedSimulation {
 }
 
 /* ── Corner bracket decorator ─────────────────────────────────────── */
-function CornerBracket({
-  pos,
-}: {
-  pos: "tl" | "tr" | "bl" | "br";
-}) {
+function CornerBracket({ pos }: { pos: "tl" | "tr" | "bl" | "br" }) {
   const size = 12;
   const t = pos.startsWith("t") ? 0 : undefined;
   const b = pos.startsWith("b") ? 0 : undefined;
@@ -45,7 +41,14 @@ function CornerBracket({
         transform: `scaleX(${flipX ? -1 : 1}) scaleY(${flipY ? -1 : 1})`,
       }}
     >
-      <path d="M0 8 L0 0 L8 0" stroke="#00d4ff" strokeWidth="1.5" fill="none" opacity="0.8" />
+      <title>Corner bracket decoration</title>
+      <path
+        d="M0 8 L0 0 L8 0"
+        stroke="#00d4ff"
+        strokeWidth="1.5"
+        fill="none"
+        opacity="0.8"
+      />
     </svg>
   );
 }
@@ -62,6 +65,15 @@ export default function Home() {
     setShowCurtain(true);
     window.setTimeout(() => {
       router.push("/simulate?mode=investigate&map=moonCity");
+    }, 180);
+  }, [isTransitioning, router]);
+
+  const handleTutorial = useCallback(() => {
+    if (isTransitioning) return;
+    setIsTransitioning(true);
+    setShowCurtain(true);
+    window.setTimeout(() => {
+      router.push("/tutorial");
     }, 180);
   }, [isTransitioning, router]);
 
@@ -100,7 +112,6 @@ export default function Home() {
         style={{ background: "#080c12" }}
       >
         {/* ── Background wash ──────────────────────────────────── */}
-
 
         {/* ── Grid glow ────────────────────────────────────────── */}
         <div
@@ -180,8 +191,6 @@ export default function Home() {
           className="relative z-[10] mb-10"
         >
           <div
-            role="button"
-            onClick={handleInvestigate}
             className="relative cursor-pointer px-[4.5rem] py-12 text-center"
             style={{
               background: "rgba(8, 12, 18, 0.96)",
@@ -193,6 +202,12 @@ export default function Home() {
               maxWidth: "92vw",
             }}
           >
+            <button
+              type="button"
+              onClick={handleInvestigate}
+              className="absolute inset-0 z-20 rounded"
+              aria-label="Enter investigation"
+            />
             {/* Scan lines inside terminal */}
             <div
               className="absolute inset-0 pointer-events-none rounded"
@@ -274,7 +289,10 @@ export default function Home() {
               animate={{ scaleX: 1 }}
               transition={{ delay: 1.4, duration: 0.6 }}
               className="mt-4 mb-1 h-px"
-              style={{ background: "linear-gradient(90deg, transparent, #1e3d5a, transparent)" }}
+              style={{
+                background:
+                  "linear-gradient(90deg, transparent, #1e3d5a, transparent)",
+              }}
             />
 
             <motion.p
@@ -289,12 +307,12 @@ export default function Home() {
           </div>
         </motion.div>
 
-        {/* ── Menu Buttons (Investigate + Load) ────────────────── */}
+        {/* ── Menu Buttons (Investigate + Tutorial + Load) ─────── */}
         <motion.div
           initial={{ y: 30, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ delay: 1.0, duration: 0.8 }}
-          className="relative z-[10] flex w-full max-w-[460px] justify-center gap-4 px-4 max-[500px]:max-w-[220px] max-[500px]:flex-col"
+          className="relative z-[10] flex w-full max-w-[720px] justify-center gap-4 px-4 max-[500px]:max-w-[220px] max-[500px]:flex-col"
         >
           {/* INVESTIGATE button */}
           <motion.button
@@ -310,7 +328,8 @@ export default function Home() {
               background: "rgba(0,255,136,0.06)",
               border: "1px solid #00ff88",
               borderRadius: "3px",
-              boxShadow: "0 0 10px rgba(0,255,136,0.1), inset 0 0 16px rgba(0,255,136,0.03)",
+              boxShadow:
+                "0 0 10px rgba(0,255,136,0.1), inset 0 0 16px rgba(0,255,136,0.03)",
             }}
           >
             <FuzzyText
@@ -329,6 +348,44 @@ export default function Home() {
               clickEffect={false}
             >
               INVESTIGATE
+            </FuzzyText>
+          </motion.button>
+
+          {/* TUTORIAL button */}
+          <motion.button
+            type="button"
+            onClick={handleTutorial}
+            initial={{ y: 15, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ delay: 1.28, duration: 0.5 }}
+            whileHover={{ y: -2, boxShadow: "0 0 20px rgba(255,207,112,0.18)" }}
+            whileTap={{ y: 1 }}
+            className="flex min-h-[44px] flex-1 basis-0 cursor-pointer items-center justify-center px-5 py-2 max-[500px]:w-full"
+            style={{
+              background: "rgba(255,207,112,0.06)",
+              border: "1px solid #ffcf70",
+              borderRadius: "3px",
+              boxShadow:
+                "0 0 10px rgba(255,207,112,0.08), inset 0 0 16px rgba(255,207,112,0.03)",
+            }}
+            data-tutorial-id="home-play-tutorial"
+          >
+            <FuzzyText
+              fontSize={10}
+              fontFamily="'Press Start 2P', monospace"
+              fontWeight={700}
+              color="#ffcf70"
+              baseIntensity={isTransitioning ? 0.85 : 0}
+              hoverIntensity={0}
+              enableHover={false}
+              glitchMode={isTransitioning}
+              glitchInterval={90}
+              glitchDuration={220}
+              fuzzRange={8}
+              direction="both"
+              clickEffect={false}
+            >
+              PLAY TUTORIAL
             </FuzzyText>
           </motion.button>
 
@@ -367,7 +424,6 @@ export default function Home() {
               LOAD CASE
             </FuzzyText>
           </motion.button>
-
         </motion.div>
 
         {/* Hidden file input */}
@@ -378,7 +434,6 @@ export default function Home() {
           onChange={handleLoadFile}
           className="hidden"
         />
-
       </motion.div>
 
       {/* ── Slide curtain transition ─────────────────────────── */}

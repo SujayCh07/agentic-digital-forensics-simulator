@@ -16,6 +16,7 @@ from nips.case_bundle import MIDNIGHT_EXFIL_SUMMARY, get_case_bundle
 from nips.models import (
     AgentChatSession,
     AgentInstance,
+    ArchetypeId,
     ChatMessage,
     EvidenceUpdate,
     MarketplaceOffer,
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 MARKETPLACE_REFRESH_SECONDS = 180  # 3 minutes
 INITIAL_FUNDS = 1500
+TUTORIAL_INITIAL_FUNDS = 250
 
 # In-memory store keyed by Socket.IO sid
 _sessions: dict[str, NipsSession] = {}
@@ -55,17 +57,77 @@ def _generate_starter_agents() -> list[AgentInstance]:
     return starters
 
 
-def create_session(sid: str, case_id: str = "midnight_exfil") -> NipsSession:
+_TUTORIAL_OFFER_SPECS: list[tuple[ArchetypeId, int, int]] = [
+    ("LOGIS", 450, 1101),
+    ("NEXUS", 550, 1102),
+    ("CHRONO", 700, 1103),
+]
+_TUTORIAL_STARTER_SEEDS: dict[ArchetypeId, int] = {
+    "LOGIS": 2101,
+    "NEXUS": 2102,
+    "FILER": 2103,
+    "CHRONO": 2104,
+}
+
+
+def _generate_tutorial_starter(starter_archetype: ArchetypeId) -> list[AgentInstance]:
+    return [
+        generate_agent(
+            starter_archetype,
+            seed=_TUTORIAL_STARTER_SEEDS[starter_archetype],
+        )
+    ]
+
+
+def _generate_tutorial_offers(
+    now: float,
+    starter_archetype: ArchetypeId,
+    deployed_archetypes: set[ArchetypeId] | None = None,
+) -> list[MarketplaceOffer]:
+    offers: list[MarketplaceOffer] = []
+    deployed = deployed_archetypes or {starter_archetype}
+    for archetype, cost, seed in _TUTORIAL_OFFER_SPECS:
+        if archetype in deployed:
+            continue
+        agent = generate_agent(archetype, seed=seed)
+        agent.cost = cost
+        offers.append(
+            MarketplaceOffer(
+                offer_id=str(uuid.uuid4()),
+                agent=agent,
+                expires_at=now + MARKETPLACE_REFRESH_SECONDS,
+            )
+        )
+    return offers
+
+
+def create_session(
+    sid: str,
+    case_id: str = "midnight_exfil",
+    starter_archetype: ArchetypeId | None = None,
+) -> NipsSession:
     """Create a fresh NIPS session with starter agents and marketplace offers."""
     now = time.time()
-    offers = _generate_offers(now)
-    starters = _generate_starter_agents()
     bundle = get_case_bundle(case_id)
+
+    if bundle.case_id == "guided_tutorial":
+        starter = starter_archetype or "FILER"
+        starters = _generate_tutorial_starter(starter)
+        offers = _generate_tutorial_offers(
+            now,
+            starter,
+            {agent.archetype for agent in starters},
+        )
+        initial_funds = TUTORIAL_INITIAL_FUNDS
+    else:
+        offers = _generate_offers(now)
+        starters = _generate_starter_agents()
+        initial_funds = INITIAL_FUNDS
 
     session = NipsSession(
         sid=sid,
         case_id=bundle.case_id,
-        funds=INITIAL_FUNDS,
+        funds=initial_funds,
         deployed_agents=starters,
         marketplace_offers=offers,
         marketplace_next_refresh=now + MARKETPLACE_REFRESH_SECONDS,
@@ -115,7 +177,14 @@ def _generate_offers(now: float) -> list[MarketplaceOffer]:
 def refresh_marketplace(session: NipsSession) -> list[MarketplaceOffer]:
     """Force-refresh marketplace offers. Returns the new offers."""
     now = time.time()
-    session.marketplace_offers = _generate_offers(now)
+    if session.case_id == "guided_tutorial" and session.deployed_agents:
+        session.marketplace_offers = _generate_tutorial_offers(
+            now,
+            session.deployed_agents[0].archetype,
+            {agent.archetype for agent in session.deployed_agents},
+        )
+    else:
+        session.marketplace_offers = _generate_offers(now)
     session.marketplace_next_refresh = now + MARKETPLACE_REFRESH_SECONDS
     logger.info("Marketplace refreshed for sid=%s", session.sid)
     return session.marketplace_offers

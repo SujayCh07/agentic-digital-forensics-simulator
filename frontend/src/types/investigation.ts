@@ -351,6 +351,7 @@ export interface FinalFeedback {
 
 export interface NipsCaseState {
   case_id: string;
+  funds: number;
   issues: IssueState[];
   resolved_issue_count: number;
   final_phase_ready: boolean;

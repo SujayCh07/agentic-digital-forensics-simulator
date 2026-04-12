@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from nips.case_bundle import get_case_bundle
 from nips.chat import stream_agent_chat
 from nips.models import (
     EvidenceUpdate,
@@ -26,7 +27,6 @@ from nips.progression import (
     sync_finding,
 )
 from nips.session import (
-    CASE_SUMMARY,
     add_evidence,
     append_assistant_message,
     append_tool_message,
@@ -62,7 +62,8 @@ def register_nips_events(sio: Any) -> None:
     async def on_init_session(sid: str, data: dict[str, Any] | None = None) -> None:
         data = data or {}
         case_id = data.get("case_id", "midnight_exfil")
-        session = create_session(sid, case_id)
+        starter_archetype = data.get("starter_archetype")
+        session = create_session(sid, case_id, starter_archetype)
 
         await sio.emit(
             "nips_session_ready",
@@ -120,7 +121,7 @@ def register_nips_events(sio: Any) -> None:
                 agent,
                 message,
                 history=chat.messages,
-                case_summary=CASE_SUMMARY,
+                case_summary=get_case_bundle(session.case_id).summary,
                 node_context=node_context,
                 known_evidence=session.discovered_evidence,
                 previous_findings=previous_findings,
@@ -199,6 +200,7 @@ def register_nips_events(sio: Any) -> None:
             "agent": agent.model_dump(),
             "funds": session.funds,
         }, to=sid)
+        await _emit_case_state(sio, sid)
 
     @sio.on("nips_refresh_marketplace")
     async def on_refresh(sid: str, data: dict[str, Any] | None = None) -> None:

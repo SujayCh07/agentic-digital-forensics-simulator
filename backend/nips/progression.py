@@ -22,6 +22,13 @@ from nips.models import (
     ThreatState,
 )
 
+FUNDS_PER_SEVERITY = {
+    "critical": 500,
+    "high": 300,
+    "medium": 200,
+    "low": 100,
+}
+
 
 def _issue_lookup(bundle: CaseBundle) -> dict[str, IssueDefinition]:
     return {issue.id: issue for issue in bundle.issues}
@@ -78,6 +85,7 @@ def sync_finding(session: NipsSession, finding: SyncedFinding) -> tuple[SyncedFi
         return None, refreshed
 
     session.synced_findings.append(finding)
+    session.funds += FUNDS_PER_SEVERITY.get(finding.severity, 100)
 
     confidence_gain = 0.02
     if {"origin", "patient_zero"} & set(finding.tags):
@@ -308,6 +316,7 @@ def build_case_state(session: NipsSession) -> CaseState:
     latest_feedback = session.evaluation_history[-1].feedback if session.evaluation_history else None
     return CaseState(
         case_id=session.case_id,
+        funds=session.funds,
         issues=issues_payload,
         resolved_issue_count=sum(1 for state in session.issue_states.values() if state.status == "resolved"),
         final_phase_ready=session.final_phase_ready,

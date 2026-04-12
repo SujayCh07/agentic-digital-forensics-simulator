@@ -11,20 +11,20 @@ interface NodeListPanelProps {
 }
 
 const STATUS_COLOR: Record<CaseSystemNode["status"], string> = {
-  clean:       "#00ff88",
-  suspicious:  "#f59e0b",
+  clean: "#00ff88",
+  suspicious: "#f59e0b",
   compromised: "#ff3a3a",
-  offline:     "#4a6580",
-  recovered:   "#00d4ff",
+  offline: "#4a6580",
+  recovered: "#00d4ff",
 };
 
 const NODE_ICON: Record<CaseSystemNode["type"], string> = {
-  server:      "▣",
+  server: "▣",
   workstation: "◈",
-  router:      "~",
-  database:    "◆",
-  archive:     "□",
-  external:    "○",
+  router: "~",
+  database: "◆",
+  archive: "□",
+  external: "○",
 };
 
 export function NodeListPanel({
@@ -38,6 +38,7 @@ export function NodeListPanel({
       className="rpg-panel flex flex-col"
       style={{ width: 300 }}
       data-testid="node-list-panel"
+      data-tutorial-id="tutorial-node-list-panel"
     >
       {/* Header */}
       <div
@@ -67,10 +68,13 @@ export function NodeListPanel({
               type="button"
               onClick={() => onSelectNode(node.id)}
               className="w-full px-4 py-3 text-left transition-all"
+              data-tutorial-id={`tutorial-node-${node.id}`}
               style={{
                 borderBottom: "1px solid #0d1520",
                 background: isSelected ? `${statusColor}08` : "transparent",
-                borderLeft: isSelected ? `2px solid ${statusColor}` : "2px solid transparent",
+                borderLeft: isSelected
+                  ? `2px solid ${statusColor}`
+                  : "2px solid transparent",
                 cursor: "pointer",
               }}
             >
@@ -105,7 +109,10 @@ export function NodeListPanel({
 
               {/* ID + status */}
               <div className="flex items-center justify-between">
-                <span className="text-[9px] font-mono" style={{ color: "#2a5070" }}>
+                <span
+                  className="text-[9px] font-mono"
+                  style={{ color: "#2a5070" }}
+                >
                   {node.id}
                 </span>
                 <span
@@ -118,12 +125,20 @@ export function NodeListPanel({
 
               {/* Threat bar */}
               {node.threatLevel > 0 && (
-                <div className="mt-2 h-1 overflow-hidden rounded-sm" style={{ background: "#1e3d5a" }}>
+                <div
+                  className="mt-2 h-1 overflow-hidden rounded-sm"
+                  style={{ background: "#1e3d5a" }}
+                >
                   <div
                     className="h-full rounded-sm"
                     style={{
                       width: `${threatPct}%`,
-                      background: node.threatLevel > 0.7 ? "#ff3a3a" : node.threatLevel > 0.4 ? "#f59e0b" : "#00ff88",
+                      background:
+                        node.threatLevel > 0.7
+                          ? "#ff3a3a"
+                          : node.threatLevel > 0.4
+                            ? "#f59e0b"
+                            : "#00ff88",
                     }}
                   />
                 </div>
@@ -134,10 +149,7 @@ export function NodeListPanel({
       </div>
 
       {summary && (
-        <div
-          className="shrink-0"
-          style={{ borderTop: "1px solid #1e3d5a" }}
-        >
+        <div className="shrink-0" style={{ borderTop: "1px solid #1e3d5a" }}>
           {summary}
         </div>
       )}

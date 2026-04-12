@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { evidenceKeyForFinding } from "@/lib/investigationProgression";
+import type { TutorialGuidedAction } from "@/tutorial/tutorialTypes";
 import type {
   AgentDefinition,
   AgentId,
@@ -21,6 +22,7 @@ interface FloatingSystemInspectorProps {
     left: number;
     top: number;
   };
+  guidedActions?: TutorialGuidedAction[];
   onSubmitInstruction: (agentId: AgentId, rawInstruction: string) => void;
   onResolveIssue: (issueId: string, agentId: AgentId) => void;
   onClose: () => void;
@@ -56,6 +58,7 @@ export function FloatingSystemInspector({
   lockedAgents,
   funds,
   position,
+  guidedActions = [],
   onSubmitInstruction,
   onResolveIssue,
   onClose,
@@ -64,6 +67,7 @@ export function FloatingSystemInspector({
   const [selectedAgentId, setSelectedAgentId] = useState<AgentId>("logis");
 
   useEffect(() => {
+    if (!node.id) return;
     const first = agents.find(
       (agent) => !lockedAgents.includes(agent.id) && agent.status === "idle",
     );
@@ -72,6 +76,10 @@ export function FloatingSystemInspector({
   }, [agents, lockedAgents, node.id]);
 
   const statusColor = STATUS_COLOR[node.status];
+  const agentById = useMemo(
+    () => Object.fromEntries(agents.map((agent) => [agent.id, agent])),
+    [agents],
+  );
   const nodeFindings = useMemo(
     () => findings.filter((finding) => finding.nodeId === node.id).reverse(),
     [findings, node.id],
@@ -81,17 +89,24 @@ export function FloatingSystemInspector({
     [issues, node.id],
   );
   const findingKeys = useMemo(
-    () => new Set(nodeFindings.map((finding) => evidenceKeyForFinding(finding))),
+    () =>
+      new Set(nodeFindings.map((finding) => evidenceKeyForFinding(finding))),
     [nodeFindings],
   );
 
   const selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
   const selectedAgentLocked = lockedAgents.includes(selectedAgentId);
-  const selectedAgentBusy = selectedAgent ? selectedAgent.status !== "idle" : true;
+  const selectedAgentBusy = selectedAgent
+    ? selectedAgent.status !== "idle"
+    : true;
   const canDispatch =
     !selectedAgentLocked &&
     !selectedAgentBusy &&
     instruction.trim().length >= 4;
+  const suggestedPromptLoaded = guidedActions.some(
+    (action) =>
+      action.agentId === selectedAgentId && action.instruction === instruction,
+  );
 
   return (
     <div
@@ -104,19 +119,29 @@ export function FloatingSystemInspector({
         boxShadow: `0 16px 40px rgba(0,0,0,0.78), 0 0 18px ${statusColor}1f`,
       }}
       onPointerDown={(event) => event.stopPropagation()}
+      data-tutorial-id="tutorial-node-inspector"
     >
       <div
         className="flex items-start justify-between px-4 py-3"
         style={{ borderBottom: "1px solid #173146" }}
       >
         <div>
-          <div className="text-[10px] font-mono font-bold tracking-[0.14em]" style={{ color: "#cfe9ff" }}>
+          <div
+            className="text-[10px] font-mono font-bold tracking-[0.14em]"
+            style={{ color: "#cfe9ff" }}
+          >
             {node.id}
           </div>
-          <div className="mt-1 text-[12px] font-mono" style={{ color: "#d9edff" }}>
+          <div
+            className="mt-1 text-[12px] font-mono"
+            style={{ color: "#d9edff" }}
+          >
             {node.name}
           </div>
-          <div className="mt-1 text-[8px] font-mono uppercase tracking-[0.18em]" style={{ color: statusColor }}>
+          <div
+            className="mt-1 text-[8px] font-mono uppercase tracking-[0.18em]"
+            style={{ color: statusColor }}
+          >
             {node.status}
           </div>
         </div>
@@ -125,6 +150,7 @@ export function FloatingSystemInspector({
           onClick={onClose}
           className="text-[8px] font-mono uppercase tracking-[0.16em] hover:opacity-70"
           style={{ color: "#6c8ca8" }}
+          data-tutorial-id="tutorial-node-inspector-close"
         >
           close
         </button>
@@ -132,14 +158,23 @@ export function FloatingSystemInspector({
 
       <div className="px-4 py-3" style={{ borderBottom: "1px solid #173146" }}>
         <div className="flex items-center justify-between">
-          <span className="text-[8px] font-mono uppercase tracking-[0.16em]" style={{ color: "#6ca4c4" }}>
+          <span
+            className="text-[8px] font-mono uppercase tracking-[0.16em]"
+            style={{ color: "#6ca4c4" }}
+          >
             Node Threat
           </span>
-          <span className="text-[8px] font-mono tabular-nums" style={{ color: statusColor }}>
+          <span
+            className="text-[8px] font-mono tabular-nums"
+            style={{ color: statusColor }}
+          >
             {Math.round(node.threatLevel * 100)}%
           </span>
         </div>
-        <div className="mt-2 h-1 overflow-hidden rounded-full" style={{ background: "#173146" }}>
+        <div
+          className="mt-2 h-1 overflow-hidden rounded-full"
+          style={{ background: "#173146" }}
+        >
           <div
             className="h-full rounded-full"
             style={{
@@ -151,7 +186,10 @@ export function FloatingSystemInspector({
       </div>
 
       <div className="px-4 py-3" style={{ borderBottom: "1px solid #173146" }}>
-        <div className="mb-2 text-[8px] font-mono uppercase tracking-[0.16em]" style={{ color: "#6ca4c4" }}>
+        <div
+          className="mb-2 text-[8px] font-mono uppercase tracking-[0.16em]"
+          style={{ color: "#6ca4c4" }}
+        >
           Dispatch Agent
         </div>
         <div className="grid grid-cols-4 gap-1.5">
@@ -168,9 +206,12 @@ export function FloatingSystemInspector({
                   setSelectedAgentId(agent.id);
                 }}
                 className="rounded-md px-2 py-1.5 text-[8px] font-mono uppercase tracking-[0.12em]"
+                data-tutorial-id={`tutorial-agent-select-${agent.id}`}
                 style={{
                   border: `1px solid ${isSelected ? `${AGENT_COLOR[agent.id]}88` : "#1e3d5a"}`,
-                  background: isSelected ? `${AGENT_COLOR[agent.id]}16` : "#0a1320",
+                  background: isSelected
+                    ? `${AGENT_COLOR[agent.id]}16`
+                    : "#0a1320",
                   color: isLocked ? "#38526a" : AGENT_COLOR[agent.id],
                   opacity: isBusy && !isLocked ? 0.6 : 1,
                 }}
@@ -185,11 +226,87 @@ export function FloatingSystemInspector({
           onChange={(event) => setInstruction(event.target.value)}
           placeholder="e.g. trace the pivot path through this node"
           className="mt-3 w-full rounded-md px-2 py-2 text-[9px] font-mono outline-none"
-          style={{ background: "#0a1320", border: "1px solid #1e3d5a", color: "#d3e9ff" }}
+          style={{
+            background: "#0a1320",
+            border: "1px solid #1e3d5a",
+            color: "#d3e9ff",
+          }}
+          data-tutorial-id="tutorial-dispatch-input"
         />
+        {guidedActions.length > 0 && (
+          <div
+            className="mt-3 space-y-2"
+            data-tutorial-id={`tutorial-guided-actions-${node.id}`}
+          >
+            <div
+              className="text-[8px] font-mono uppercase tracking-[0.16em]"
+              style={{ color: "#ffcf70" }}
+            >
+              Suggested Investigation Prompts
+            </div>
+            {guidedActions.map((action) => {
+              const actionAgent = agentById[action.agentId];
+              const actionLocked = lockedAgents.includes(action.agentId);
+              const actionBusy = actionAgent
+                ? actionAgent.status !== "idle"
+                : true;
+              const actionReady = !actionLocked && !actionBusy;
+
+              return (
+                <button
+                  key={action.id}
+                  type="button"
+                  disabled={!actionReady}
+                  onClick={() => {
+                    if (!actionReady) return;
+                    setSelectedAgentId(action.agentId);
+                    setInstruction(action.instruction);
+                  }}
+                  className="flex w-full items-start justify-between gap-3 rounded-xl px-3 py-3 text-left"
+                  style={{
+                    background: actionReady
+                      ? "linear-gradient(180deg, rgba(255,207,112,0.12), rgba(255,207,112,0.06))"
+                      : "rgba(14, 22, 34, 0.84)",
+                    border: `1px solid ${actionReady ? "rgba(255,207,112,0.36)" : "#1e3d5a"}`,
+                    color: actionReady ? "#ffcf70" : "#5f7487",
+                    boxShadow: actionReady
+                      ? "0 10px 24px rgba(0,0,0,0.18)"
+                      : "none",
+                  }}
+                  data-tutorial-id={`tutorial-guided-action-${action.id}`}
+                >
+                  <div>
+                    <div className="text-[8px] font-mono leading-5">
+                      {action.label}
+                    </div>
+                    <div
+                      className="mt-1 text-[7px] font-mono uppercase tracking-[0.14em]"
+                      style={{
+                        color: actionReady ? "#ffd88d" : "#5f7487",
+                      }}
+                    >
+                      {action.agentId.toUpperCase()} • loads the prompt into
+                      dispatch
+                    </div>
+                  </div>
+                  <span
+                    className="max-w-[144px] text-right text-[7px] font-mono leading-4"
+                    style={{ color: actionReady ? "#7aa5c6" : "#5f7487" }}
+                  >
+                    {actionBusy
+                      ? `${action.agentId.toUpperCase()} is finishing the last task.`
+                      : action.detail}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
         <div className="mt-2 flex items-center justify-between">
           <span className="text-[7px] font-mono" style={{ color: "#4f6f8b" }}>
-            funds: {funds.toLocaleString()}C
+            {suggestedPromptLoaded
+              ? "Suggested prompt loaded. Review it, then dispatch the real task."
+              : `funds: ${funds.toLocaleString()}C`}
           </span>
           <button
             type="button"
@@ -202,8 +319,11 @@ export function FloatingSystemInspector({
             style={{
               color: canDispatch ? "#35f7cf" : "#4f6f8b",
               border: `1px solid ${canDispatch ? "#35f7cf66" : "#1e3d5a"}`,
-              background: canDispatch ? "rgba(53,247,207,0.08)" : "rgba(15,25,39,0.4)",
+              background: canDispatch
+                ? "rgba(53,247,207,0.08)"
+                : "rgba(15,25,39,0.4)",
             }}
+            data-tutorial-id="tutorial-dispatch-button"
           >
             dispatch task
           </button>
@@ -211,7 +331,10 @@ export function FloatingSystemInspector({
       </div>
 
       <div className="px-4 py-3" style={{ borderBottom: "1px solid #173146" }}>
-        <div className="mb-2 text-[8px] font-mono uppercase tracking-[0.16em]" style={{ color: "#6ca4c4" }}>
+        <div
+          className="mb-2 text-[8px] font-mono uppercase tracking-[0.16em]"
+          style={{ color: "#6ca4c4" }}
+        >
           Actionable Issues
         </div>
         {nodeIssues.length === 0 ? (
@@ -223,10 +346,18 @@ export function FloatingSystemInspector({
             {nodeIssues.map((issue) => {
               const requiredAgentId = REQUIRED_AGENT_LABEL[issue.requiredAgent];
               const selectedMatches = selectedAgentId === requiredAgentId;
+              const resolveAgentId = selectedAgentId;
+              const resolveAgent = agentById[resolveAgentId];
+              const resolveAgentLocked = lockedAgents.includes(resolveAgentId);
+              const resolveAgentBusy = resolveAgent
+                ? resolveAgent.status !== "idle"
+                : true;
               const readyForAttempt =
-                issue.status === "available" &&
-                !selectedAgentLocked &&
-                !selectedAgentBusy;
+                issue.available &&
+                !resolveAgentLocked &&
+                !resolveAgentBusy &&
+                selectedMatches;
+              const resolveButtonLabel = "assign resolve";
 
               return (
                 <div
@@ -236,10 +367,16 @@ export function FloatingSystemInspector({
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="text-[9px] font-mono font-bold" style={{ color: "#d8ecff" }}>
+                      <div
+                        className="text-[9px] font-mono font-bold"
+                        style={{ color: "#d8ecff" }}
+                      >
                         {issue.title}
                       </div>
-                      <div className="mt-1 text-[8px] font-mono leading-5" style={{ color: "#6f87a1" }}>
+                      <div
+                        className="mt-1 text-[8px] font-mono leading-5"
+                        style={{ color: "#6f87a1" }}
+                      >
                         {issue.description}
                       </div>
                     </div>
@@ -263,7 +400,9 @@ export function FloatingSystemInspector({
 
                   <div className="mt-2 flex items-center gap-2 text-[7px] font-mono uppercase tracking-[0.14em]">
                     <span style={{ color: "#4f6f8b" }}>Required agent</span>
-                    <span style={{ color: AGENT_COLOR[requiredAgentId] }}>{issue.requiredAgent}</span>
+                    <span style={{ color: AGENT_COLOR[requiredAgentId] }}>
+                      {issue.requiredAgent}
+                    </span>
                   </div>
 
                   <div className="mt-2 flex flex-wrap gap-1">
@@ -275,7 +414,9 @@ export function FloatingSystemInspector({
                           className="rounded px-2 py-1 text-[7px] font-mono"
                           style={{
                             color: known ? "#35f7cf" : "#ffcf70",
-                            background: known ? "rgba(53,247,207,0.08)" : "rgba(255,207,112,0.08)",
+                            background: known
+                              ? "rgba(53,247,207,0.08)"
+                              : "rgba(255,207,112,0.08)",
                             border: `1px solid ${known ? "#35f7cf33" : "#ffcf7033"}`,
                           }}
                         >
@@ -286,29 +427,47 @@ export function FloatingSystemInspector({
                   </div>
 
                   {issue.feedbackMessage ? (
-                    <div className="mt-2 text-[8px] font-mono leading-5" style={{ color: "#7aa5c6" }}>
+                    <div
+                      className="mt-2 text-[8px] font-mono leading-5"
+                      style={{ color: "#7aa5c6" }}
+                    >
                       {issue.feedbackMessage}
                     </div>
                   ) : null}
 
                   <div className="mt-3 flex items-center justify-between">
-                    <span className="text-[7px] font-mono" style={{ color: selectedMatches ? AGENT_COLOR[requiredAgentId] : "#4f6f8b" }}>
+                    <span
+                      className="text-[7px] font-mono"
+                      style={{
+                        color: selectedMatches
+                          ? AGENT_COLOR[requiredAgentId]
+                          : "#4f6f8b",
+                      }}
+                    >
                       {selectedMatches
-                        ? "Selected agent matches issue role."
+                        ? readyForAttempt
+                          ? "Selected agent matches the resolution role."
+                          : `${issue.requiredAgent} is still finishing the previous step.`
                         : `Select ${issue.requiredAgent} to resolve this issue.`}
                     </span>
                     <button
                       type="button"
-                      onClick={() => onResolveIssue(issue.id, selectedAgentId)}
+                      onClick={() => {
+                        if (!readyForAttempt) return;
+                        onResolveIssue(issue.id, selectedAgentId);
+                      }}
                       disabled={!readyForAttempt}
                       className="rounded-md px-3 py-1.5 text-[8px] font-mono uppercase tracking-[0.16em]"
                       style={{
                         color: readyForAttempt ? "#00d4ff" : "#4f6f8b",
                         border: `1px solid ${readyForAttempt ? "#00d4ff55" : "#1e3d5a"}`,
-                        background: readyForAttempt ? "rgba(0,212,255,0.08)" : "rgba(15,25,39,0.4)",
+                        background: readyForAttempt
+                          ? "rgba(0,212,255,0.08)"
+                          : "rgba(15,25,39,0.4)",
                       }}
+                      data-tutorial-id={`tutorial-issue-resolve-${issue.id}`}
                     >
-                      assign resolve
+                      {resolveButtonLabel}
                     </button>
                   </div>
                 </div>
@@ -319,7 +478,10 @@ export function FloatingSystemInspector({
       </div>
 
       <div className="px-4 py-3">
-        <div className="mb-2 text-[8px] font-mono uppercase tracking-[0.16em]" style={{ color: "#6ca4c4" }}>
+        <div
+          className="mb-2 text-[8px] font-mono uppercase tracking-[0.16em]"
+          style={{ color: "#6ca4c4" }}
+        >
           Recent Evidence
         </div>
         {nodeFindings.length === 0 ? (
@@ -334,10 +496,16 @@ export function FloatingSystemInspector({
                 className="rounded-md px-3 py-2"
                 style={{ background: "#0c1826", border: "1px solid #1e3d5a" }}
               >
-                <div className="text-[8px] font-mono" style={{ color: "#cfe9ff" }}>
+                <div
+                  className="text-[8px] font-mono"
+                  style={{ color: "#cfe9ff" }}
+                >
                   {finding.summary}
                 </div>
-                <div className="mt-1 text-[7px] font-mono" style={{ color: "#6f87a1" }}>
+                <div
+                  className="mt-1 text-[7px] font-mono"
+                  style={{ color: "#6f87a1" }}
+                >
                   {finding.evidenceKey}
                 </div>
               </div>

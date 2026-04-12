@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { SimEvent } from "@/types";
 import { audioManager } from "@/lib/audioManager";
+import type { SimEvent } from "@/types";
 
 interface EventFeedProps {
   events: SimEvent[];
@@ -57,10 +57,16 @@ function eventColor(type: SimEvent["type"]): string {
   }
 }
 
-export function EventFeed({ events, onEventClick, onPinEvent, onOpenBoard }: EventFeedProps) {
+export function EventFeed({
+  events,
+  onEventClick,
+  onPinEvent,
+  onOpenBoard,
+}: EventFeedProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (events.length === 0) return;
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [events.length]);
 
@@ -97,29 +103,13 @@ export function EventFeed({ events, onEventClick, onPinEvent, onOpenBoard }: Eve
 
           const color = eventColor(event.type);
           const icon = eventIcon(event.type);
-
-          return (
-            <div
-              key={event.id}
-              className={`mb-2 rounded px-3 py-2 ${onEventClick ? "cursor-pointer transition-colors" : ""}`}
-              onMouseEnter={
-                onEventClick
-                  ? (e) => {
-                      (e.currentTarget as HTMLElement).style.background =
-                        "rgba(0,212,255,0.05)";
-                    }
-                  : undefined
-              }
-              onMouseLeave={
-                onEventClick
-                  ? (e) => {
-                      (e.currentTarget as HTMLElement).style.background = "";
-                    }
-                  : undefined
-              }
-              data-testid="event-item"
-              onClick={onEventClick ? () => onEventClick(event) : undefined}
-            >
+          const hasSecondaryActions = Boolean(onPinEvent || onOpenBoard);
+          const isClickableRow = Boolean(onEventClick && !hasSecondaryActions);
+          const baseClassName = `mb-2 rounded px-3 py-2 ${
+            isClickableRow ? "cursor-pointer transition-colors" : ""
+          }`;
+          const content = (
+            <>
               <div className="flex items-center gap-1.5">
                 <span className="text-[12px] font-mono" style={{ color }}>
                   {icon}
@@ -162,6 +152,7 @@ export function EventFeed({ events, onEventClick, onPinEvent, onOpenBoard }: Eve
                     }}
                     className="text-[9px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-60"
                     style={{ color: "#b06fff" }}
+                    data-tutorial-id="tutorial-event-pin"
                   >
                     📌 PIN TO BOARD
                   </button>
@@ -176,11 +167,42 @@ export function EventFeed({ events, onEventClick, onPinEvent, onOpenBoard }: Eve
                     }}
                     className="text-[9px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-100"
                     style={{ color: "#00ff88", opacity: 0.6 }}
+                    data-tutorial-id="tutorial-event-open-board"
                   >
                     □ OPEN IN BOARD
                   </button>
                 )}
               </div>
+            </>
+          );
+
+          if (isClickableRow && onEventClick) {
+            return (
+              <button
+                key={event.id}
+                type="button"
+                className={baseClassName}
+                data-testid="event-item"
+                onClick={() => onEventClick(event)}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "rgba(0,212,255,0.05)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "";
+                }}
+              >
+                {content}
+              </button>
+            );
+          }
+
+          return (
+            <div
+              key={event.id}
+              className={baseClassName}
+              data-testid="event-item"
+            >
+              {content}
             </div>
           );
         })}

@@ -3,8 +3,18 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AgentCommandModal, type MessageEntry } from "@/components/AgentCommandModal";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  AgentCommandModal,
+  type MessageEntry,
+} from "@/components/AgentCommandModal";
 import { AgentDirectory } from "@/components/AgentDirectory";
 import { AgentMarketplace } from "@/components/AgentMarketplace";
 import { AgentStatusBar } from "@/components/AgentStatusBar";
@@ -16,19 +26,48 @@ import { HelperSelectionPanel } from "@/components/HelperSelectionPanel";
 import { NodeListPanel } from "@/components/NodeListPanel";
 import { NPCInteractionModal } from "@/components/NPCInteractionModal";
 import { PauseOverlay } from "@/components/PauseOverlay";
-import { UserBoard } from "@/components/UserBoard/UserBoard";
-import { CYBER_CITY_SECTOR_SEEDS, DOMAIN_LABEL_BY_SECTOR } from "@/data/cyberCitySectors";
-
-import { useInvestigation } from "@/hooks/useInvestigation";
-import { useBoardState } from "@/hooks/useBoardState";
-import { useSimulation } from "@/hooks/useSimulation";
-import { useRadio } from "@/hooks/useRadio";
 import { RadioPanel } from "@/components/RadioPanel";
+import { TutorialOverlay } from "@/components/tutorial/TutorialOverlay";
+import { TutorialVictoryModal } from "@/components/tutorial/TutorialVictoryModal";
+import { UserBoard } from "@/components/UserBoard/UserBoard";
+import {
+  CYBER_CITY_SECTOR_SEEDS,
+  DOMAIN_LABEL_BY_SECTOR,
+} from "@/data/cyberCitySectors";
+import {
+  GUIDED_TUTORIAL_CASE,
+  MIDNIGHT_EXFIL_CASE,
+} from "@/data/investigationCases";
+import type { InvestigationCaseConfig } from "@/data/investigationCaseTypes";
+import { useBoardState } from "@/hooks/useBoardState";
+import { useInvestigation } from "@/hooks/useInvestigation";
+import { useRadio } from "@/hooks/useRadio";
+import { useSimulation } from "@/hooks/useSimulation";
+import { audioManager } from "@/lib/audioManager";
+import {
+  buyNipsAgent,
+  disconnectNips,
+  initNipsSession,
+  requestNipsMarketplaceRefresh,
+  setMarketplaceCallbacks,
+} from "@/lib/investigationAgentClient";
+import { evidenceKeyForFinding } from "@/lib/investigationProgression";
+import {
+  applyCaseRewards,
+  computeCaseRewards,
+  loadProgress,
+  type PlayerProgress,
+  saveProgress,
+} from "@/lib/playerProgress";
+import { clearReplayData, getReplayData } from "@/lib/replayStore";
+import { getGuidedTutorialActionsForNode } from "@/tutorial/tutorialScript";
+import type { TutorialFinalReportDraft } from "@/tutorial/tutorialTypes";
+import { useTutorialController } from "@/tutorial/useTutorialController";
+import type { NPCHoverInfo, NPCState, SimEvent } from "@/types";
 import type {
   ActiveHelpers,
   AgentDefinition,
   AgentId,
-  AttackType,
   CaseSystemNode,
   FinalFeedback,
   FinalReportSubmission,
@@ -36,32 +75,22 @@ import type {
   MitigationPlanOption,
   NipsAgentInstance,
   NipsMarketplaceOffer,
-  NipsEvidenceUpdate,
 } from "@/types/investigation";
-import { clearReplayData, getReplayData } from "@/lib/replayStore";
-import { evidenceKeyForFinding } from "@/lib/investigationProgression";
-import {
-  initNipsSession,
-  buyNipsAgent,
-  requestNipsMarketplaceRefresh,
-  setMarketplaceCallbacks,
-  disconnectNips,
-} from "@/lib/investigationAgentClient";
-import {
-  applyCaseRewards,
-  computeCaseRewards,
-  loadProgress,
-  saveProgress,
-  type PlayerProgress,
-} from "@/lib/playerProgress";
-import { audioManager } from "@/lib/audioManager";
-import type { NPCHoverInfo, NPCState, SimEvent } from "@/types";
 
 // Mirror game/constants values here to avoid importing Phaser during SSR.
 const GAME_WIDTH = 1280;
 const GAME_HEIGHT = 960;
 const SCALE_FACTOR = 1;
 const WORLD_TILE_SIZE = 32;
+
+function createEmptyFinalReportDraft(): TutorialFinalReportDraft {
+  return {
+    originNodeId: "",
+    attackPath: [],
+    attackType: null,
+    mitigationPlan: [],
+  };
+}
 
 const GameCanvas = dynamic(
   () =>
@@ -93,10 +122,10 @@ const SENTIMENT_LABEL: Record<
   NPCHoverInfo["sentiment"],
   { symbol: string; color: string }
 > = {
-  happy:   { symbol: "+", color: "#00ff88" },
+  happy: { symbol: "+", color: "#00ff88" },
   neutral: { symbol: "~", color: "#4a6580" },
   worried: { symbol: "?", color: "#f59e0b" },
-  angry:   { symbol: "!", color: "#ff3a3a" },
+  angry: { symbol: "!", color: "#ff3a3a" },
 };
 
 interface OverlayMetrics {
@@ -171,6 +200,16 @@ const AGENT_MARKER_COLORS: Record<AgentId, string> = {
   chrono: "#34d399",
 };
 
+const NIPS_ARCHETYPE_BY_AGENT_ID: Record<
+  AgentId,
+  "LOGIS" | "NEXUS" | "FILER" | "CHRONO"
+> = {
+  logis: "LOGIS",
+  nexus: "NEXUS",
+  filer: "FILER",
+  chrono: "CHRONO",
+};
+
 interface AgentMarkerData {
   agent: NipsAgentInstance;
   npcId: string;
@@ -184,7 +223,11 @@ interface AgentMarkerData {
   sectorLabel: string;
 }
 
-type IssueMarkerVisualState = "locked" | "available" | "resolved" | "failed_attempt";
+type IssueMarkerVisualState =
+  | "locked"
+  | "available"
+  | "resolved"
+  | "failed_attempt";
 
 interface IssueMarkerData {
   nodeId: string;
@@ -195,6 +238,11 @@ interface IssueMarkerData {
   visualState: IssueMarkerVisualState;
   anchorTileX: number;
   anchorTileY: number;
+}
+
+function formatTaskTypeLabel(taskType: string | null | undefined) {
+  if (!taskType) return "the current evidence sweep";
+  return taskType.replaceAll("_", " ");
 }
 
 function normalizeAgentId(id: string) {
@@ -246,18 +294,22 @@ function buildAgentMarkers(
       ? systemNodes.find((node) => node.id === agentState.currentNodeId)?.name
       : null;
 
-    return [{
-      agent,
-      npcId,
-      position,
-      isLocked: lockedAgents.includes(archetype),
-      color: AGENT_MARKER_COLORS[archetype] ?? "#22d3ee",
-      roleLabel: agent.primary_specialties[0] ?? agent.team_role,
-      statusLabel: agentState?.status ?? "idle",
-      assignmentLabel: nodeName ?? "Awaiting task",
-      sectorCode: sector?.id ?? "TRANSIT",
-      sectorLabel: sector ? DOMAIN_LABEL_BY_SECTOR[sector.id] : "Transit lane",
-    }];
+    return [
+      {
+        agent,
+        npcId,
+        position,
+        isLocked: lockedAgents.includes(archetype),
+        color: AGENT_MARKER_COLORS[archetype] ?? "#22d3ee",
+        roleLabel: agent.primary_specialties[0] ?? agent.team_role,
+        statusLabel: agentState?.status ?? "idle",
+        assignmentLabel: nodeName ?? "Awaiting task",
+        sectorCode: sector?.id ?? "TRANSIT",
+        sectorLabel: sector
+          ? DOMAIN_LABEL_BY_SECTOR[sector.id]
+          : "Transit lane",
+      },
+    ];
   });
 }
 
@@ -273,12 +325,18 @@ function buildIssueMarkers(
   }
 
   return Array.from(grouped.entries()).flatMap(([nodeId, nodeIssues]) => {
-    const seed = CYBER_CITY_SECTOR_SEEDS.find((entry) => entry.nodeId === nodeId);
+    const seed = CYBER_CITY_SECTOR_SEEDS.find(
+      (entry) => entry.nodeId === nodeId,
+    );
     const node = systemNodes.find((entry) => entry.id === nodeId);
     if (!seed || !node) return [];
 
-    const unresolvedCount = nodeIssues.filter((issue) => issue.status !== "resolved").length;
-    const visualState = nodeIssues.some((issue) => issue.status === "failed_attempt")
+    const unresolvedCount = nodeIssues.filter(
+      (issue) => issue.status !== "resolved",
+    ).length;
+    const visualState = nodeIssues.some(
+      (issue) => issue.status === "failed_attempt",
+    )
       ? "failed_attempt"
       : nodeIssues.some((issue) => issue.status === "available")
         ? "available"
@@ -286,16 +344,18 @@ function buildIssueMarkers(
           ? "resolved"
           : "locked";
 
-    return [{
-      nodeId,
-      sectorId: seed.id,
-      label: node.name,
-      issueCount: nodeIssues.length,
-      unresolvedCount,
-      visualState,
-      anchorTileX: seed.anchor.tileX,
-      anchorTileY: seed.anchor.tileY,
-    }];
+    return [
+      {
+        nodeId,
+        sectorId: seed.id,
+        label: node.name,
+        issueCount: nodeIssues.length,
+        unresolvedCount,
+        visualState,
+        anchorTileX: seed.anchor.tileX,
+        anchorTileY: seed.anchor.tileY,
+      },
+    ];
   });
 }
 
@@ -338,7 +398,14 @@ export default function SimulatePage() {
 function SimulateRouter() {
   const searchParams = useSearchParams();
   const mode = searchParams.get("mode");
-  if (mode === "investigate") return <InvestigateContent />;
+  if (mode === "investigate") {
+    return <InvestigateContent caseConfig={MIDNIGHT_EXFIL_CASE} />;
+  }
+  if (mode === "tutorial") {
+    return (
+      <InvestigateContent caseConfig={GUIDED_TUTORIAL_CASE} tutorialMode />
+    );
+  }
   return <SimulateContent />;
 }
 
@@ -346,10 +413,20 @@ function SimulateRouter() {
 // InvestigateContent — phase router: team selection → game
 // ---------------------------------------------------------------------------
 
-function InvestigateContent() {
+function InvestigateContent({
+  caseConfig,
+  tutorialMode = false,
+}: {
+  caseConfig: InvestigationCaseConfig;
+  tutorialMode?: boolean;
+}) {
   const [phase, setPhase] = useState<"selecting" | "playing">("selecting");
-  const [activeHelpers, setActiveHelpers] = useState<ActiveHelpers | null>(null);
-  const [progress, setProgress] = useState<PlayerProgress>(() => loadProgress());
+  const [activeHelpers, setActiveHelpers] = useState<ActiveHelpers | null>(
+    null,
+  );
+  const [progress, setProgress] = useState<PlayerProgress>(() =>
+    loadProgress(),
+  );
 
   const handleProgressChange = useCallback((p: PlayerProgress) => {
     setProgress(p);
@@ -367,6 +444,7 @@ function InvestigateContent() {
         progress={progress}
         onProgressChange={handleProgressChange}
         onConfirm={handleConfirm}
+        tutorialMode={tutorialMode}
       />
     );
   }
@@ -376,6 +454,7 @@ function InvestigateContent() {
       activeHelpers={activeHelpers}
       progress={progress}
       onProgressChange={handleProgressChange}
+      caseConfig={caseConfig}
     />
   );
 }
@@ -388,22 +467,40 @@ function InvestigateGame({
   activeHelpers,
   progress,
   onProgressChange,
+  caseConfig,
+  tutorialMode = false,
 }: {
   activeHelpers: ActiveHelpers;
   progress: PlayerProgress;
   onProgressChange: (p: PlayerProgress) => void;
+  caseConfig: InvestigationCaseConfig;
+  tutorialMode?: boolean;
 }) {
   const router = useRouter();
-  const inv = useInvestigation(activeHelpers);
-  const [activeOverlay, setActiveOverlay] = useState<"board" | "market" | null>(null);
+  const inv = useInvestigation(activeHelpers, caseConfig);
+  const [activeOverlay, setActiveOverlay] = useState<"board" | "market" | null>(
+    null,
+  );
   const [showFinalReport, setShowFinalReport] = useState(false);
   const [rewardsShown, setRewardsShown] = useState(false);
+  const [finalReportDraft, setFinalReportDraft] =
+    useState<TutorialFinalReportDraft>(() => createEmptyFinalReportDraft());
   const board = useBoardState();
   const [paused, setPaused] = useState(false);
   const [hoverInfo, setHoverInfo] = useState<NPCHoverInfo | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
-  const [overlayMetrics, setOverlayMetrics] = useState<OverlayMetrics>(DEFAULT_OVERLAY_METRICS);
+  const [overlayMetrics, setOverlayMetrics] = useState<OverlayMetrics>(
+    DEFAULT_OVERLAY_METRICS,
+  );
   const radio = useRadio();
+  const starterAgentId = useMemo(() => {
+    const starter = (activeHelpers as unknown as { _starter?: AgentId })
+      ._starter;
+    return starter && ["logis", "nexus", "filer", "chrono"].includes(starter)
+      ? starter
+      : "logis";
+  }, [activeHelpers]);
+  const starterArchetype = NIPS_ARCHETYPE_BY_AGENT_ID[starterAgentId];
 
   // --- NIPS Gemini agent system state ---
   const [nipsAgents, setNipsAgents] = useState<NipsAgentInstance[]>([]);
@@ -411,14 +508,22 @@ function InvestigateGame({
   const [nipsFunds, setNipsFunds] = useState(1500);
   const [nipsNextRefresh, setNipsNextRefresh] = useState(0);
   const [chatAgent, setChatAgent] = useState<NipsAgentInstance | null>(null);
-  const [chatHistories, setChatHistories] = useState<Record<string, MessageEntry[]>>({});
+  const [chatHistories, setChatHistories] = useState<
+    Record<string, MessageEntry[]>
+  >({});
   const [showDirectory, setShowDirectory] = useState(false);
-  const [lockedAgentInfo, setLockedAgentInfo] = useState<NipsAgentInstance | null>(null);
-  const [npcPositions, setNpcPositions] = useState<Record<string, NPCState>>({});
+  const [lockedAgentInfo, setLockedAgentInfo] =
+    useState<NipsAgentInstance | null>(null);
+  const [npcPositions, setNpcPositions] = useState<Record<string, NPCState>>(
+    {},
+  );
+  const activeBackendCaseId = caseConfig.backendCaseId ?? caseConfig.meta.id;
 
   // ── Audio: stop music when leaving the game view ────────────────────────────
   useEffect(() => {
-    return () => { audioManager.stopMusic(); };
+    return () => {
+      audioManager.stopMusic();
+    };
   }, []);
 
   // ── Audio: switch music tracks based on investigation pressure ──────────────
@@ -439,20 +544,28 @@ function InvestigateGame({
 
   // Init NIPS backend session
   useEffect(() => {
-    const cleanupSession = initNipsSession({
-      onSessionReady: (data) => {
-        setNipsAgents(data.agents);
-        setNipsOffers(data.marketplace);
-        setNipsFunds(data.funds);
-        setNipsNextRefresh(data.next_refresh);
+    const cleanupSession = initNipsSession(
+      {
+        onSessionReady: (data) => {
+          setNipsAgents(data.agents);
+          setNipsOffers(data.marketplace);
+          setNipsFunds(data.funds);
+          setNipsNextRefresh(data.next_refresh);
+        },
+        onError: (msg) => console.error("[NIPS]", msg),
       },
-      onError: (msg) => console.error("[NIPS]", msg),
-    });
+      activeBackendCaseId,
+      tutorialMode ? starterArchetype : undefined,
+    );
 
     setMarketplaceCallbacks({
       onAgentPurchased: (data) => {
         setNipsAgents((prev) => [...prev, data.agent]);
         setNipsFunds(data.funds);
+        inv.registerRecruitedAgent(
+          data.agent.archetype.toLowerCase() as AgentId,
+          data.agent.display_name,
+        );
       },
       onMarketplaceRefreshed: (data) => {
         setNipsOffers(data.marketplace);
@@ -469,7 +582,18 @@ function InvestigateGame({
       cleanupSession();
       disconnectNips();
     };
-  }, []);
+  }, [
+    activeBackendCaseId,
+    inv.registerRecruitedAgent,
+    starterArchetype,
+    tutorialMode,
+  ]);
+
+  useEffect(() => {
+    if (typeof inv.caseState?.funds === "number") {
+      setNipsFunds(inv.caseState.funds);
+    }
+  }, [inv.caseState?.funds]);
 
   // Handle sprite clicks → open agent chat
   // Sprite npcIds are lowercase archetype prefixes like "logis", "nexus", etc.
@@ -487,7 +611,9 @@ function InvestigateGame({
             a.codename === data.npcId,
         );
         if (agent) {
-          const isLocked = inv.lockedAgents.includes(agent.archetype.toLowerCase() as AgentId);
+          const isLocked = inv.lockedAgents.includes(
+            agent.archetype.toLowerCase() as AgentId,
+          );
           if (isLocked) {
             setLockedAgentInfo(agent);
           } else {
@@ -561,8 +687,16 @@ function InvestigateGame({
     [inv.issues, inv.systemNodes],
   );
   const selectedNode = useMemo(
-    () => inv.systemNodes.find((node) => node.id === inv.selectedNodeId) ?? null,
+    () =>
+      inv.systemNodes.find((node) => node.id === inv.selectedNodeId) ?? null,
     [inv.selectedNodeId, inv.systemNodes],
+  );
+  const tutorialGuidedActions = useMemo(
+    () =>
+      tutorialMode
+        ? getGuidedTutorialActionsForNode(selectedNode?.id ?? null)
+        : [],
+    [selectedNode?.id, tutorialMode],
   );
   const pinnedFindingCount = useMemo(
     () =>
@@ -571,6 +705,103 @@ function InvestigateGame({
       ).length,
     [board, inv.completedFindings],
   );
+  const tutorialFindingKeys = useMemo(
+    () =>
+      new Set(
+        inv.completedFindings.map((finding) => evidenceKeyForFinding(finding)),
+      ),
+    [inv.completedFindings],
+  );
+  const tutorialIssueStatusById = useMemo(
+    () =>
+      Object.fromEntries(inv.issues.map((issue) => [issue.id, issue.status])),
+    [inv.issues],
+  );
+  const tutorial = useTutorialController(tutorialMode, {
+    selectedNodeId: inv.selectedNodeId,
+    findingKeys: tutorialFindingKeys,
+    issueStatusById: tutorialIssueStatusById,
+    finalPhaseReady: inv.finalPhaseReady,
+    finalReportOpen: showFinalReport,
+    finalEvaluationPassed: Boolean(inv.finalEvaluation?.evaluation.passed),
+    finalReportDraft,
+  });
+  const tutorialCoach = useMemo(() => {
+    const activeTask = inv.activeTasks.find(
+      (task) => task.status !== "complete",
+    );
+    if (activeTask) {
+      const agent = inv.agents.find((entry) => entry.id === activeTask.agentId);
+      const node = inv.systemNodes.find(
+        (entry) => entry.id === activeTask.targetNodeId,
+      );
+      const taskLabel = formatTaskTypeLabel(activeTask.type);
+      if (activeTask.status === "moving") {
+        return {
+          title: "Agent Status",
+          body: `${agent?.name ?? activeTask.agentId.toUpperCase()} is moving to ${node?.name ?? activeTask.targetNodeId}. During movement, the tutorial keeps the next action gated so you can focus on the current handoff.`,
+        };
+      }
+      if (activeTask.status === "executing") {
+        return {
+          title: "Agent Status",
+          body: `${agent?.name ?? activeTask.agentId.toUpperCase()} is now running ${taskLabel} on ${node?.name ?? activeTask.targetNodeId}. Wait for the evidence feed to update before you draw the next conclusion.`,
+        };
+      }
+    }
+
+    const reportingAgent = inv.agents.find(
+      (agent) => agent.status === "reporting",
+    );
+    if (reportingAgent) {
+      const reportNode = inv.systemNodes.find(
+        (entry) => entry.id === reportingAgent.currentNodeId,
+      );
+      return {
+        title: "Agent Status",
+        body: `${reportingAgent.name} is summarizing the finding from ${reportNode?.name ?? reportingAgent.currentNodeId ?? "the current node"}. This is when the evidence feed and credit payout land.`,
+      };
+    }
+
+    if (tutorial.currentStep.id.includes("market")) {
+      return {
+        title: "Roster Growth",
+        body: `Credits in the top bar are real case funds. Recruiting through the market unlocks that specialist for the same live dispatch box you already used with your starter.`,
+      };
+    }
+
+    if (
+      tutorial.currentStep.id.startsWith("choose-") ||
+      tutorial.currentStep.id.startsWith("path-") ||
+      tutorial.currentStep.id.includes("final-report") ||
+      tutorial.currentStep.id === "submit-final-report"
+    ) {
+      return {
+        title: "Report Logic",
+        body: "The final report is scored against the confirmed evidence chain. Wrong answers return structured feedback, but your evidence and resolved issues stay intact.",
+      };
+    }
+
+    if (selectedNode) {
+      return {
+        title: "Field Coach",
+        body: `${selectedNode.name} is the current focus node. Use the inspector to load a sensible prompt, dispatch the right specialist, and then turn the result into a justified issue resolution or report update.`,
+      };
+    }
+
+    return {
+      title: "Field Coach",
+      body: `You currently have ${nipsFunds.toLocaleString()}¢ and ${4 - inv.lockedAgents.length} active specialists. Follow the highlighted surface to stay on the guaranteed winning path.`,
+    };
+  }, [
+    inv.activeTasks,
+    inv.agents,
+    inv.lockedAgents.length,
+    inv.systemNodes,
+    nipsFunds,
+    selectedNode,
+    tutorial.currentStep.id,
+  ]);
 
   useEffect(() => {
     if (inv.finalEvaluation?.evaluation.passed) {
@@ -598,7 +829,9 @@ function InvestigateGame({
     if (!container) return;
     let observedTarget: Element | null = null;
     const updateMetrics = () => {
-      const canvas = container.querySelector("canvas") ?? container.querySelector("[data-testid='game-canvas']");
+      const canvas =
+        container.querySelector("canvas") ??
+        container.querySelector("[data-testid='game-canvas']");
       const target = canvas instanceof HTMLElement ? canvas : null;
       if (!target) return;
       if (observedTarget !== target) {
@@ -617,7 +850,11 @@ function InvestigateGame({
         scaleY: targetRect.height / GAME_HEIGHT,
       };
       setOverlayMetrics((prev) => {
-        const changed = Math.abs(prev.offsetX - next.offsetX) > 0.5 || Math.abs(prev.offsetY - next.offsetY) > 0.5 || Math.abs(prev.width - next.width) > 0.5 || Math.abs(prev.height - next.height) > 0.5;
+        const changed =
+          Math.abs(prev.offsetX - next.offsetX) > 0.5 ||
+          Math.abs(prev.offsetY - next.offsetY) > 0.5 ||
+          Math.abs(prev.width - next.width) > 0.5 ||
+          Math.abs(prev.height - next.height) > 0.5;
         return changed ? next : prev;
       });
     };
@@ -685,7 +922,7 @@ function InvestigateGame({
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [paused]);
+  }, []);
 
   useEffect(() => {
     setWorldPaused(paused);
@@ -697,6 +934,7 @@ function InvestigateGame({
       className="relative flex h-screen flex-col overflow-clip"
       style={{ background: "#080c12" }}
       data-testid="investigate-page"
+      data-tutorial-id="tutorial-investigate-page"
     >
       {/* Top bar: EchoLocate header + agent status */}
       <div
@@ -704,12 +942,20 @@ function InvestigateGame({
         style={{ borderBottom: "1px solid #1e3d5a" }}
       >
         <div className="flex items-center gap-3 shrink-0 mr-3">
-          <span className="text-[12px] font-mono tracking-[0.14em]" style={{ color: "#00d4ff" }}>
+          <span
+            className="text-[12px] font-mono tracking-[0.14em]"
+            style={{ color: "#00d4ff" }}
+          >
             ◈ EchoLocate
           </span>
-          <span className="text-[11px] font-mono" style={{ color: "#1e3d5a" }}>|</span>
-          <span className="text-[10px] font-mono uppercase tracking-[0.14em]" style={{ color: "#2a5070" }}>
-            investigation console
+          <span className="text-[11px] font-mono" style={{ color: "#1e3d5a" }}>
+            |
+          </span>
+          <span
+            className="text-[10px] font-mono uppercase tracking-[0.14em]"
+            style={{ color: "#2a5070" }}
+          >
+            {tutorialMode ? "guided tutorial" : "investigation console"}
           </span>
         </div>
 
@@ -721,10 +967,14 @@ function InvestigateGame({
             lockedAgents={inv.lockedAgents}
             onAgentClick={(agentId) => {
               const nipsAgent = nipsAgents.find(
-                (a) => a.archetype.toLowerCase() === agentId || a.codename.toLowerCase() === agentId,
+                (a) =>
+                  a.archetype.toLowerCase() === agentId ||
+                  a.codename.toLowerCase() === agentId,
               );
               if (nipsAgent) {
-                const isLocked = inv.lockedAgents.includes(nipsAgent.archetype.toLowerCase() as AgentId);
+                const isLocked = inv.lockedAgents.includes(
+                  nipsAgent.archetype.toLowerCase() as AgentId,
+                );
                 if (isLocked) {
                   setLockedAgentInfo(nipsAgent);
                 } else {
@@ -738,8 +988,16 @@ function InvestigateGame({
         <div className="ml-3 flex shrink-0 items-center gap-2.5">
           {/* Funds display */}
           <div className="flex items-center gap-1.5 rpg-panel px-3 py-1.5">
-            <span className="text-[10px] font-mono" style={{ color: "#2a5070" }}>₡</span>
-            <span className="text-[11px] font-mono tabular-nums" style={{ color: "#00ff88" }}>
+            <span
+              className="text-[10px] font-mono"
+              style={{ color: "#2a5070" }}
+            >
+              ₡
+            </span>
+            <span
+              className="text-[11px] font-mono tabular-nums"
+              style={{ color: "#00ff88" }}
+            >
               {nipsFunds.toLocaleString()}
             </span>
           </div>
@@ -757,16 +1015,23 @@ function InvestigateGame({
                 background: "rgba(255,207,112,0.08)",
                 boxShadow: "0 0 16px rgba(255,207,112,0.12)",
               }}
+              data-tutorial-id="tutorial-open-final-report"
             >
               {inv.finalEvaluation ? "Retry Final Report" : "Final Report"}
             </button>
           )}
-          {inv.isComplete && (
+          {!tutorialMode && inv.isComplete && (
             <button
               type="button"
-              onClick={() => { audioManager.playButtonClick(); setRewardsShown(true); }}
+              onClick={() => {
+                audioManager.playButtonClick();
+                setRewardsShown(true);
+              }}
               className="text-[10px] font-mono transition-opacity hover:opacity-70"
-              style={{ color: "#00ff88", textShadow: "0 0 8px rgba(0,255,136,0.5)" }}
+              style={{
+                color: "#00ff88",
+                textShadow: "0 0 8px rgba(0,255,136,0.5)",
+              }}
             >
               CASE CLOSED — CLAIM REWARDS →
             </button>
@@ -778,9 +1043,12 @@ function InvestigateGame({
             style={{
               color: showBoard ? "#f5d0fe" : "#d8b4fe",
               border: `1px solid ${showBoard ? "#d946ef" : "rgba(176,111,255,0.38)"}`,
-              background: showBoard ? "rgba(176,111,255,0.18)" : "rgba(176,111,255,0.08)",
+              background: showBoard
+                ? "rgba(176,111,255,0.18)"
+                : "rgba(176,111,255,0.08)",
               boxShadow: "0 0 16px rgba(176,111,255,0.12)",
             }}
+            data-tutorial-id="tutorial-topbar-board"
           >
             Case Board {pinnedFindingCount > 0 ? `(${pinnedFindingCount})` : ""}
           </button>
@@ -788,27 +1056,39 @@ function InvestigateGame({
             type="button"
             onClick={toggleMarketplace}
             className="rpg-panel px-3 py-1.5 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-70"
-            style={{ color: showMarketplace ? "#f59e0b" : "#4a6580", border: `1px solid ${showMarketplace ? "#f59e0b" : "#1e3d5a"}` }}
+            style={{
+              color: showMarketplace ? "#f59e0b" : "#4a6580",
+              border: `1px solid ${showMarketplace ? "#f59e0b" : "#1e3d5a"}`,
+            }}
+            data-tutorial-id="tutorial-topbar-market"
           >
             Market
           </button>
           <button
             type="button"
-            onClick={() => { audioManager.playPauseMenu(); setShowDirectory(true); }}
+            onClick={() => {
+              audioManager.playPauseMenu();
+              setShowDirectory(true);
+            }}
             className="rpg-panel px-3 py-1.5 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-70"
             style={{ color: "#4a6580" }}
+            data-tutorial-id="tutorial-topbar-agents"
           >
             Agents ({nipsAgents.length})
           </button>
           <button
             type="button"
-            onClick={() => { audioManager.playPauseMenu(); radio.setIsOpen(!radio.isOpen); }}
+            onClick={() => {
+              audioManager.playPauseMenu();
+              radio.setIsOpen(!radio.isOpen);
+            }}
             className="rpg-panel px-3 py-1.5 text-[10px] font-mono uppercase tracking-[0.14em] transition-opacity hover:opacity-70"
             style={{
               color: radio.isOpen ? "#00d4ff" : "#4a6580",
               border: `1px solid ${radio.isOpen ? "#00d4ff" : "#1e3d5a"}`,
               background: radio.isOpen ? "rgba(0,212,255,0.08)" : "transparent",
             }}
+            data-tutorial-id="tutorial-topbar-radio"
           >
             Radio {radio.status !== "idle" ? "·" : ""}
           </button>
@@ -825,14 +1105,26 @@ function InvestigateGame({
         >
           <div className="flex items-center justify-between gap-4">
             <div>
-              <div className="text-[9px] font-mono uppercase tracking-[0.16em]" style={{ color: "#ff9a9a" }}>
+              <div
+                className="text-[9px] font-mono uppercase tracking-[0.16em]"
+                style={{ color: "#ff9a9a" }}
+              >
                 Final Report Rejected
               </div>
-              <div className="mt-1 text-[8px] font-mono leading-5" style={{ color: "#7aa5c6" }}>
-                Suggested recheck targets: {inv.finalEvaluation.feedback.suggestedRecheckTargets.join(", ")}
+              <div
+                className="mt-1 text-[8px] font-mono leading-5"
+                style={{ color: "#7aa5c6" }}
+              >
+                Suggested recheck targets:{" "}
+                {inv.finalEvaluation.feedback.suggestedRecheckTargets.join(
+                  ", ",
+                )}
               </div>
             </div>
-            <div className="text-[9px] font-mono tabular-nums" style={{ color: "#d8ecff" }}>
+            <div
+              className="text-[9px] font-mono tabular-nums"
+              style={{ color: "#d8ecff" }}
+            >
               Score {Math.round(inv.finalEvaluation.evaluation.score)}
             </div>
           </div>
@@ -843,9 +1135,15 @@ function InvestigateGame({
       <div className="flex flex-1 gap-2 overflow-hidden p-3">
         {/* Left: Evidence feed */}
         <div className="rpg-panel panel-slide-left flex h-full w-[248px] shrink-0 flex-col">
-          <div className="shrink-0 px-4 py-3" style={{ borderBottom: "1px solid #1e3d5a" }}>
+          <div
+            className="shrink-0 px-4 py-3"
+            style={{ borderBottom: "1px solid #1e3d5a" }}
+          >
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-[10px] font-mono uppercase tracking-[0.16em]" style={{ color: "#00d4ff" }}>
+              <h2
+                className="text-[10px] font-mono uppercase tracking-[0.16em]"
+                style={{ color: "#00d4ff" }}
+              >
                 Evidence Feed
               </h2>
               <button
@@ -858,11 +1156,15 @@ function InvestigateGame({
                   color: "#d8b4fe",
                   boxShadow: "0 0 16px rgba(176,111,255,0.14)",
                 }}
+                data-tutorial-id="tutorial-open-board"
               >
                 Open Board
               </button>
             </div>
-            <p className="mt-2 text-[9px] font-mono leading-5" style={{ color: "#6f87a1" }}>
+            <p
+              className="mt-2 text-[9px] font-mono leading-5"
+              style={{ color: "#6f87a1" }}
+            >
               Analyze logs, pin evidence, and connect the strongest findings.
             </p>
           </div>
@@ -870,22 +1172,26 @@ function InvestigateGame({
             <EventFeed
               events={inv.events}
               onPinEvent={(event: SimEvent) => {
-                const payload = event.data as { evidenceKey?: string; findingId?: string } | undefined;
-                const finding = inv.completedFindings.find((entry) =>
-                  entry.findingId === payload?.findingId ||
-                  entry.evidenceKey === payload?.evidenceKey ||
-                  event.message.includes(entry.summary.substring(0, 30)),
+                const payload = event.data as
+                  | { evidenceKey?: string; findingId?: string }
+                  | undefined;
+                const finding = inv.completedFindings.find(
+                  (entry) =>
+                    entry.findingId === payload?.findingId ||
+                    entry.evidenceKey === payload?.evidenceKey,
                 );
                 if (finding) {
                   board.pinEvidence(finding.evidenceKey);
                 }
               }}
               onOpenBoard={(event: SimEvent) => {
-                const payload = event.data as { evidenceKey?: string; findingId?: string } | undefined;
-                const finding = inv.completedFindings.find((entry) =>
-                  entry.findingId === payload?.findingId ||
-                  entry.evidenceKey === payload?.evidenceKey ||
-                  event.message.includes(entry.summary.substring(0, 30)),
+                const payload = event.data as
+                  | { evidenceKey?: string; findingId?: string }
+                  | undefined;
+                const finding = inv.completedFindings.find(
+                  (entry) =>
+                    entry.findingId === payload?.findingId ||
+                    entry.evidenceKey === payload?.evidenceKey,
                 );
                 if (finding) {
                   board.addEvidenceNode(finding);
@@ -899,6 +1205,7 @@ function InvestigateGame({
         {/* Center: Game canvas */}
         <div
           className="relative flex min-w-0 flex-1 items-start justify-center overflow-hidden pt-0.5"
+          data-tutorial-id="tutorial-map-shell"
         >
           <div
             ref={canvasContainerRef}
@@ -915,8 +1222,20 @@ function InvestigateGame({
             <GameCanvas />
             {/* NPC hover tooltip */}
             {hoverInfo && (
-              <div className="pointer-events-none absolute z-30 overflow-hidden" style={{ left: overlayMetrics.offsetX, top: overlayMetrics.offsetY, width: overlayMetrics.width, height: overlayMetrics.height }}>
-                <NPCTooltip info={hoverInfo} scaleX={overlayMetrics.scaleX} scaleY={overlayMetrics.scaleY} />
+              <div
+                className="pointer-events-none absolute z-30 overflow-hidden"
+                style={{
+                  left: overlayMetrics.offsetX,
+                  top: overlayMetrics.offsetY,
+                  width: overlayMetrics.width,
+                  height: overlayMetrics.height,
+                }}
+              >
+                <NPCTooltip
+                  info={hoverInfo}
+                  scaleX={overlayMetrics.scaleX}
+                  scaleY={overlayMetrics.scaleY}
+                />
               </div>
             )}
             <div
@@ -935,7 +1254,9 @@ function InvestigateGame({
                 scaleX={overlayMetrics.scaleX}
                 scaleY={overlayMetrics.scaleY}
                 onAgentClick={(agent) => {
-                  const isLocked = inv.lockedAgents.includes(agent.archetype.toLowerCase() as AgentId);
+                  const isLocked = inv.lockedAgents.includes(
+                    agent.archetype.toLowerCase() as AgentId,
+                  );
                   if (isLocked) {
                     setLockedAgentInfo(agent);
                   } else {
@@ -958,7 +1279,9 @@ function InvestigateGame({
                 scaleX={overlayMetrics.scaleX}
                 scaleY={overlayMetrics.scaleY}
                 onSelectNode={(nodeId) => {
-                  inv.setSelectedNodeId(inv.selectedNodeId === nodeId ? null : nodeId);
+                  inv.setSelectedNodeId(
+                    inv.selectedNodeId === nodeId ? null : nodeId,
+                  );
                 }}
               />
             </div>
@@ -970,12 +1293,19 @@ function InvestigateGame({
                 agents={inv.agents}
                 lockedAgents={inv.lockedAgents}
                 funds={nipsFunds}
+                guidedActions={tutorialGuidedActions}
                 position={{
-                  left: overlayMetrics.offsetX + Math.max(16, overlayMetrics.width - 406),
+                  left:
+                    overlayMetrics.offsetX +
+                    Math.max(16, overlayMetrics.width - 406),
                   top: overlayMetrics.offsetY + 16,
                 }}
                 onSubmitInstruction={(agentId, rawInstruction) => {
-                  inv.submitInstruction(agentId, selectedNode.id, rawInstruction);
+                  inv.submitInstruction(
+                    agentId,
+                    selectedNode.id,
+                    rawInstruction,
+                  );
                 }}
                 onResolveIssue={(issueId, agentId) => {
                   inv.resolveIssue(issueId, agentId);
@@ -991,7 +1321,9 @@ function InvestigateGame({
           <NodeListPanel
             nodes={inv.systemNodes}
             selectedNodeId={inv.selectedNodeId}
-            onSelectNode={(id) => inv.setSelectedNodeId(inv.selectedNodeId === id ? null : id)}
+            onSelectNode={(id) =>
+              inv.setSelectedNodeId(inv.selectedNodeId === id ? null : id)
+            }
             summary={
               <Dashboard
                 metrics={inv.metrics}
@@ -1013,7 +1345,11 @@ function InvestigateGame({
           completedFindings={inv.completedFindings}
           lockedAgents={inv.lockedAgents}
           issues={inv.issues}
-          latestFeedback={inv.finalEvaluation?.feedback ?? inv.caseState?.latest_feedback ?? null}
+          latestFeedback={
+            inv.finalEvaluation?.feedback ??
+            inv.caseState?.latest_feedback ??
+            null
+          }
           onClose={() => setActiveOverlay(null)}
         />
       )}
@@ -1021,7 +1357,13 @@ function InvestigateGame({
       {showFinalReport && (
         <FinalReportModal
           nodes={inv.systemNodes}
-          latestFeedback={inv.finalEvaluation?.feedback ?? inv.caseState?.latest_feedback ?? null}
+          draft={finalReportDraft}
+          onChange={setFinalReportDraft}
+          latestFeedback={
+            inv.finalEvaluation?.feedback ??
+            inv.caseState?.latest_feedback ??
+            null
+          }
           onSubmit={(report) => {
             inv.submitFinalReport(report);
             setShowFinalReport(false);
@@ -1046,6 +1388,7 @@ function InvestigateGame({
                 type="button"
                 onClick={() => setActiveOverlay(null)}
                 className="text-[10px] font-mono uppercase tracking-[0.14em] text-[var(--muted)] hover:text-[var(--foreground)]"
+                data-tutorial-id="tutorial-market-close"
               >
                 Close Marketplace
               </button>
@@ -1077,16 +1420,22 @@ function InvestigateGame({
           <div className="rpg-panel p-6 w-full max-w-sm flex flex-col items-center gap-4 text-center animate-[modalIn_200ms_ease-out]">
             <div className="text-[24px]">🔒</div>
             <div>
-              <div className="text-[11px] font-mono font-bold" style={{ color: "#00d4ff" }}>
+              <div
+                className="text-[11px] font-mono font-bold"
+                style={{ color: "#00d4ff" }}
+              >
                 {lockedAgentInfo.display_name.toUpperCase()} IS LOCKED
               </div>
               <div className="mt-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted)]">
                 {lockedAgentInfo.archetype} Specialist
               </div>
             </div>
-            <p className="text-[11px] font-mono leading-6" style={{ color: "#4a6580" }}>
-              This specialist has not been deployed for this case yet.
-              You can unlock them by visiting the marketplace.
+            <p
+              className="text-[11px] font-mono leading-6"
+              style={{ color: "#4a6580" }}
+            >
+              This specialist has not been deployed for this case yet. You can
+              unlock them by visiting the marketplace.
             </p>
             <div className="flex gap-2 w-full">
               <button
@@ -1104,7 +1453,11 @@ function InvestigateGame({
                   openMarketplace();
                 }}
                 className="flex-1 rpg-panel py-2 text-[10px] font-mono uppercase tracking-[0.12em] transition-all"
-                style={{ background: "rgba(245,158,11,0.1)", border: "1px solid #f59e0b", color: "#f59e0b" }}
+                style={{
+                  background: "rgba(245,158,11,0.1)",
+                  border: "1px solid #f59e0b",
+                  color: "#f59e0b",
+                }}
               >
                 Go to Market
               </button>
@@ -1118,7 +1471,9 @@ function InvestigateGame({
         positions={npcPositions}
         markers={agentMarkers}
         onAgentClick={(agent) => {
-          const isLocked = inv.lockedAgents.includes(agent.archetype.toLowerCase() as AgentId);
+          const isLocked = inv.lockedAgents.includes(
+            agent.archetype.toLowerCase() as AgentId,
+          );
           if (isLocked) {
             setLockedAgentInfo(agent);
           } else {
@@ -1142,7 +1497,10 @@ function InvestigateGame({
             radio.setIsOpen(true);
           }}
           onClose={(msgs) => {
-            setChatHistories((prev) => ({ ...prev, [chatAgent.instance_id]: msgs }));
+            setChatHistories((prev) => ({
+              ...prev,
+              [chatAgent.instance_id]: msgs,
+            }));
             setChatAgent(null);
           }}
         />
@@ -1151,12 +1509,18 @@ function InvestigateGame({
       <PauseOverlay
         isVisible={paused}
         onResume={() => setPaused(false)}
-        onRestart={() => router.replace("/simulate?mode=investigate&map=moonCity")}
+        onRestart={() =>
+          router.replace(
+            tutorialMode
+              ? "/simulate?mode=tutorial&map=moonCity"
+              : "/simulate?mode=investigate&map=moonCity",
+          )
+        }
         onReturnToLanding={() => router.push("/")}
       />
 
       {/* Case Complete — Rewards Modal */}
-      {rewardsShown && inv.isComplete && (
+      {rewardsShown && inv.isComplete && !tutorialMode && (
         <CaseRewardsModal
           findings={inv.completedFindings}
           progress={progress}
@@ -1164,6 +1528,33 @@ function InvestigateGame({
             onProgressChange(updated);
             setRewardsShown(false);
           }}
+        />
+      )}
+
+      {tutorialMode && !inv.finalEvaluation?.evaluation.passed && (
+        <TutorialOverlay
+          step={tutorial.currentStep}
+          progress={tutorial.progress}
+          onContinue={tutorial.completeCurrentManualStep}
+          onRestart={() => {
+            tutorial.restartTutorial();
+            router.replace("/simulate?mode=tutorial&map=moonCity");
+          }}
+          coachTitle={tutorialCoach.title}
+          coachBody={tutorialCoach.body}
+        />
+      )}
+
+      {tutorialMode && inv.finalEvaluation?.evaluation.passed && (
+        <TutorialVictoryModal
+          onRestart={() => {
+            tutorial.restartTutorial();
+            router.replace("/simulate?mode=tutorial&map=moonCity");
+          }}
+          onPlayFullCase={() =>
+            router.push("/simulate?mode=investigate&map=moonCity")
+          }
+          onReturnHome={() => router.push("/")}
         />
       )}
     </div>
@@ -1176,59 +1567,77 @@ function InvestigateGame({
 
 function FinalReportModal({
   nodes,
+  draft,
+  onChange,
   latestFeedback,
   onSubmit,
   onClose,
 }: {
   nodes: CaseSystemNode[];
+  draft: TutorialFinalReportDraft;
+  onChange: (draft: TutorialFinalReportDraft) => void;
   latestFeedback: FinalFeedback | null;
   onSubmit: (report: FinalReportSubmission) => void;
   onClose: () => void;
 }) {
-  const [originNodeId, setOriginNodeId] = useState("WKS-03");
-  const [attackType, setAttackType] = useState<AttackType>("data_exfil");
-  const [attackPath, setAttackPath] = useState<string[]>([]);
-  const [mitigations, setMitigations] = useState<MitigationPlanOption[]>([]);
-
   const togglePathNode = (nodeId: string) => {
-    setAttackPath((prev) =>
-      prev.includes(nodeId)
-        ? prev.filter((entry) => entry !== nodeId)
-        : [...prev, nodeId],
-    );
+    onChange({
+      ...draft,
+      attackPath: draft.attackPath.includes(nodeId)
+        ? draft.attackPath.filter((entry) => entry !== nodeId)
+        : [...draft.attackPath, nodeId],
+    });
   };
 
   const toggleMitigation = (option: MitigationPlanOption) => {
-    setMitigations((prev) =>
-      prev.includes(option)
-        ? prev.filter((entry) => entry !== option)
-        : [...prev, option],
-    );
+    onChange({
+      ...draft,
+      mitigationPlan: draft.mitigationPlan.includes(option)
+        ? draft.mitigationPlan.filter((entry) => entry !== option)
+        : [...draft.mitigationPlan, option],
+    });
+  };
+
+  const selectOrigin = (nodeId: string) => {
+    onChange({ ...draft, originNodeId: nodeId });
   };
 
   const canSubmit =
-    originNodeId.length > 0 &&
-    attackPath.length >= 2 &&
-    mitigations.length > 0;
+    draft.originNodeId.length > 0 &&
+    draft.attackPath.length >= 2 &&
+    draft.attackType !== null &&
+    draft.mitigationPlan.length > 0;
 
   return (
-    <div
-      className="fixed inset-0 z-[85] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
+    <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm">
+      <button
+        type="button"
+        aria-label="Close final report"
+        className="absolute inset-0"
+        onClick={onClose}
+      />
       <div
-        className="rpg-panel w-full max-w-3xl overflow-hidden"
+        className="rpg-panel relative z-10 w-full max-w-3xl overflow-hidden"
         style={{ background: "rgba(8,12,18,0.98)" }}
+        data-tutorial-id="tutorial-final-report-modal"
       >
-        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "1px solid #1e3d5a" }}>
+        <div
+          className="flex items-center justify-between px-5 py-4"
+          style={{ borderBottom: "1px solid #1e3d5a" }}
+        >
           <div>
-            <div className="text-[11px] font-mono uppercase tracking-[0.16em]" style={{ color: "#ffcf70" }}>
+            <div
+              className="text-[11px] font-mono uppercase tracking-[0.16em]"
+              style={{ color: "#ffcf70" }}
+            >
               Final Accusation
             </div>
-            <div className="mt-1 text-[8px] font-mono leading-5" style={{ color: "#7aa5c6" }}>
-              Submit the origin, ordered path, attack type, and containment plan.
+            <div
+              className="mt-1 text-[8px] font-mono leading-5"
+              style={{ color: "#7aa5c6" }}
+            >
+              Submit the origin, ordered path, attack type, and containment
+              plan.
             </div>
           </div>
           <button
@@ -1242,32 +1651,75 @@ function FinalReportModal({
         </div>
 
         <div className="grid gap-0 md:grid-cols-[1.15fr_0.85fr]">
-          <div className="px-5 py-4" style={{ borderRight: "1px solid #1e3d5a" }}>
+          <div
+            className="px-5 py-4"
+            style={{ borderRight: "1px solid #1e3d5a" }}
+          >
             <div className="mb-4">
-              <div className="mb-2 text-[8px] font-mono uppercase tracking-[0.16em]" style={{ color: "#6ca4c4" }}>
+              <div
+                className="mb-2 text-[8px] font-mono uppercase tracking-[0.16em]"
+                style={{ color: "#6ca4c4" }}
+              >
                 Origin Node
               </div>
-              <select
-                value={originNodeId}
-                onChange={(event) => setOriginNodeId(event.target.value)}
-                className="w-full rounded-md px-3 py-2 text-[9px] font-mono outline-none"
-                style={{ background: "#0a1320", border: "1px solid #1e3d5a", color: "#d3e9ff" }}
+              <div
+                className="grid gap-2 sm:grid-cols-2"
+                data-tutorial-id="tutorial-final-origin"
               >
-                {nodes.map((node) => (
-                  <option key={node.id} value={node.id}>
-                    {node.id} — {node.name}
-                  </option>
-                ))}
-              </select>
+                {nodes.map((node) => {
+                  const selected = draft.originNodeId === node.id;
+                  return (
+                    <button
+                      key={node.id}
+                      type="button"
+                      onClick={() => selectOrigin(node.id)}
+                      className="rounded-xl px-3 py-2 text-left"
+                      style={{
+                        background: selected
+                          ? "linear-gradient(180deg, rgba(255,207,112,0.14), rgba(255,207,112,0.08))"
+                          : "#0a1320",
+                        border: `1px solid ${selected ? "#ffcf7066" : "#1e3d5a"}`,
+                        color: selected ? "#ffcf70" : "#d3e9ff",
+                        boxShadow: selected
+                          ? "0 10px 20px rgba(0,0,0,0.16)"
+                          : "none",
+                      }}
+                      data-tutorial-id={`tutorial-final-origin-${node.id}`}
+                    >
+                      <div className="text-[9px] font-mono uppercase tracking-[0.14em]">
+                        {node.id}
+                      </div>
+                      <div
+                        className="mt-1 text-[8px] font-mono leading-5"
+                        style={{ color: selected ? "#ffe2a4" : "#7aa5c6" }}
+                      >
+                        {node.name}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <div
+                className="mt-2 text-[8px] font-mono"
+                style={{ color: "#6f87a1" }}
+              >
+                Selected origin:{" "}
+                {draft.originNodeId.length > 0
+                  ? draft.originNodeId
+                  : "Choose the first confirmed compromised node"}
+              </div>
             </div>
 
             <div className="mb-4">
-              <div className="mb-2 text-[8px] font-mono uppercase tracking-[0.16em]" style={{ color: "#6ca4c4" }}>
+              <div
+                className="mb-2 text-[8px] font-mono uppercase tracking-[0.16em]"
+                style={{ color: "#6ca4c4" }}
+              >
                 Ordered Attack Path
               </div>
               <div className="flex flex-wrap gap-2">
                 {nodes.map((node) => {
-                  const selected = attackPath.includes(node.id);
+                  const selected = draft.attackPath.includes(node.id);
                   return (
                     <button
                       key={node.id}
@@ -1275,39 +1727,64 @@ function FinalReportModal({
                       onClick={() => togglePathNode(node.id)}
                       className="rounded-md px-2 py-1.5 text-[8px] font-mono"
                       style={{
-                        background: selected ? "rgba(0,212,255,0.12)" : "#0a1320",
+                        background: selected
+                          ? "rgba(0,212,255,0.12)"
+                          : "#0a1320",
                         border: `1px solid ${selected ? "#00d4ff66" : "#1e3d5a"}`,
                         color: selected ? "#00d4ff" : "#7aa5c6",
                       }}
+                      data-tutorial-id={`tutorial-final-path-${node.id}`}
                     >
-                      {selected ? `${attackPath.indexOf(node.id) + 1}. ` : ""}{node.id}
+                      {selected
+                        ? `${draft.attackPath.indexOf(node.id) + 1}. `
+                        : ""}
+                      {node.id}
                     </button>
                   );
                 })}
               </div>
-              <div className="mt-2 text-[8px] font-mono" style={{ color: "#6f87a1" }}>
-                Current path: {attackPath.length > 0 ? attackPath.join(" -> ") : "Select nodes in order"}
+              <div
+                className="mt-2 text-[8px] font-mono"
+                style={{ color: "#6f87a1" }}
+              >
+                Current path:{" "}
+                {draft.attackPath.length > 0
+                  ? draft.attackPath.join(" -> ")
+                  : "Select nodes in order"}
               </div>
             </div>
 
             <div>
-              <div className="mb-2 text-[8px] font-mono uppercase tracking-[0.16em]" style={{ color: "#6ca4c4" }}>
+              <div
+                className="mb-2 text-[8px] font-mono uppercase tracking-[0.16em]"
+                style={{ color: "#6ca4c4" }}
+              >
                 Attack Type
               </div>
               <div className="flex flex-wrap gap-2">
-                {(["data_exfil", "credential_abuse", "intrusion", "malware"] as const).map((option) => {
-                  const selected = attackType === option;
+                {(
+                  [
+                    "data_exfil",
+                    "credential_abuse",
+                    "intrusion",
+                    "malware",
+                  ] as const
+                ).map((option) => {
+                  const selected = draft.attackType === option;
                   return (
                     <button
                       key={option}
                       type="button"
-                      onClick={() => setAttackType(option)}
+                      onClick={() => onChange({ ...draft, attackType: option })}
                       className="rounded-md px-2 py-1.5 text-[8px] font-mono uppercase"
                       style={{
-                        background: selected ? "rgba(255,207,112,0.12)" : "#0a1320",
+                        background: selected
+                          ? "rgba(255,207,112,0.12)"
+                          : "#0a1320",
                         border: `1px solid ${selected ? "#ffcf7066" : "#1e3d5a"}`,
                         color: selected ? "#ffcf70" : "#7aa5c6",
                       }}
+                      data-tutorial-id={`tutorial-final-attack-${option}`}
                     >
                       {option.replaceAll("_", " ")}
                     </button>
@@ -1319,19 +1796,24 @@ function FinalReportModal({
 
           <div className="px-5 py-4">
             <div className="mb-4">
-              <div className="mb-2 text-[8px] font-mono uppercase tracking-[0.16em]" style={{ color: "#6ca4c4" }}>
+              <div
+                className="mb-2 text-[8px] font-mono uppercase tracking-[0.16em]"
+                style={{ color: "#6ca4c4" }}
+              >
                 Mitigation Plan
               </div>
               <div className="space-y-2">
-                {([
-                  "reset_credentials",
-                  "patch_vulnerability",
-                  "isolate_system",
-                  "restore_backups",
-                  "remove_persistence",
-                  "block_external_communication",
-                ] as MitigationPlanOption[]).map((option) => {
-                  const selected = mitigations.includes(option);
+                {(
+                  [
+                    "reset_credentials",
+                    "patch_vulnerability",
+                    "isolate_system",
+                    "restore_backups",
+                    "remove_persistence",
+                    "block_external_communication",
+                  ] as MitigationPlanOption[]
+                ).map((option) => {
+                  const selected = draft.mitigationPlan.includes(option);
                   return (
                     <button
                       key={option}
@@ -1339,10 +1821,13 @@ function FinalReportModal({
                       onClick={() => toggleMitigation(option)}
                       className="flex w-full items-center justify-between rounded-md px-3 py-2 text-[8px] font-mono uppercase"
                       style={{
-                        background: selected ? "rgba(53,247,207,0.10)" : "#0a1320",
+                        background: selected
+                          ? "rgba(53,247,207,0.10)"
+                          : "#0a1320",
                         border: `1px solid ${selected ? "#35f7cf55" : "#1e3d5a"}`,
                         color: selected ? "#35f7cf" : "#7aa5c6",
                       }}
+                      data-tutorial-id={`tutorial-final-mitigation-${option}`}
                     >
                       <span>{option.replaceAll("_", " ")}</span>
                       <span>{selected ? "included" : "add"}</span>
@@ -1352,45 +1837,74 @@ function FinalReportModal({
               </div>
             </div>
 
-            <div className="rounded-lg border px-3 py-3" style={{ borderColor: "#1e3d5a", background: "#0c1826" }}>
-              <div className="text-[8px] font-mono uppercase tracking-[0.16em]" style={{ color: "#6ca4c4" }}>
+            <div
+              className="rounded-lg border px-3 py-3"
+              style={{ borderColor: "#1e3d5a", background: "#0c1826" }}
+            >
+              <div
+                className="text-[8px] font-mono uppercase tracking-[0.16em]"
+                style={{ color: "#6ca4c4" }}
+              >
                 Review Notes
               </div>
               {latestFeedback ? (
-                <div className="mt-2 space-y-2 text-[8px] font-mono leading-5" style={{ color: "#7aa5c6" }}>
-                  <div>Incorrect assumptions: {latestFeedback.incorrectAssumptions.join(" | ")}</div>
-                  <div>Misleading evidence: {latestFeedback.misleadingEvidence.join(" | ")}</div>
-                  <div>Missing connections: {latestFeedback.missingConnections.join(" | ")}</div>
+                <div
+                  className="mt-2 space-y-2 text-[8px] font-mono leading-5"
+                  style={{ color: "#7aa5c6" }}
+                >
+                  <div>
+                    Incorrect assumptions:{" "}
+                    {latestFeedback.incorrectAssumptions.join(" | ")}
+                  </div>
+                  <div>
+                    Misleading evidence:{" "}
+                    {latestFeedback.misleadingEvidence.join(" | ")}
+                  </div>
+                  <div>
+                    Missing connections:{" "}
+                    {latestFeedback.missingConnections.join(" | ")}
+                  </div>
                 </div>
               ) : (
-                <div className="mt-2 text-[8px] font-mono leading-5" style={{ color: "#6f87a1" }}>
-                  Submit once the issue chain, attack path, and containment plan feel internally consistent.
+                <div
+                  className="mt-2 text-[8px] font-mono leading-5"
+                  style={{ color: "#6f87a1" }}
+                >
+                  Submit once the issue chain, attack path, and containment plan
+                  feel internally consistent.
                 </div>
               )}
             </div>
 
             <div className="mt-4 flex items-center justify-between">
-              <span className="text-[7px] font-mono" style={{ color: "#4f6f8b" }}>
-                Failure returns you to investigation mode with your evidence preserved.
+              <span
+                className="text-[7px] font-mono"
+                style={{ color: "#4f6f8b" }}
+              >
+                Failure returns you to investigation mode with your evidence
+                preserved.
               </span>
               <button
                 type="button"
                 disabled={!canSubmit}
                 onClick={() => {
-                  if (!canSubmit) return;
+                  if (!canSubmit || !draft.attackType) return;
                   onSubmit({
-                    origin_node_id: originNodeId,
-                    attack_path: attackPath,
-                    attack_type: attackType,
-                    mitigation_plan: mitigations,
+                    origin_node_id: draft.originNodeId,
+                    attack_path: draft.attackPath,
+                    attack_type: draft.attackType,
+                    mitigation_plan: draft.mitigationPlan,
                   });
                 }}
                 className="rounded-md px-4 py-2 text-[9px] font-mono uppercase tracking-[0.16em]"
                 style={{
                   color: canSubmit ? "#ffcf70" : "#4f6f8b",
                   border: `1px solid ${canSubmit ? "#ffcf7066" : "#1e3d5a"}`,
-                  background: canSubmit ? "rgba(255,207,112,0.08)" : "rgba(15,25,39,0.4)",
+                  background: canSubmit
+                    ? "rgba(255,207,112,0.08)"
+                    : "rgba(15,25,39,0.4)",
                 }}
+                data-tutorial-id="tutorial-final-submit"
               >
                 submit report
               </button>
@@ -1415,9 +1929,15 @@ function CaseRewardsModal({
   progress: PlayerProgress;
   onClose: (updated: PlayerProgress) => void;
 }) {
-  const criticalCount = findings.filter((f) => f.severity === "critical").length;
-  const highCount     = findings.filter((f) => f.severity === "high").length;
-  const { credits, reputation } = computeCaseRewards(findings.length, criticalCount, highCount);
+  const criticalCount = findings.filter(
+    (f) => f.severity === "critical",
+  ).length;
+  const highCount = findings.filter((f) => f.severity === "high").length;
+  const { credits, reputation } = computeCaseRewards(
+    findings.length,
+    criticalCount,
+    highCount,
+  );
   const updated = applyCaseRewards(progress, credits, reputation);
 
   return (
@@ -1427,11 +1947,23 @@ function CaseRewardsModal({
     >
       <div className="rpg-panel flex flex-col" style={{ width: 420 }}>
         {/* Header */}
-        <div className="px-5 py-4" style={{ borderBottom: "1px solid #1e3d5a" }}>
-          <div className="text-[11px] font-mono font-bold" style={{ color: "#00ff88", textShadow: "0 0 10px rgba(0,255,136,0.4)" }}>
+        <div
+          className="px-5 py-4"
+          style={{ borderBottom: "1px solid #1e3d5a" }}
+        >
+          <div
+            className="text-[11px] font-mono font-bold"
+            style={{
+              color: "#00ff88",
+              textShadow: "0 0 10px rgba(0,255,136,0.4)",
+            }}
+          >
             ◈ CASE CLOSED
           </div>
-          <div className="text-[8px] font-mono uppercase tracking-widest mt-0.5" style={{ color: "#2a5070" }}>
+          <div
+            className="text-[8px] font-mono uppercase tracking-widest mt-0.5"
+            style={{ color: "#2a5070" }}
+          >
             Investigation complete — rewards issued
           </div>
         </div>
@@ -1444,31 +1976,70 @@ function CaseRewardsModal({
             { label: "High findings", value: highCount },
           ].map(({ label, value }) => (
             <div key={label} className="flex items-center justify-between">
-              <span className="text-[8px] font-mono" style={{ color: "#4a6580" }}>{label}</span>
-              <span className="text-[9px] font-mono tabular-nums" style={{ color: "#c9d8e8" }}>{value}</span>
+              <span
+                className="text-[8px] font-mono"
+                style={{ color: "#4a6580" }}
+              >
+                {label}
+              </span>
+              <span
+                className="text-[9px] font-mono tabular-nums"
+                style={{ color: "#c9d8e8" }}
+              >
+                {value}
+              </span>
             </div>
           ))}
           <div className="mt-2 pt-2" style={{ borderTop: "1px solid #1e3d5a" }}>
             <div className="flex items-center justify-between">
-              <span className="text-[9px] font-mono" style={{ color: "#00ff88" }}>Credits earned</span>
-              <span className="text-[11px] font-mono font-bold tabular-nums" style={{ color: "#00ff88" }}>
+              <span
+                className="text-[9px] font-mono"
+                style={{ color: "#00ff88" }}
+              >
+                Credits earned
+              </span>
+              <span
+                className="text-[11px] font-mono font-bold tabular-nums"
+                style={{ color: "#00ff88" }}
+              >
                 +{credits.toLocaleString()}₡
               </span>
             </div>
             <div className="flex items-center justify-between mt-1">
-              <span className="text-[8px] font-mono" style={{ color: "#b06fff" }}>Reputation</span>
-              <span className="text-[9px] font-mono tabular-nums" style={{ color: "#b06fff" }}>+{reputation}</span>
+              <span
+                className="text-[8px] font-mono"
+                style={{ color: "#b06fff" }}
+              >
+                Reputation
+              </span>
+              <span
+                className="text-[9px] font-mono tabular-nums"
+                style={{ color: "#b06fff" }}
+              >
+                +{reputation}
+              </span>
             </div>
           </div>
-          <div className="mt-2 pt-2 flex items-center justify-between" style={{ borderTop: "1px solid #1e3d5a" }}>
-            <span className="text-[8px] font-mono" style={{ color: "#2a5070" }}>Total balance</span>
-            <span className="text-[10px] font-mono tabular-nums" style={{ color: "#00ff88" }}>
+          <div
+            className="mt-2 pt-2 flex items-center justify-between"
+            style={{ borderTop: "1px solid #1e3d5a" }}
+          >
+            <span className="text-[8px] font-mono" style={{ color: "#2a5070" }}>
+              Total balance
+            </span>
+            <span
+              className="text-[10px] font-mono tabular-nums"
+              style={{ color: "#00ff88" }}
+            >
               {updated.credits.toLocaleString()}₡
             </span>
           </div>
         </div>
 
-        <div className="px-5 py-3 flex justify-between items-center" style={{ borderTop: "1px solid #1e3d5a" }}>
+        <div
+          className="px-5 py-3 flex justify-between items-center"
+          style={{ borderTop: "1px solid #1e3d5a" }}
+        >
           <span className="text-[7px] font-mono" style={{ color: "#1e3d5a" }}>
             Spend credits to upgrade helpers before next case
           </span>
@@ -1516,6 +2087,7 @@ function SimulateContent() {
   const reportShownRef = useRef(false);
 
   const hasStartedRef = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: simulation startup must only respond to route-entry conditions.
   useEffect(() => {
     if (hasStartedRef.current) return;
     if (isReplay) {
@@ -1532,7 +2104,7 @@ function SimulateContent() {
     return () => {
       hasStartedRef.current = false;
     };
-  }, [simulationId, isReplay]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [simulationId, isReplay, isMock]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -1687,7 +2259,7 @@ function SimulateContent() {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [paused]);
+  }, []);
 
   useEffect(() => {
     setWorldPaused(paused);
@@ -1713,9 +2285,7 @@ function SimulateContent() {
         className="flex min-h-screen flex-col items-center justify-center px-6"
         style={{ background: "#080c12" }}
       >
-        <div
-          className="flex max-w-md flex-col items-center gap-4 p-8 text-center rpg-panel"
-        >
+        <div className="flex max-w-md flex-col items-center gap-4 p-8 text-center rpg-panel">
           <span
             className="text-[12px] font-mono tracking-[0.16em]"
             style={{ color: "#00d4ff" }}
@@ -1797,12 +2367,12 @@ function SimulateContent() {
             ))}
           </div>
           {sim.phase > 0 && (
-          <span
-            className="ml-2 text-[10px] font-mono uppercase tracking-[0.14em]"
-            style={{ color: "#4a6580" }}
-          >
-            {sim.phaseLabel}
-          </span>
+            <span
+              className="ml-2 text-[10px] font-mono uppercase tracking-[0.14em]"
+              style={{ color: "#4a6580" }}
+            >
+              {sim.phaseLabel}
+            </span>
           )}
         </div>
 
@@ -1819,7 +2389,10 @@ function SimulateContent() {
             <>
               <span
                 className="text-[10px] font-mono"
-                style={{ color: "#00ff88", textShadow: "0 0 8px rgba(0,255,136,0.5)" }}
+                style={{
+                  color: "#00ff88",
+                  textShadow: "0 0 8px rgba(0,255,136,0.5)",
+                }}
               >
                 CASE CLOSED
               </span>
@@ -1892,9 +2465,7 @@ function SimulateContent() {
         </div>
 
         {/* Center: Game canvas */}
-        <div
-          className="relative flex min-w-0 flex-1 items-center justify-center overflow-hidden"
-        >
+        <div className="relative flex min-w-0 flex-1 items-center justify-center overflow-hidden">
           <div
             ref={canvasContainerRef}
             className="relative shrink-0 overflow-hidden"
@@ -1976,7 +2547,9 @@ function SimulateContent() {
         onResume={() => setPaused(false)}
         onRestart={() => {
           if (simulationId) {
-            router.replace(`/simulate?id=${simulationId}&map=moonCity${isRecording ? "&record=true" : ""}`);
+            router.replace(
+              `/simulate?id=${simulationId}&map=moonCity${isRecording ? "&record=true" : ""}`,
+            );
             return;
           }
           router.push("/");
@@ -1988,11 +2561,15 @@ function SimulateContent() {
       {sim.error && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
           <div className="rpg-panel px-6 py-4 text-center">
-            <p className="font-mono text-sm font-bold" style={{ color: "#ff3a3a" }}>
+            <p
+              className="font-mono text-sm font-bold"
+              style={{ color: "#ff3a3a" }}
+            >
               Connection Lost
             </p>
             <p className="mt-2 font-mono text-xs" style={{ color: "#4a6580" }}>
-              The investigation server disconnected. Please return home and load a new incident.
+              The investigation server disconnected. Please return home and load
+              a new incident.
             </p>
             <a
               href="/"
@@ -2128,7 +2705,11 @@ function IssueOverlay({
             }}
             title={`${marker.label} • ${marker.unresolvedCount} unresolved issues`}
           >
-            <span>{marker.unresolvedCount > 0 ? marker.unresolvedCount : marker.issueCount}</span>
+            <span>
+              {marker.unresolvedCount > 0
+                ? marker.unresolvedCount
+                : marker.issueCount}
+            </span>
             <span className="mt-0.5 text-[6px]" style={{ color: "#c9d8e8" }}>
               issue
             </span>
@@ -2186,7 +2767,8 @@ function GameMiniMap({
         <div
           className="absolute inset-0 opacity-20"
           style={{
-            backgroundImage: "radial-gradient(#1e3d5a 0.5px, transparent 0.5px)",
+            backgroundImage:
+              "radial-gradient(#1e3d5a 0.5px, transparent 0.5px)",
             backgroundSize: "8px 8px",
           }}
         />
@@ -2225,7 +2807,9 @@ function GameMiniMap({
                 style={{
                   backgroundColor: marker.isLocked ? "#2a5070" : marker.color,
                   borderColor: marker.isLocked ? "#1e3d5a" : "#fff",
-                  boxShadow: marker.isLocked ? "none" : `0 0 6px ${marker.color}`,
+                  boxShadow: marker.isLocked
+                    ? "none"
+                    : `0 0 6px ${marker.color}`,
                 }}
                 onClick={(e) => {
                   e.stopPropagation();

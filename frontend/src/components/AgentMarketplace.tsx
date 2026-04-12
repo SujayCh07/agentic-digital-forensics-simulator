@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { NipsMarketplaceOffer } from "@/types/investigation";
 import { audioManager } from "@/lib/audioManager";
+import type { NipsMarketplaceOffer } from "@/types/investigation";
 
 interface AgentMarketplaceProps {
   offers: NipsMarketplaceOffer[];
@@ -19,7 +19,15 @@ const ARCHETYPE_COLORS: Record<string, string> = {
   CHRONO: "#34d399",
 };
 
-function StatMini({ label, value, color }: { label: string; value: number; color: string }) {
+function StatMini({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: number;
+  color: string;
+}) {
   const pct = Math.round(value * 100);
   return (
     <div className="flex items-center gap-1">
@@ -113,6 +121,7 @@ function OfferCard({
             ? "border-[var(--accent-cyan)] text-[var(--accent-cyan)] hover:bg-[var(--accent-cyan)]/10"
             : "border-white/10 text-[var(--muted)] opacity-50"
         }`}
+        data-tutorial-id={`tutorial-market-buy-${a.archetype.toLowerCase()}`}
       >
         {canAfford ? "Recruit" : "Insufficient ¢"}
       </button>
@@ -168,7 +177,10 @@ export function AgentMarketplace({
           </span>
         </div>
       </div>
-      <div className="grid grid-cols-4 gap-2">
+      <div
+        className="grid grid-cols-4 gap-2"
+        data-tutorial-id="tutorial-market-grid"
+      >
         {offers.map((offer) => (
           <OfferCard
             key={offer.offer_id}
